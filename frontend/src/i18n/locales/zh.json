@@ -1,0 +1,29 @@
+{
+  "common": {
+    "save": "保存",
+    "cancel": "取消",
+    "confirm": "确认",
+    "delete": "删除",
+    "edit": "编辑",
+    "loading": "加载中...",
+    "search": "搜索",
+    "back": "返回"
+  },
+  "auth": {
+    "loginTitle": "欢迎回来",
+    "loginSubtitle": "登入 LogiVerse 账号",
+    "identityLabel": "身份证 / 出生证号码",
+    "passwordLabel": "密码",
+    "loginButton": "登入",
+    "logoutButton": "登出",
+    "noAccount": "没有账号？请联系你的老师或业者为你创建。",
+    "loginSuccess": "欢迎回来！",
+    "loginSuccessForced": "登入成功（其他装置已自动登出）",
+    "loginFailed": "登入失败"
+  },
+  "nav": {
+    "home": "首页",
+    "orgs": "机构/分校",
+    "logout": "登出"
+  }
+}

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- viewport-fit=cover 让 iPhone 瀏海屏/底部手势条那圈 safe-area-inset-*
+         这几个CSS变量真的生效——没有这个，Capacitor包出来的App在瀏海屏
+         手机上，内容会被瀏海或圆角挡住一截，不是纯网页浏览器场景会遇到
+         的问题，但包成App之后就是真的会发生。 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- 防止双指缩放把小朋友玩游戏时的点击手势搞乱（原本触控网页常见的
+         意外缩放），同时保留放大镜/辅助功能该有的缩放能力（max-scale
+         没有锁死在1，用户还是能主动放大） -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#7c3aed" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700&family=Nunito:wght@500;600;700&family=Comic+Neue:wght@700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet" />
+    <title>LogiVerse 逻辑宇宙</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

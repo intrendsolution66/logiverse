@@ -1,0 +1,29 @@
+{
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "delete": "Delete",
+    "edit": "Edit",
+    "loading": "Loading...",
+    "search": "Search",
+    "back": "Back"
+  },
+  "auth": {
+    "loginTitle": "Welcome back",
+    "loginSubtitle": "Log in to your LogiVerse account",
+    "identityLabel": "IC / Birth Certificate Number",
+    "passwordLabel": "Password",
+    "loginButton": "Log In",
+    "logoutButton": "Log Out",
+    "noAccount": "Don't have an account? Ask your teacher or operator to create one for you.",
+    "loginSuccess": "Welcome back!",
+    "loginSuccessForced": "Logged in (other devices were signed out)",
+    "loginFailed": "Login failed"
+  },
+  "nav": {
+    "home": "Home",
+    "orgs": "Organizations",
+    "logout": "Log out"
+  }
+}

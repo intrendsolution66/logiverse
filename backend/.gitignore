@@ -1,0 +1,24 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+
+node_modules
+dist
+*.local
+
+# Uploaded asset files (backend/src/utils/assetStorage.ts writes here) —
+# these are user-generated content, not source code, shouldn't be
+# committed. In production this directory needs its own backup strategy
+# separate from a code deploy (or gets replaced entirely once assetStorage
+# points at real remote storage instead of local disk).
+uploads/
+
+.env
+.env.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store

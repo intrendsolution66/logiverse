@@ -1,0 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background:        0 0% 100%;
+    --foreground:        224 71% 4%;
+    --card:              0 0% 100%;
+    --card-foreground:   224 71% 4%;
+    --popover:           0 0% 100%;
+    --popover-foreground:224 71% 4%;
+    --primary:           262 83% 58%;
+    --primary-foreground:0 0% 100%;
+    --secondary:         220 14% 96%;
+    --secondary-foreground:220 9% 46%;
+    --muted:             220 14% 96%;
+    --muted-foreground:  220 9% 46%;
+    --accent:            220 14% 96%;
+    --accent-foreground: 220 9% 15%;
+    --destructive:       0 84% 60%;
+    --destructive-foreground:0 0% 100%;
+    --border:            220 13% 91%;
+    --input:             220 13% 91%;
+    --ring:              262 83% 58%;
+    --radius:            0.625rem;
+  }
+
+  .dark {
+    --background:        224 71% 4%;
+    --foreground:        213 31% 91%;
+    --card:              224 71% 7%;
+    --card-foreground:   213 31% 91%;
+    --popover:           224 71% 7%;
+    --popover-foreground:213 31% 91%;
+    --primary:           263 70% 65%;
+    --primary-foreground:0 0% 100%;
+    --secondary:         222 47% 11%;
+    --secondary-foreground:215 20% 65%;
+    --muted:             223 47% 11%;
+    --muted-foreground:  215 20% 65%;
+    --accent:            216 34% 17%;
+    --accent-foreground: 210 40% 98%;
+    --destructive:       0 63% 55%;
+    --destructive-foreground:0 0% 100%;
+    --border:            216 34% 17%;
+    --input:             216 34% 17%;
+    --ring:              263 70% 65%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { @apply bg-transparent; }
+::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
+
+/* ── Avatar aura (LifeVerse brand) ── */
+.avatar-aura {
+  position: relative;
+}
+.avatar-aura::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    hsl(263,70%,65%),
+    hsl(200,80%,60%),
+    hsl(320,70%,65%),
+    hsl(263,70%,65%)
+  );
+  animation: spin 6s linear infinite;
+  z-index: -1;
+}
+
+/* ── Glassmorphism card ── */
+.glass {
+  @apply backdrop-blur-md bg-white/10 dark:bg-white/5 border border-white/20;
+}
+
+/* ── Star gradient background ── */
+.star-bg {
+  background:
+    radial-gradient(ellipse at 20% 50%, hsla(263,70%,25%,0.3) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, hsla(200,80%,25%,0.2) 0%, transparent 40%),
+    radial-gradient(ellipse at 60% 80%, hsla(320,60%,25%,0.2) 0%, transparent 40%),
+    hsl(var(--background));
+}
+
+/* ── Readability Enhancement ── */
+
+/* Stronger text contrast */
+:root {
+  --muted-foreground: 220 9% 30% !important;
+}
+.dark {
+  --muted-foreground: 215 20% 78% !important;
+}
+
+/* Base font improvements */
+html {
+  font-size: 16px;
+}
+
+body {
+  font-weight: 450;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* All text elements slightly heavier */
+p, span, div, li, td, th, label, input, textarea, select, button {
+  font-weight: inherit;
+  letter-spacing: -0.01em;
+}
+
+/* Labels always semibold */
+label {
+  font-weight: 600 !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+/* Input text clearer */
+input, textarea, select {
+  font-weight: 500 !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+/* Nav items bolder */
+nav a, nav button {
+  font-weight: 500;
+}
+
+/* Table text heavier */
+td, th {
+  font-weight: 500;
+}
