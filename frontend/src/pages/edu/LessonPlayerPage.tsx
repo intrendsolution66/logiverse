@@ -1,152 +1,106 @@
 // frontend/src/pages/edu/LessonPlayerPage.tsx
 //
-// Steps a student through a 课时/教案 in order: video/PPT steps just show
-// the embed with a "下一步" button (no scoring), level steps mount the same
-// game engine LevelPlayerPage would (same module_type switch — duplicated
-// here rather than extracted into a shared component, a deliberate small
-// trade-off: each game engine is already a clean, independent export, so
-// repeating this ~10-line switch is cheaper than a premature shared-wrapper
-// abstraction). Completing a level step submits progress AND auto-advances,
-// same as a bare level does today — a lesson doesn't change how playing a
-// level works, it just sequences several of them (plus media) together.
+// Self Guided Learning 第三层——真正播放一课的内容，按 step_type 分流：
+//   video -> VideoPlayer
+//   ppt   -> PptReader（这里的 media_url 假设已经是"第一页图片URL"，
+//            如果 lesson_steps 的 ppt 步骤要支持多页翻页，需要额外存一个
+//            slide_urls 数组字段到 lesson_steps 表——目前这张表只有单个
+//            media_url，是"一课里插入一个视频/一份讲义"的最简形态，多页
+//            PPT讲义如果要在Lesson里也能翻页，需要照着 assets.slide_urls
+//            的思路给 lesson_steps 也加一列，这个我们可以按需要再补）
+//   level -> 跳转到现有的关卡游玩页面（沿用你项目已有的关卡播放器，不
+//            在这里重新做一个游戏播放器）
 
-import { useEffect, useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { eduApi, lessonsApi } from "@/api/index";
-import CountingGame, { type CountingConfig, type CountingResult } from "@/games/CountingGame";
-import SpotDiffGame, { type SpotDiffConfig, type SpotDiffResult } from "@/games/SpotDiffGame";
-import FocusTapGame, { type FocusTapConfig, type FocusTapResult } from "@/games/FocusTapGame";
-import MemoryGame, { type MemoryConfig, type MemoryResult } from "@/games/MemoryGame";
-import PatternGame, { type PatternConfig, type PatternResult } from "@/games/PatternGame";
-import WordProblemGame, { type WordProblemConfig, type WordProblemResult } from "@/games/WordProblemGame";
-import MazeGame, { type MazeConfig, type MazeResult } from "@/games/MazeGame";
-import SudokuGame, { type SudokuConfig, type SudokuResult } from "@/games/SudokuGame";
-import LineMatchGame, { type LineMatchConfig, type LineMatchResult } from "@/games/LineMatchGame";
-import ColoringGame, { type ColoringConfig, type ColoringResult } from "@/games/ColoringGame";
+import { selfGuidedApi, mediaProgressApi } from "@/api";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
-import toast from "react-hot-toast";
+import { VideoPlayer } from "@/components/VideoPlayer";
+import { PptReader } from "@/components/PptReader";
 
-type AnyResult = CountingResult | SpotDiffResult | FocusTapResult | MemoryResult | PatternResult | WordProblemResult | MazeResult | SudokuResult | LineMatchResult | ColoringResult;
+interface Step {
+  id: string; order_index: number; step_type: "video" | "ppt" | "level";
+  media_url?: string; media_title?: string;
+  course_level_id?: string; level_title_i18n?: Record<string, string>; module_type?: string;
+}
 
-interface LevelStepPlayerProps { levelId: string; onDone: () => void }
-
-function LevelStepPlayer({ levelId, onDone }: LevelStepPlayerProps) {
-  const [level, setLevel] = useState<{
-    id: string; module_type: string; config: Record<string, unknown>;
-    explanation_text?: string; explanation_image_url?: string; explanation_video_url?: string;
-  } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [done, setDone] = useState(false);
-  const [showExplanation, setShowExplanation] = useState(false);
-
-  useEffect(() => {
-    setLoading(true); setDone(false);
-    eduApi.getLevel(levelId).then(setLevel).catch(() => toast.error("Activity 加载失败")).finally(() => setLoading(false));
-  }, [levelId]);
-
-  async function handleComplete(r: AnyResult) {
-    if (!level) return;
-    try {
-      await eduApi.submitProgress(levelId, {
-        module_type: level.module_type, score: r.score, max_score: r.max_score,
-        time_spent_seconds: r.time_spent_seconds, mistakes: r.mistakes, completed: r.completed,
-      });
-    } catch { /* non-fatal — still let them move on */ }
-    // pause here instead of auto-advancing — if there's an explanation
-    // authored for this level, the student should get a chance to see it
-    // before the lesson sweeps them into the next step
-    setDone(true);
-  }
-
-  if (loading) return <div className="p-6 text-center text-muted-foreground">加载中...</div>;
-  if (!level) return <div className="p-6 text-center text-muted-foreground">找不到这个 Activity</div>;
-
-  if (done) {
-    return (
-      <div className="text-center py-10 space-y-4">
-        <div className="text-5xl">✅</div>
-        <p className="text-lg font-semibold">这一步完成了</p>
-        <div className="space-x-3">
-          {(level.explanation_text || level.explanation_image_url || level.explanation_video_url) && (
-            <Button variant="outline" onClick={() => setShowExplanation(true)}>📖 查看讲解</Button>
-          )}
-          <Button onClick={onDone}>下一步</Button>
-        </div>
-        <Modal open={showExplanation} onClose={() => setShowExplanation(false)} title="讲解" size="md">
-          <div className="space-y-3">
-            {level.explanation_video_url && <video src={level.explanation_video_url} controls loop className="w-full rounded-lg bg-black" />}
-            {level.explanation_image_url && <img src={level.explanation_image_url} alt="讲解图" className="w-full rounded-lg border border-border" />}
-            {level.explanation_text && <p className="text-sm leading-relaxed whitespace-pre-wrap">{level.explanation_text}</p>}
-          </div>
-        </Modal>
-      </div>
-    );
-  }
-
-  switch (level.module_type) {
-    case "counting": return <CountingGame config={level.config as unknown as CountingConfig} onComplete={handleComplete} />;
-    case "spot_diff": return <SpotDiffGame config={level.config as unknown as SpotDiffConfig} onComplete={handleComplete} />;
-    case "focus_tap": return <FocusTapGame config={level.config as unknown as FocusTapConfig} onComplete={handleComplete} />;
-    case "memory": return <MemoryGame config={level.config as unknown as MemoryConfig} onComplete={handleComplete} />;
-    case "pattern": return <PatternGame config={level.config as unknown as PatternConfig} onComplete={handleComplete} />;
-    case "word_problem": return <WordProblemGame levelId={level.id} config={level.config as unknown as WordProblemConfig} onComplete={handleComplete} />;
-    case "maze": return <MazeGame config={level.config as unknown as MazeConfig} onComplete={handleComplete} />;
-    case "sudoku": return <SudokuGame levelId={level.id} config={level.config as unknown as SudokuConfig} onComplete={handleComplete} />;
-    case "line_match": return <LineMatchGame levelId={level.id} config={level.config as unknown as LineMatchConfig} onComplete={handleComplete} />;
-    case "coloring": return <ColoringGame levelId={level.id} config={level.config as unknown as ColoringConfig} onComplete={handleComplete} />;
-    default: return <div className="text-center text-muted-foreground p-6">这个模块类型（{level.module_type}）还没有对应的引擎组件。</div>;
-  }
+interface Lesson {
+  id: string; course_id: string; title_i18n: Record<string, string>; order_index: number; steps: Step[];
 }
 
 export default function LessonPlayerPage() {
   const { lessonId } = useParams<{ lessonId: string }>();
   const navigate = useNavigate();
-  const [lesson, setLesson] = useState<Awaited<ReturnType<typeof lessonsApi.getLesson>> | null>(null);
+  const [lesson, setLesson] = useState<Lesson | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!lessonId) return;
-    lessonsApi.getLesson(lessonId).then(setLesson).catch(() => toast.error("课时加载失败")).finally(() => setLoading(false));
+    selfGuidedApi.getLesson(lessonId).then(setLesson);
   }, [lessonId]);
 
-  if (loading) return <div className="p-6 text-center text-muted-foreground">加载中...</div>;
-  if (!lesson) return <div className="p-6 text-center text-muted-foreground">找不到这个课时</div>;
+  const step = lesson?.steps[stepIndex];
+  const isLastStep = lesson ? stepIndex >= lesson.steps.length - 1 : true;
 
-  const step = lesson.steps[stepIndex];
-  const isLast = stepIndex === lesson.steps.length - 1;
+  const handleVideoProgress = useCallback((s: Step, secondsWatched: number, durationSeconds: number, completed: boolean) => {
+  mediaProgressApi.submit({
+    lesson_step_id: s.id, media_type: "video",
+    seconds_watched: secondsWatched, duration_seconds: durationSeconds, completed,
+  }).catch(() => {});
+}, []);
+
+  const handlePptProgress = useCallback((s: Step, index: number, total: number, completed: boolean) => {
+  mediaProgressApi.submit({
+    lesson_step_id: s.id, media_type: "ppt",
+    last_slide_index: index, total_slides: total, completed,
+  }).catch(() => {});
+}, []);
 
   function goNext() {
-    if (isLast) { toast.success("这个课时完成了！"); navigate("/home"); return; }
+    if (!lesson) return;
+    if (isLastStep) { navigate(`/self-guided/courses/${lesson.course_id}`); return; }
     setStepIndex((i) => i + 1);
   }
 
+  function goPrev() {
+    setStepIndex((i) => Math.max(0, i - 1));
+  }
+
+  if (!lesson || !step) {
+    return <div className="max-w-3xl mx-auto py-12 text-center text-muted-foreground">加载中...</div>;
+  }
+
   return (
-    <div className="max-w-5xl mx-auto">
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold">{lesson.title_i18n?.zh ?? lesson.title_i18n?.en}</h1>
-          <p className="text-sm text-muted-foreground">第 {stepIndex + 1} / {lesson.steps.length} 步</p>
-        </div>
-        <Button variant="ghost" size="sm" onClick={() => navigate("/home")}>退出</Button>
+    <div className="max-w-3xl mx-auto space-y-6 pb-16">
+      <div>
+        <h1 className="text-xl font-bold tracking-tight">{lesson.title_i18n?.zh ?? lesson.title_i18n?.en}</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">步骤 {stepIndex + 1} / {lesson.steps.length}</p>
       </div>
 
-      {!step ? (
-        <div className="text-center text-muted-foreground p-6">这个课时还没有任何步骤</div>
-      ) : step.step_type === "level" && step.course_level_id ? (
-        <LevelStepPlayer key={step.id} levelId={step.course_level_id} onDone={goNext} />
-      ) : (
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-center">{step.media_title || (step.step_type === "video" ? "视频" : "PPT")}</h2>
-          {step.step_type === "video" ? (
-            <video src={step.media_url} controls className="w-full rounded-2xl bg-black" />
-          ) : (
-            <iframe src={step.media_url} className="w-full aspect-video rounded-2xl border border-border" title={step.media_title || "PPT"} />
-          )}
-          <Button className="block mx-auto" onClick={goNext}>{isLast ? "完成课时" : "下一步"}</Button>
-        </div>
-      )}
+      <div className="min-h-[300px]">
+        {step.step_type === "video" && step.media_url && (
+          <VideoPlayer src={step.media_url} title={step.media_title} onProgress={(sec, dur, completed) => handleVideoProgress(step, sec, dur, completed)} />
+        )}
+
+        {step.step_type === "ppt" && step.media_url && (
+          // 目前 lesson_steps 只存单张 media_url——先当作单页讲义显示。
+          // 如需要多页翻页，需要给 lesson_steps 也加 slide_urls 字段。
+          <PptReader slideUrls={[step.media_url]} title={step.media_title} onProgress={(idx, total, completed) => handlePptProgress(step, idx, total, completed)} />
+        )}
+
+        {step.step_type === "level" && step.course_level_id && (
+          <div className="text-center space-y-4 py-12">
+            <p className="text-lg font-medium">🎮 {step.level_title_i18n?.zh ?? step.level_title_i18n?.en ?? "游戏练习"}</p>
+            <Button onClick={() => navigate(`/levels/${step.course_level_id}/play`)}>开始游戏</Button>
+            <p className="text-xs text-muted-foreground">完成游戏后返回这里，点"下一步"继续这一课</p>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between">
+        <Button variant="outline" disabled={stepIndex === 0} onClick={goPrev}>上一步</Button>
+        <Button onClick={goNext}>{isLastStep ? "完成这一课" : "下一步"}</Button>
+      </div>
     </div>
   );
 }

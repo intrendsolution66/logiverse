@@ -10,7 +10,7 @@
 // verified-correct math from v1 carries over untouched.
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { eduApi } from "@/api/index";
+import { eduApi } from "@/api";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
 
 export type WordProblemCategory = "chicken_rabbit" | "meeting_point" | "cow_grass" | "concentration";

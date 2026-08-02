@@ -1,19 +1,25 @@
 // frontend/src/pages/edu/AssetLibraryPage.tsx
 //
-// 素材库 — browse, upload, tag, and delete reusable images. Tags are a
-// separate axis from category/module_type/language: those describe WHAT
-// KIND of thing an asset is; tags describe a THEME that cuts across all of
-// them ("森林", "生日", "冬天"), for finding things later by association
-// rather than by classification.
+// 改成表格布局，符合项目规范：filter + search + sort + paging + record数量，
+// 都用表格而不是卡片网格；新增/编辑走Modal，不整页滚动。
+// 上传逻辑（含视频分片上传、PPT自动转幻灯片）完全不变，只是列表和筛选区
+// 从网格卡片换成表格。
 
 import { useState, useEffect } from "react";
-import { assetsApi } from "@/api/index";
+import { assetsApi, eduApi } from "@/api/index";
+import { useChunkedUpload } from "@/hooks/useChunkedUpload";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Card, CardContent, CardHeader, CardTitle, Badge, EmptyState } from "@/components/ui/index";
 import { Modal } from "@/components/ui/modal";
+import { ChevronUp, ChevronDown, Eye, Pencil, Trash2, Search } from "lucide-react";
 import toast from "react-hot-toast";
 
-interface Asset { id: string; category: string; name?: string; width?: number; height?: number; created_at: string; tags: string[] }
+interface Asset {
+  id: string; category: string; name?: string; width?: number; height?: number; created_at: string; tags: string[];
+  grade_tier_code?: string; usage_contexts?: string[]; parent_preview_enabled?: boolean;
+}
+
+interface GradeTier { id: string; code: string; name_i18n?: { zh?: string; en?: string } }
 
 const CATEGORY_LABELS: Record<string, string> = { background: "🖼️ 背景图", object: "🧸 物件图案", icon: "⭐ 图标", video: "🎬 视频", ppt: "📊 PPT", other: "📁 其他" };
 const IMAGE_CATEGORIES = new Set(["background", "object", "icon", "other"]);
@@ -21,6 +27,8 @@ const ACCEPT_BY_CATEGORY: Record<string, string> = {
   video: "video/mp4,video/webm",
   ppt: ".ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation",
 };
+
+type SortKey = "name" | "category" | "created_at";
 
 function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -47,8 +55,6 @@ function readAsDataURL(file: File): Promise<{ dataUrl: string; width: number; he
 }
 
 // Simple 3-slot tag input — matches "每个素材3个可自定义标签" literally
-// rather than a free-form tag-chip-adder, so it's obvious at a glance how
-// many you can still add.
 function TagInputs({ tags, setTags, allTags }: { tags: string[]; setTags: (t: string[]) => void; allTags: string[] }) {
   function updateTag(i: number, val: string) {
     const next = [...tags]; next[i] = val.slice(0, 20);
@@ -73,29 +79,80 @@ function TagInputs({ tags, setTags, allTags }: { tags: string[]; setTags: (t: st
 function UploadAssetModal({ open, onClose, onSaved, allTags }: { open: boolean; onClose: () => void; onSaved: () => void; allTags: string[] }) {
   const [category, setCategory] = useState("background");
   const [name, setName] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [tags, setTags] = useState<string[]>([]);
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
+  const { uploadFile, progress, isUploading, error: chunkError } = useChunkedUpload();
+
+  // 只有图片类分类才允许一次选多张——视频走分片上传、PPT要转幻灯片，
+  // 这两种一次只处理一个文件，逻辑复杂很多，不在这次多选范围内。
+  const isImageCategory = IMAGE_CATEGORIES.has(category);
+  const busy = isUploading || batchProgress !== null;
+
+  function resetForm() {
+    setName(""); setFiles([]); setTags([]); setBatchProgress(null);
+  }
+
+  function removeFile(idx: number) {
+    setFiles((fs) => fs.filter((_, i) => i !== idx));
+  }
+
+  async function uploadOne(file: File, nameOverride?: string) {
+    const finalName = nameOverride ?? (name || undefined);
+    if (category === "video") {
+      const result = await uploadFile(file);
+      if (!result) throw new Error(chunkError || "视频上传失败");
+      await assetsApi.createAsset({ category, name: finalName, file_data: result.url, tags: tags.filter(Boolean) });
+    } else if (isImageCategory) {
+      const { dataUrl, width, height } = await readAsDataURL(file);
+      await assetsApi.createAsset({ category, name: finalName, file_data: dataUrl, width, height, tags: tags.filter(Boolean) });
+    } else {
+      const dataUrl = await readFileAsDataURL(file);
+      await assetsApi.createAsset({ category, name: finalName, file_data: dataUrl, tags: tags.filter(Boolean) });
+    }
+  }
 
   async function handleSave() {
-    if (!file) { toast.error(category === "ppt" ? "请选一个PPT文件" : category === "video" ? "请选一个视频文件" : "请选一张图片"); return; }
-    try {
-      if (IMAGE_CATEGORIES.has(category)) {
-        const { dataUrl, width, height } = await readAsDataURL(file);
-        await assetsApi.createAsset({ category, name: name || undefined, file_data: dataUrl, width, height, tags: tags.filter(Boolean) });
-      } else {
-        // 视频、PPT不是图片，没办法用 new Image() 去量宽高（会直接
-        // onerror 或永远卡在加载中）——直接读成 data URL 存进去，宽高
-        // 栏位留空，反正这两类素材的网格预览用的是播放器/图标，不是
-        // 靠宽高去撑版面。
-        const dataUrl = await readFileAsDataURL(file);
-        await assetsApi.createAsset({ category, name: name || undefined, file_data: dataUrl, tags: tags.filter(Boolean) });
+    if (files.length === 0) { toast.error(category === "ppt" ? "请选一个PPT文件" : category === "video" ? "请选一个视频文件" : "请选至少一张图片"); return; }
+
+    // 单文件（或者非图片分类）——跟原本的行为完全一样
+    if (!isImageCategory || files.length === 1) {
+      try {
+        await uploadOne(files[0]);
+        toast.success("素材上传好了");
+        resetForm();
+        onSaved(); onClose();
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "上传失败";
+        toast.error(msg);
       }
-      toast.success("素材上传好了");
-      setName(""); setFile(null); setTags([]);
-      onSaved(); onClose();
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "上传失败";
-      toast.error(msg);
+      return;
+    }
+
+    // 多图批量上传——一张一张传，某一张失败不影响其他张；失败的留在列表
+    // 里，用户可以直接点"上传"重试，不用重新选一遍全部文件。名称统一
+    // 用各自的文件名（去掉副档名），共用同一批标签。
+    setBatchProgress({ done: 0, total: files.length });
+    const failed: File[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      try {
+        await uploadOne(f, f.name.replace(/\.[^.]+$/, ""));
+      } catch {
+        failed.push(f);
+      }
+      setBatchProgress({ done: i + 1, total: files.length });
+    }
+    setBatchProgress(null);
+    onSaved(); // 不管有没有全部成功，已经传上去的先刷新出来
+
+    if (failed.length === 0) {
+      toast.success(`${files.length} 张图片都上传好了`);
+      resetForm();
+      onClose();
+    } else {
+      toast.error(`${files.length - failed.length} 张成功，${failed.length} 张失败——已保留在列表里，可以直接重试`);
+      setFiles(failed);
     }
   }
 
@@ -104,19 +161,177 @@ function UploadAssetModal({ open, onClose, onSaved, allTags }: { open: boolean; 
       <div className="space-y-3">
         <div>
           <Label>分类</Label>
-          <select className="w-full border rounded-md p-2 text-sm" value={category} onChange={(e) => { setCategory(e.target.value); setFile(null); }}>
+          <select className="w-full border rounded-md p-2 text-sm" value={category} onChange={(e) => { setCategory(e.target.value); setFiles([]); }} disabled={busy}>
             {Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select>
         </div>
-        <div><Label>名称（选填，方便之后搜索）</Label><Input placeholder="如：森林背景" value={name} onChange={(e) => setName(e.target.value)} /></div>
         <div>
-          <Label>{category === "ppt" ? "PPT文件" : category === "video" ? "视频文件" : "图片文件"}</Label>
-          <input type="file" accept={ACCEPT_BY_CATEGORY[category] ?? "image/*"} className="text-sm" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          {category === "video" && <p className="text-xs text-muted-foreground mt-1">视频文件比较大，上限 100MB</p>}
+          <Label>名称{isImageCategory && files.length > 1 ? "（多选时会自动用各自的文件名，这栏不生效）" : "（选填，方便之后搜索）"}</Label>
+          <Input placeholder="如：森林背景" value={name} onChange={(e) => setName(e.target.value)} disabled={busy || (isImageCategory && files.length > 1)} />
         </div>
-        <div><Label>标签（选填）</Label><TagInputs tags={tags} setTags={setTags} allTags={allTags} /></div>
-        <Button className="w-full" onClick={handleSave}>上传</Button>
+        <div>
+          <Label>{category === "ppt" ? "PPT文件" : category === "video" ? "视频文件" : "图片文件（可以一次多选）"}</Label>
+          <input
+            type="file"
+            multiple={isImageCategory}
+            accept={ACCEPT_BY_CATEGORY[category] ?? "image/*"}
+            className="text-sm"
+            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+            disabled={busy}
+          />
+          {category === "video" && <p className="text-xs text-muted-foreground mt-1">视频文件采用分片上传，支持较大文件</p>}
+
+          {files.length > 0 && (
+            <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+              {files.map((f, i) => (
+                <div key={i} className="flex items-center justify-between text-xs bg-muted rounded px-2 py-1">
+                  <span className="truncate">{f.name}</span>
+                  <button type="button" onClick={() => removeFile(i)} disabled={busy} className="text-muted-foreground hover:text-destructive ml-2 shrink-0">✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div><Label>标签（选填{isImageCategory && files.length > 1 ? "，会套用到这一批所有图片" : ""}）</Label><TagInputs tags={tags} setTags={setTags} allTags={allTags} /></div>
+
+        {isUploading && progress && (
+          <div className="space-y-1">
+            <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+              <div className="bg-primary h-2 rounded-full transition-all" style={{ width: `${progress.percent}%` }} />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              上传中... {progress.uploadedChunks}/{progress.totalChunks} 片（{progress.percent}%）
+            </p>
+          </div>
+        )}
+        {batchProgress && (
+          <div className="space-y-1">
+            <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+              <div className="bg-primary h-2 rounded-full transition-all" style={{ width: `${Math.round((batchProgress.done / batchProgress.total) * 100)}%` }} />
+            </div>
+            <p className="text-xs text-muted-foreground">正在上传... {batchProgress.done} / {batchProgress.total} 张</p>
+          </div>
+        )}
+
+        <Button className="w-full" onClick={handleSave} disabled={busy}>
+          {busy ? "上传中..." : files.length > 1 ? `上传 ${files.length} 张图片` : "上传"}
+        </Button>
       </div>
+    </Modal>
+  );
+}
+
+const USAGE_CONTEXT_LABELS: Record<string, string> = {
+  in_person: "实体课", self_guided: "Self-Guided Learning", public_course: "公开课",
+};
+
+// 编辑已上传素材——名称/标签/等级/使用场景/家长预览这几个"标注类"栏位，
+// 不改文件本身（换文件本质是删掉重传，见 assets.controller.ts#updateAsset
+// 的注释）。打开时重新 getAsset 一次，拿到 file_data 之外的完整栏位。
+function EditAssetModal({ assetId, open, onClose, onSaved, allTags, gradeTiers }: {
+  assetId: string | null; open: boolean; onClose: () => void; onSaved: () => void;
+  allTags: string[]; gradeTiers: GradeTier[];
+}) {
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [category, setCategory] = useState("");
+  const [name, setName] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [gradeTierId, setGradeTierId] = useState("");
+  const [usageContexts, setUsageContexts] = useState<string[]>([]);
+  const [previewEnabled, setPreviewEnabled] = useState(false);
+  const [previewSeconds, setPreviewSeconds] = useState("");
+
+  useEffect(() => {
+    if (!open || !assetId) return;
+    setLoading(true);
+    assetsApi.getAsset(assetId)
+      .then((a) => {
+        setCategory(a.category);
+        setName(a.name ?? "");
+        setTags(a.tags ?? []);
+        setGradeTierId(a.grade_tier_id ?? "");
+        setUsageContexts(a.usage_contexts ?? []);
+        setPreviewEnabled(a.parent_preview_enabled ?? false);
+        setPreviewSeconds(a.parent_preview_seconds ? String(a.parent_preview_seconds) : "");
+      })
+      .catch(() => toast.error("加载素材详情失败"))
+      .finally(() => setLoading(false));
+  }, [open, assetId]);
+
+  function toggleUsageContext(ctx: string) {
+    setUsageContexts((prev) => (prev.includes(ctx) ? prev.filter((c) => c !== ctx) : [...prev, ctx]));
+  }
+
+  async function handleSave() {
+    if (!assetId) return;
+    setSaving(true);
+    try {
+      await assetsApi.updateAsset(assetId, {
+        name: name || undefined,
+        tags: tags.filter(Boolean),
+        grade_tier_id: gradeTierId || undefined,
+        usage_contexts: usageContexts,
+        parent_preview_enabled: previewEnabled,
+        // 只有视频才让秒数生效；不是视频的话即使填了数字也不送，后端也会
+        // 忽略（见 updateAsset 里 category !== "video" 的判断）
+        parent_preview_seconds: category === "video"
+          ? (previewSeconds.trim() ? Number(previewSeconds) : null)
+          : undefined,
+      });
+      toast.success("已保存");
+      onSaved(); onClose();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "保存失败";
+      toast.error(msg);
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="编辑素材" size="sm">
+      {loading ? (
+        <p className="text-sm text-muted-foreground py-8 text-center">加载中...</p>
+      ) : (
+        <div className="space-y-3">
+          <div><Label>名称</Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="如：森林背景" /></div>
+          <div><Label>标签</Label><TagInputs tags={tags} setTags={setTags} allTags={allTags} /></div>
+
+          <div>
+            <Label>等级</Label>
+            <select className="w-full border rounded-md p-2 text-sm" value={gradeTierId} onChange={(e) => setGradeTierId(e.target.value)}>
+              <option value="">不限等级</option>
+              {gradeTiers.map((g) => <option key={g.id} value={g.id}>{g.name_i18n?.zh ?? g.name_i18n?.en ?? g.code}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <Label>使用场景（可多选）</Label>
+            <div className="flex flex-wrap gap-3 mt-1.5">
+              {Object.entries(USAGE_CONTEXT_LABELS).map(([key, label]) => (
+                <label key={key} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                  <input type="checkbox" checked={usageContexts.includes(key)} onChange={() => toggleUsageContext(key)} />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="border-t border-border pt-3">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" checked={previewEnabled} onChange={(e) => setPreviewEnabled(e.target.checked)} />
+              开放给家长预览
+            </label>
+            {category === "video" && previewEnabled && (
+              <div className="mt-2">
+                <Label>预览秒数上限（选填，不填=完整播放不截断）</Label>
+                <Input type="number" min={1} placeholder="例如 30" value={previewSeconds} onChange={(e) => setPreviewSeconds(e.target.value)} />
+              </div>
+            )}
+          </div>
+
+          <Button className="w-full" onClick={handleSave} disabled={saving}>{saving ? "保存中..." : "保存"}</Button>
+        </div>
+      )}
     </Modal>
   );
 }
@@ -129,22 +344,27 @@ export default function AssetLibraryPage() {
   const [tagFilter, setTagFilter] = useState("");
   const [allTags, setAllTags] = useState<string[]>([]);
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<SortKey>("created_at");
+  const [order, setOrder] = useState<"asc" | "desc">("desc");
   const [showUpload, setShowUpload] = useState(false);
+  const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
+  const [gradeTiers, setGradeTiers] = useState<GradeTier[]>([]);
   const [previews, setPreviews] = useState<Record<string, string>>({});
 
+  useEffect(() => { eduApi.listGradeTiers().then(setGradeTiers).catch(() => {}); }, []);
+
   function refresh() {
-    assetsApi.listAssets({ category: category || undefined, search: search || undefined, tag: tagFilter || undefined, page, limit: 24 })
+    assetsApi.listAssets({ category: category || undefined, search: search || undefined, tag: tagFilter || undefined, sort, order, page, limit: 24 })
       .then((r) => { setAssets(r.data); setMeta(r.meta); });
     assetsApi.listAllTags().then(setAllTags);
   }
-  useEffect(refresh, [category, search, tagFilter, page]);
-  // filters changing should reset back to page 1 — otherwise you can land
-  // on "page 3" of a filtered set that only has 1 page and see nothing.
-  useEffect(() => { setPage(1); }, [category, search, tagFilter]);
+  useEffect(refresh, [category, search, tagFilter, sort, order, page]);
+  useEffect(() => { setPage(1); }, [category, search, tagFilter, sort, order]);
 
   useEffect(() => {
     assets.forEach((a) => {
       if (previews[a.id]) return;
+      if (a.category === "ppt") return; // PPT没有靠得住的缩略图数据，表格里不用抓
       assetsApi.getAsset(a.id).then((r) => setPreviews((p) => ({ ...p, [a.id]: r.file_data })));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -174,7 +394,10 @@ export default function AssetLibraryPage() {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2 mb-4">
-            <Input placeholder="搜索名称..." value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-[180px]" />
+            <div className="relative max-w-[180px]">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <Input placeholder="搜索名称..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
+            </div>
             <select className="border rounded-md p-2 text-sm" value={category} onChange={(e) => setCategory(e.target.value)}>
               <option value="">全部分类</option>
               {Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
@@ -186,68 +409,104 @@ export default function AssetLibraryPage() {
             {(search || category || tagFilter) && (
               <Button size="sm" variant="ghost" onClick={() => { setSearch(""); setCategory(""); setTagFilter(""); }}>清空筛选</Button>
             )}
+            <div className="flex items-center gap-1 ml-auto">
+              <select className="border rounded-md p-2 text-sm" value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
+                <option value="created_at">按上传时间</option>
+                <option value="name">按名称</option>
+                <option value="category">按分类</option>
+              </select>
+              <button
+                onClick={() => setOrder((o) => (o === "asc" ? "desc" : "asc"))}
+                title={order === "asc" ? "升序" : "降序"}
+                className="border rounded-md p-2 text-muted-foreground hover:text-foreground"
+              >
+                {order === "asc" ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+            </div>
           </div>
 
           {assets.length === 0 ? (
             <EmptyState title={search || category || tagFilter ? "没有符合条件的素材" : "还没有素材"} description={search || category || tagFilter ? "换个搜索词、分类、或标签试试" : "点右上角上传第一个"} />
           ) : (
             <>
-              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8 gap-3">
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-7 xl:grid-cols-8 gap-4">
                 {assets.map((a) => (
-                  <div key={a.id} className="group relative rounded-lg border border-border overflow-hidden bg-muted/30">
-                    <div className="aspect-square flex items-center justify-center bg-card p-1.5">
-                      {previews[a.id] ? (
-                        a.category === "video" ? (
-                          <video src={previews[a.id]} className="max-w-full max-h-full" muted controls={false} />
-                        ) : a.category === "ppt" ? (
-                          <div className="flex flex-col items-center gap-1 text-muted-foreground">
-                            <span className="text-3xl">📊</span>
-                            <span className="text-[9px]">PPT</span>
-                          </div>
-                        ) : (
-                          <img src={previews[a.id]} alt={a.name ?? ""} className="max-w-full max-h-full object-contain" />
-                        )
+                  <div key={a.id} className="group relative">
+                    <div className="w-full aspect-square rounded-xl bg-muted overflow-hidden relative">
+                      {a.category === "ppt" ? (
+                        <div className="w-full h-full flex items-center justify-center text-4xl">📊</div>
+                      ) : a.category === "video" ? (
+                        previews[a.id]
+                          ? <video src={previews[a.id]} className="w-full h-full object-contain" muted />
+                          : <div className="w-full h-full flex items-center justify-center text-4xl">🎬</div>
+                      ) : previews[a.id] ? (
+                        <img src={previews[a.id]} alt="" className="w-full h-full object-contain" />
                       ) : (
-                        <span className="text-muted-foreground text-xs">加载中...</span>
+                        <div className="w-full h-full flex items-center justify-center text-xs text-muted-foreground">...</div>
                       )}
-                    </div>
-                    <div className="p-1.5 space-y-0.5">
-                      <p className="text-xs font-medium truncate">{a.name ?? "未命名"}</p>
-                      <p className="text-[10px] text-muted-foreground truncate">{CATEGORY_LABELS[a.category] ?? a.category}</p>
-                      {a.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {a.tags.slice(0, 2).map((t) => (
-                            <button key={t} onClick={() => setTagFilter(t)} className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20">
-                              #{t}
-                            </button>
-                          ))}
-                          {a.tags.length > 2 && <span className="text-[10px] text-muted-foreground px-0.5">+{a.tags.length - 2}</span>}
+
+                      {/* 左上角小徽章：等级 + 是否已开放家长预览 */}
+                      {(a.grade_tier_code || a.parent_preview_enabled) && (
+                        <div className="absolute top-1.5 left-1.5 flex items-center gap-1">
+                          {a.grade_tier_code && (
+                            <span className="text-[10px] bg-black/50 text-white px-1.5 py-0.5 rounded-full">{a.grade_tier_code}</span>
+                          )}
+                          {a.parent_preview_enabled && <span title="已开放给家长预览" className="text-xs">👀</span>}
                         </div>
                       )}
+
+                      {/* 悬浮操作层——鼠标移过去才出现，跟播放器悬浮控件同一个手法 */}
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+                        {(a.category === "video" || a.category === "ppt") && (
+                          <a
+                            href={a.category === "video" ? `/view/video?assetId=${a.id}` : `/view/ppt?assetId=${a.id}`}
+                            target="_blank" rel="noreferrer" title="查看"
+                            className="w-8 h-8 rounded-full bg-white/90 text-foreground flex items-center justify-center hover:bg-white"
+                          >
+                            <Eye size={15} />
+                          </a>
+                        )}
+                        <button onClick={() => setEditingAssetId(a.id)} title="编辑" className="w-8 h-8 rounded-full bg-white/90 text-foreground flex items-center justify-center hover:bg-white">
+                          <Pencil size={15} />
+                        </button>
+                        <button onClick={() => handleDelete(a.id)} title="删除" className="w-8 h-8 rounded-full bg-white/90 text-destructive flex items-center justify-center hover:bg-white">
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      onClick={() => handleDelete(a.id)}
-                      className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      ✕
-                    </button>
+
+                    <p className="text-xs font-medium mt-1.5 truncate" title={a.name ?? "未命名"}>{a.name ?? "未命名"}</p>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{CATEGORY_LABELS[a.category] ?? a.category}</Badge>
+                      {a.tags[0] && (
+                        <button onClick={() => setTagFilter(a.tags[0])} className="text-[10px] text-primary hover:underline truncate">#{a.tags[0]}</button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
 
-              {meta.totalPages > 1 && (
-                <div className="flex items-center justify-center gap-3 mt-4 text-sm">
+              <div className="flex items-center justify-between mt-6 text-sm">
+                <span className="text-muted-foreground text-xs">Number of Records: {meta.total}，第 {meta.page} / {meta.totalPages} 页</span>
+                <div className="flex items-center gap-3">
                   <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>上一页</Button>
-                  <span className="text-muted-foreground">第 {meta.page} / {meta.totalPages} 页</span>
                   <Button size="sm" variant="outline" disabled={page >= meta.totalPages} onClick={() => setPage((p) => p + 1)}>下一页</Button>
                 </div>
-              )}
+              </div>
             </>
           )}
         </CardContent>
       </Card>
 
       <UploadAssetModal open={showUpload} onClose={() => setShowUpload(false)} onSaved={refresh} allTags={allTags} />
+      <EditAssetModal
+        assetId={editingAssetId}
+        open={editingAssetId !== null}
+        onClose={() => setEditingAssetId(null)}
+        onSaved={refresh}
+        allTags={allTags}
+        gradeTiers={gradeTiers}
+      />
     </div>
   );
 }

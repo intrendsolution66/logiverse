@@ -16,6 +16,7 @@ export interface PatternConfig {
   total_questions: number;
   timer_mode: "stopwatch" | "countdown";
   time_limit?: number | null;
+  question_i18n?: { zh?: string; en?: string };
 }
 export interface PatternResult {
   score: number; max_score: number; time_spent_seconds: number; mistakes: number; completed: boolean;
@@ -152,6 +153,9 @@ export default function PatternGame({ config, onComplete }: {
         <span>第 {qIndex} / {config.total_questions} 题</span>
         <span>✅ {correctCount}　⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
+      {(config.question_i18n?.zh || config.question_i18n?.en) && (
+        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.zh || config.question_i18n?.en}</p>
+      )}
 
       <div className="flex flex-wrap gap-3 justify-center items-center min-h-[140px] p-6 bg-amber-50 dark:bg-amber-950/20 rounded-2xl mb-5">
         {seqIcons.map((icon, i) => (

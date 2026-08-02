@@ -7,7 +7,7 @@
 // CourseDesignerPage/GradeTiersPage for consistency.
 
 import { useState, useEffect } from "react";
-import { familyApi, eduApi } from "@/api/index";
+import { familyApi, eduApi } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Card, CardContent, CardHeader, CardTitle, Badge, EmptyState } from "@/components/ui/index";
 import { Modal } from "@/components/ui/modal";
@@ -20,13 +20,28 @@ interface Child {
   current_period_end?: string; locked_monthly_fee?: string; currency?: string;
   grade_tier_id?: string; grade_tier_code?: string; grade_tier_name_i18n?: Record<string,string>;
 }
-function statusBadge(status?: string, trialEndsAt?: string) {
+// 判断"现在真的还在订阅有效期内"——不能只看 status 这个字段，这次付费
+// 周期(current_period_end)可能早就过了，但没有任何东西会自动把状态改
+// 回去，status 字面上会永远停在 'active'。这里的判断标准要跟后端
+// family.controller.ts#subscribeChild 保持一致，不然会出现"前端显示已
+// 订阅、点了订阅按钮却被后端放行"或者反过来"后端愿意续订、前端却根本
+// 不显示按钮"这种两边对不上的情况。
+function isCurrentlyActive(status?: string, currentPeriodEnd?: string): boolean {
+  if (status !== "active") return false;
+  if (!currentPeriodEnd) return true; // 没有周期资讯，退回信任 status 本身
+  return new Date(currentPeriodEnd) > new Date();
+}
+
+function statusBadge(status?: string, trialEndsAt?: string, currentPeriodEnd?: string) {
   if (!status) return <Badge variant="outline">—</Badge>;
   if (status === "trial") {
     const daysLeft = trialEndsAt ? Math.max(0, Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / 86400000)) : 0;
     return <Badge variant="warning">试用中 · 剩{daysLeft}天</Badge>;
   }
-  if (status === "active") return <Badge variant="success">已订阅</Badge>;
+  if (status === "active") {
+    if (!isCurrentlyActive(status, currentPeriodEnd)) return <Badge variant="outline">已过期 · 请续订</Badge>;
+    return <Badge variant="success">已订阅</Badge>;
+  }
   if (status === "past_due") return <Badge variant="destructive">付款异常</Badge>;
   return <Badge variant="outline">已过期</Badge>;
 }
@@ -307,10 +322,10 @@ export default function FamilyDashboardPage() {
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
                     {c.grade_tier_code && <Badge variant="outline">{c.grade_tier_code}</Badge>}
-                    {statusBadge(c.subscription_status, c.trial_ends_at)}
-                    {c.subscription_status !== "active" && (
+                    {statusBadge(c.subscription_status, c.trial_ends_at, c.current_period_end)}
+                    {!isCurrentlyActive(c.subscription_status, c.current_period_end) && (
                       <Button size="sm" onClick={() => handleSubscribe(c.student_id)}>
-                        订阅 {c.currency} {c.locked_monthly_fee}/月
+                        {c.subscription_status === "active" ? "续订" : "订阅"} {c.currency} {c.locked_monthly_fee}/月
                       </Button>
                     )}
                     <Button size="sm" variant="outline" onClick={() => setProgressChild(c)}>学习记录</Button>

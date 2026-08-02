@@ -21,7 +21,7 @@
 // regardless of which parent/teacher they're connected to.
 
 import { useState, useEffect } from "react";
-import { adminUsersApi, adminUserDetailApi, managedUserApi } from "@/api/index";
+import { adminUsersApi, adminUserDetailApi, managedUserApi } from "@/api";
 import { Input, Label, Card, CardContent, Badge, EmptyState } from "@/components/ui/index";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -227,6 +227,44 @@ function EditUserModal({ userId, onClose, onSaved }: { userId: string | null; on
   );
 }
 
+function ExtendSubscriptionModal({ student, onClose, onSaved }: { student: Student | null; onClose: () => void; onSaved: () => void }) {
+  const [days, setDays] = useState(7);
+  const [saving, setSaving] = useState(false);
+
+  async function handleExtend() {
+    if (!student) return;
+    if (!days || days <= 0) { toast.error("天数要大于0"); return; }
+    setSaving(true);
+    try {
+      await adminUsersApi.extendStudentSubscription(student.id, days);
+      toast.success(`已经给「${student.full_name_zh ?? student.username}」延长 ${days} 天`);
+      onSaved(); onClose();
+    } catch { toast.error("延长失败"); } finally { setSaving(false); }
+  }
+
+  return (
+    <Modal open={!!student} onClose={onClose} title="延长订阅" size="sm">
+      {student && (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">给「{student.full_name_zh ?? student.username}」延长使用权限，不管现在订阅状态是什么（试用中/已过期/被取消），都会从今天算起给这么多天。</p>
+          <div className="space-y-1.5">
+            <Label>天数</Label>
+            <div className="flex gap-2">
+              <Input type="number" min={1} value={days} onChange={(e) => setDays(+e.target.value)} className="w-24" />
+              <div className="flex gap-1.5">
+                {[7, 14, 30].map((d) => (
+                  <button key={d} type="button" onClick={() => setDays(d)} className="px-2.5 py-1 rounded-md text-xs border border-border hover:bg-muted">{d}天</button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <Button className="w-full" onClick={handleExtend} disabled={saving}>{saving ? "处理中..." : "确认延长"}</Button>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 export default function StudentManagementPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [meta, setMeta] = useState({ page: 1, limit: 30, total: 0, totalPages: 1 });
@@ -239,6 +277,8 @@ export default function StudentManagementPage() {
   const [viewingId, setViewingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [extendingStudent, setExtendingStudent] = useState<Student | null>(null);
+  const [blockingId, setBlockingId] = useState<string | null>(null);
 
   function refresh() {
     adminUsersApi.listStudents({ search: search || undefined, enrollment_type: enrollmentFilter || undefined, sort: sortKey, order: sortOrder, page, limit: 30 })
@@ -272,6 +312,34 @@ export default function StudentManagementPage() {
       toast.success("已删除");
       refresh();
     } catch { toast.error("删除失败"); }
+  }
+
+  async function handleBlock(s: Student) {
+    if (!window.confirm(`确定要封锁「${s.full_name_zh ?? s.username}」这个账号吗？封锁后这个学生没办法登录，账号资料不会不见，之后可以再解封。`)) return;
+    setBlockingId(s.id);
+    try {
+      await adminUserDetailApi.block(s.id);
+      toast.success("已封锁");
+      refresh();
+    } catch { toast.error("操作失败"); } finally { setBlockingId(null); }
+  }
+
+  async function handleUnblock(s: Student) {
+    setBlockingId(s.id);
+    try {
+      await adminUserDetailApi.unblock(s.id);
+      toast.success("已解封");
+      refresh();
+    } catch { toast.error("操作失败"); } finally { setBlockingId(null); }
+  }
+
+  async function handleExpireSubscription(s: Student) {
+    if (!window.confirm(`确定要把「${s.full_name_zh ?? s.username}」现在的订阅直接设成过期吗？设完之后这个学生马上就不能玩需要订阅的内容了。`)) return;
+    try {
+      await adminUsersApi.expireStudentSubscription(s.id);
+      toast.success("已设成过期");
+      refresh();
+    } catch { toast.error("操作失败"); }
   }
 
   return (
@@ -311,9 +379,11 @@ export default function StudentManagementPage() {
                       <th className="px-3 font-medium">班级</th>
                       <th className="px-3 font-medium">家长</th>
                       <th className="px-3 font-medium">订阅状态</th>
+                      <th className="px-3 font-medium">账号状态</th>
                       <th className="px-3 font-medium">view</th>
                       <th className="px-3 font-medium">edit</th>
                       <th className="px-3 font-medium">delete</th>
+                      <th className="px-3 font-medium">操作</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -339,6 +409,13 @@ export default function StudentManagementPage() {
                             {sub ? <Badge className={sub.color}>{sub.label}</Badge> : <span className="text-muted-foreground">—</span>}
                           </td>
                           <td className="px-3">
+                            {s.status === "BLOCKED" ? (
+                              <Badge className="bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400">已封锁</Badge>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">正常</span>
+                            )}
+                          </td>
+                          <td className="px-3">
                             <button type="button" onClick={() => setViewingId(s.id)} className="text-primary text-xs font-medium hover:underline">查看</button>
                           </td>
                           <td className="px-3">
@@ -346,6 +423,19 @@ export default function StudentManagementPage() {
                           </td>
                           <td className="px-3">
                             <button type="button" onClick={() => handleDelete(s)} className="text-red-500 text-xs font-medium hover:text-red-600 hover:underline">删除</button>
+                          </td>
+                          <td className="px-3">
+                            <div className="flex items-center gap-2">
+                              <button type="button" onClick={() => setExtendingStudent(s)} className="text-teal-600 text-xs font-medium hover:underline whitespace-nowrap">延长订阅</button>
+                              {sub && (
+                                <button type="button" onClick={() => handleExpireSubscription(s)} className="text-orange-600 text-xs font-medium hover:underline whitespace-nowrap">设为过期</button>
+                              )}
+                              {s.status === "BLOCKED" ? (
+                                <button type="button" disabled={blockingId === s.id} onClick={() => handleUnblock(s)} className="text-emerald-600 text-xs font-medium hover:underline disabled:opacity-50 whitespace-nowrap">解封</button>
+                              ) : (
+                                <button type="button" disabled={blockingId === s.id} onClick={() => handleBlock(s)} className="text-amber-600 text-xs font-medium hover:underline disabled:opacity-50 whitespace-nowrap">封锁</button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -369,6 +459,7 @@ export default function StudentManagementPage() {
       <ViewUserModal userId={viewingId} onClose={() => setViewingId(null)} />
       <EditUserModal userId={editingId} onClose={() => setEditingId(null)} onSaved={refresh} />
       <AddStudentModal open={showAdd} onClose={() => setShowAdd(false)} onSaved={refresh} />
+      <ExtendSubscriptionModal student={extendingStudent} onClose={() => setExtendingStudent(null)} onSaved={refresh} />
     </div>
   );
 }

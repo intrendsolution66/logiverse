@@ -12,7 +12,7 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuthStore } from "@/stores/index";
-import { authApi } from "@/api/index";
+import { authApi } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Card, CardContent } from "@/components/ui/index";
 import { Eye, EyeOff, Lock, User } from "lucide-react";

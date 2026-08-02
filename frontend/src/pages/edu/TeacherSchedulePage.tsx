@@ -13,7 +13,7 @@
 // first.
 
 import { useState, useEffect, useCallback } from "react";
-import { scheduleApi, studentGroupsApi, teacherApi, eduApi } from "@/api/index";
+import { scheduleApi, studentGroupsApi, teacherApi, eduApi } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Card, CardContent, CardHeader, CardTitle, Badge, EmptyState } from "@/components/ui/index";
 import { Modal } from "@/components/ui/modal";

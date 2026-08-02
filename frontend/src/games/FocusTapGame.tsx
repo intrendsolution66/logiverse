@@ -21,6 +21,7 @@ export interface FocusTapConfig {
   positions?: FocusTapPosition[] | null;
   timer_mode: "stopwatch" | "countdown";
   time_limit?: number | null;
+  question_i18n?: { zh?: string; en?: string };
 }
 export interface FocusTapResult {
   score: number; max_score: number; time_spent_seconds: number; mistakes: number; completed: boolean;
@@ -127,6 +128,9 @@ export default function FocusTapGame({ config, onComplete }: {
         <span>🎯 下一个：{next}</span>
         <span>⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
+      {(config.question_i18n?.zh || config.question_i18n?.en) && (
+        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.zh || config.question_i18n?.en}</p>
+      )}
 
       {isCustom ? (
         <div className="relative w-full aspect-[11/7] rounded-2xl overflow-hidden bg-muted/40 shadow-lg ring-1 ring-black/5">

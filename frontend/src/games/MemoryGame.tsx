@@ -16,6 +16,13 @@ export interface MemoryConfig {
   preview_seconds: number;
   timer_mode: "stopwatch" | "countdown";
   time_limit?: number | null;
+  question_i18n?: { zh?: string; en?: string };
+  // 自由摆放——课程设计师在背景图上手动摆的牌位置槽（归一化0-1），数量
+  // 要等于卡片总数（配对图片数×2）。哪张牌的图标落在哪个槽位是随机的
+  // （靠下面 cards 洗牌决定），槽位本身的位置是设计师摆好、固定不变的。
+  // 不设、或数量对不上卡片数时，退回原本的自动网格排列。
+  layout?: "grid" | "free";
+  positions?: { x: number; y: number }[];
 }
 export interface MemoryResult {
   score: number; max_score: number; time_spent_seconds: number; mistakes: number; completed: boolean;
@@ -115,6 +122,10 @@ export default function MemoryGame({ config, onComplete }: {
   const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
   const cols = Math.min(6, Math.ceil(Math.sqrt(cards.length)));
+  // 自由摆放——位置槽数量必须正好等于卡片数才启用，数量对不上（比如
+  // 旧数据、或者设计师改了配对图片数但没重新摆位置）就安全退回网格排列，
+  // 不会因为数组越界崩溃或者有卡片没地方放。
+  const isFree = config.layout === "free" && !!config.positions && config.positions.length === cards.length;
 
   if (finished) {
     return (
@@ -133,27 +144,32 @@ export default function MemoryGame({ config, onComplete }: {
         <span>🃏 配对 {matched.size / 2} / {cards.length / 2}</span>
         <span>{previewing ? "记住位置..." : `⏱️ ${timerLabel} ${timerValue.toFixed(1)}s`}</span>
       </div>
+      {(config.question_i18n?.zh || config.question_i18n?.en) && (
+        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.zh || config.question_i18n?.en}</p>
+      )}
       <div
-        className="grid gap-3 rounded-2xl p-3 shadow-lg ring-1 ring-black/5"
+        className={`relative rounded-2xl shadow-lg ring-1 ring-black/5 ${isFree ? "w-full aspect-[11/7]" : "grid gap-3 p-3"}`}
         style={{
-          gridTemplateColumns: `repeat(${cols}, 1fr)`,
+          ...(isFree ? {} : { gridTemplateColumns: `repeat(${cols}, 1fr)` }),
           backgroundImage: config.bg_image_url ? `url(${config.bg_image_url})` : undefined,
           backgroundSize: "100% 100%", backgroundPosition: "center",
         }}
       >
-        {cards.map((c) => {
+        {cards.map((c, i) => {
           const isUp = previewing || matched.has(c.id) || flipped.includes(c.id);
+          const pos = isFree ? config.positions![i] : null;
           return (
             <button
               key={c.id}
               onClick={() => handleFlip(c.id)}
-              className={`aspect-square text-4xl sm:text-5xl rounded-xl border-2 transition-colors overflow-hidden flex items-center justify-center ${
+              className={`${isFree ? "absolute -translate-x-1/2 -translate-y-1/2 w-[12%] aspect-square" : "aspect-square"} text-4xl sm:text-5xl rounded-xl border-2 transition-colors overflow-hidden flex items-center justify-center ${
                 matched.has(c.id)
                   ? "border-emerald-200 bg-emerald-50/90 dark:border-emerald-900 dark:bg-emerald-950/60 cursor-default"
                   : isUp
                   ? "border-border bg-card/90 cursor-default"
                   : "border-violet-300 bg-violet-400 dark:bg-violet-600 cursor-pointer hover:bg-violet-500"
               }`}
+              style={pos ? { left: `${pos.x * 100}%`, top: `${pos.y * 100}%` } : undefined}
             >
               {isUp && (isCustom ? <img src={c.icon} alt="" className="max-w-full max-h-full object-contain p-1.5" /> : c.icon)}
             </button>

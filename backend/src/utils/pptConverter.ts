@@ -30,6 +30,16 @@ import { promisify } from "util";
 
 const execFileAsync = promisify(execFile);
 
+// Windows 上 "soffice" 不在 PATH 里，必须用完整路径调用，否则 execFile 会抛 ENOENT。
+// 允许用环境变量覆盖，方便以后换机器 / 部署到 Linux 服务器（Linux 上通常直接
+// 装了 libreoffice 并注册在 PATH 里，写 "soffice" 就够了）时不用改代码。
+const SOFFICE_PATH =
+  process.env.SOFFICE_PATH || "C:\\Program Files\\LibreOffice\\program\\soffice.exe";
+
+// 同理，Windows 上 poppler 的 pdftoppm 也不在 PATH 里，必须用完整路径。
+const PDFTOPPM_PATH =
+  process.env.PDFTOPPM_PATH || "I:\\poppler-26.02.0\\Library\\bin\\pdftoppm.exe";
+
 export interface ConvertedSlide {
   buffer: Buffer;
   mimeType: "image/png";
@@ -51,10 +61,13 @@ export async function convertPptxToSlideImages(pptxBuffer: Buffer): Promise<Conv
 
     // ① pptx → pdf
     try {
-      await execFileAsync("soffice", ["--headless", "--convert-to", "pdf", "--outdir", workDir, pptxPath], { timeout: 60_000 });
+      await execFileAsync(SOFFICE_PATH, ["--headless", "--convert-to", "pdf", "--outdir", workDir, pptxPath], { timeout: 60_000 });
     } catch (err) {
       const e = err as { code?: string; message?: string };
-      if (e.code === "ENOENT") throw new Error("服务器没有安装 LibreOffice（soffice），没办法转换 PPT——这是部署环境要补的东西，不是这份 PPT 本身有问题");
+      if (e.code === "ENOENT")
+        throw new Error(
+          `找不到 LibreOffice（soffice），尝试的路径是：${SOFFICE_PATH}——请确认已安装 LibreOffice，或通过环境变量 SOFFICE_PATH 指定正确路径`
+        );
       throw new Error(`PPT 转 PDF 失败：${e.message ?? "未知错误"}`);
     }
     const pdfPath = path.join(workDir, "input.pdf");
@@ -64,10 +77,13 @@ export async function convertPptxToSlideImages(pptxBuffer: Buffer): Promise<Conv
     // ② pdf → one png per page
     const pngPrefix = path.join(workDir, "slide");
     try {
-      await execFileAsync("pdftoppm", ["-png", "-r", "120", pdfPath, pngPrefix], { timeout: 60_000 });
+      await execFileAsync(PDFTOPPM_PATH, ["-png", "-r", "120", pdfPath, pngPrefix], { timeout: 60_000 });
     } catch (err) {
       const e = err as { code?: string; message?: string };
-      if (e.code === "ENOENT") throw new Error("服务器没有安装 poppler-utils（pdftoppm），没办法把 PDF 页面转成图片——这是部署环境要补的东西");
+      if (e.code === "ENOENT")
+        throw new Error(
+          `找不到 poppler（pdftoppm），尝试的路径是：${PDFTOPPM_PATH}——请确认已安装 poppler，或通过环境变量 PDFTOPPM_PATH 指定正确路径`
+        );
       throw new Error(`幻灯片转图片失败：${e.message ?? "未知错误"}`);
     }
 

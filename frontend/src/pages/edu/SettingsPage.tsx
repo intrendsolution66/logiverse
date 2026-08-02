@@ -8,9 +8,10 @@
 // utils/systemSettings.ts), no restart needed.
 
 import { useState, useEffect } from "react";
-import { settingsApi } from "@/api/index";
+import { settingsApi } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Card, CardContent, CardHeader, CardTitle } from "@/components/ui/index";
+import FontSettingsCard from "@/components/settings/FontSettingsCard";
 import toast from "react-hot-toast";
 
 export default function SettingsPage() {
@@ -76,6 +77,8 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      <FontSettingsCard />
     </div>
   );
 }

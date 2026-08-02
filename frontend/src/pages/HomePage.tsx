@@ -19,7 +19,7 @@ export default function HomePage() {
   const hasRole = (...codes: string[]) => codes.some((c) => roleCodes.includes(c));
 
   const cards: DashCard[] = [];
-  if (hasRole("STUDENT")) cards.push({ to: "/courses", emoji: "🎮", title: "我的 Activity", desc: "选一门课，开始练习" });
+  if (hasRole("STUDENT")) cards.push({ to: "/learn", emoji: "🎮", title: "我的 Activity", desc: "自由探索，或跟着课程一步步学" });
   if (hasRole("PARENT")) cards.push({ to: "/family", emoji: "👨‍👩‍👧", title: "我的孩子", desc: "试用/订阅状态、学习记录、学习时长" });
   if (hasRole("TEACHER")) {
     cards.push({ to: "/my-classes", emoji: "🏫", title: "我的班级", desc: "学生名单、分配作业、班级进度" });

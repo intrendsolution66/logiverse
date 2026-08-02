@@ -6,6 +6,14 @@
 // explanation → curated question-bank steps → interactive practice →
 // random-generation steps, all as one ordered lesson a teacher assembled.
 //
+// Course↔Lesson 现在是真正的多对多（edu.course_lessons）——一个 Lesson
+// 可以先独立建（不挂在任何 Course 下面），也可以同时被好几个不同的
+// Course 引用，跟 Activity 不需要绑在某个 Course 下面是同一个思路，只是
+// Activity↔Lesson 那边靠 lesson_steps 本身的普通外键就够了，Course↔Lesson
+// 这边因为要记"同一个 Lesson 在不同 Course 里排第几"这种每个关联自己的
+// 顺序信息，所以另外建了这张关联表，不能只靠 lessons.course_id 单一外键
+// 解决。
+//
 // Gated by courses.manage, same permission as everything else in the
 // course-authoring toolkit — building a lesson is course design, not a
 // separate role.
@@ -17,21 +25,29 @@ import { ok, created, badRequest, notFound, serverError } from "../../utils/resp
 
 const STEP_TYPES = ["video", "ppt", "level"];
 
+// 某门课底下的 Lesson 列表——现在查的是 course_lessons 这张关联表，不是
+// lessons.course_id。排序用的是"这个 Lesson 在这门课底下"的 order_index，
+// 同一个 Lesson 挂在别的课下面顺序可以不一样。
 export async function listLessons(req: AuthRequest, res: Response): Promise<void> {
   try {
     const { courseId } = req.params;
     const { rows } = await query(
-      `SELECT l.id, l.title_i18n, l.order_index, l.created_at,
+      `SELECT l.id, l.title_i18n, cl.order_index, l.created_at,
               (SELECT count(*)::int FROM edu.lesson_steps ls WHERE ls.lesson_id = l.id) AS step_count
-       FROM edu.lessons l
-       WHERE l.course_id = $1
-       ORDER BY l.order_index ASC, l.created_at ASC`,
+       FROM edu.course_lessons cl
+       JOIN edu.lessons l ON l.id = cl.lesson_id
+       WHERE cl.course_id = $1
+       ORDER BY cl.order_index ASC, l.created_at ASC`,
       [courseId]
     );
     ok(res, rows);
   } catch (err) { serverError(res, err); }
 }
 
+// 建一个全新的 Lesson，同时直接把它挂进这门课底下——这是最常见的用法
+// （在某门课的编排页面点"新建课时"）。course_id 顺带写进 lessons 那个旧
+// 栏位（当"最初在哪门课底下建的"历史记录），真正决定"这个 Lesson 现在
+// 出现在哪些课程里"的是下面那笔 INSERT INTO course_lessons。
 export async function createLesson(req: AuthRequest, res: Response): Promise<void> {
   try {
     const { courseId } = req.params;
@@ -41,10 +57,75 @@ export async function createLesson(req: AuthRequest, res: Response): Promise<voi
     const { rows } = await query(
       `INSERT INTO edu.lessons (course_id, title_i18n, order_index, created_by)
        VALUES ($1, $2, $3, $4)
-       RETURNING id, title_i18n, order_index, created_at`,
+       RETURNING id, title_i18n, created_at`,
       [courseId, JSON.stringify(title_i18n), order_index ?? 0, req.user!.sub]
     );
+    const lesson = rows[0];
+    await query(
+      `INSERT INTO edu.course_lessons (course_id, lesson_id, order_index) VALUES ($1,$2,$3)`,
+      [courseId, lesson.id, order_index ?? 0]
+    );
+    created(res, { ...lesson, order_index: order_index ?? 0 });
+  } catch (err) { serverError(res, err); }
+}
+
+// 新增：独立建 Lesson，不挂在任何 Course 底下——路由挂 POST /lessons。
+// 跟 createActivity 是同一个思路：course_id 从路由参数或请求体读都行，
+// 两个都没有就是 null，也就不会写进 course_lessons（没有 courseId 就没
+// 什么好关联的）。
+export async function createStandaloneLesson(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { title_i18n } = req.body as { title_i18n?: object };
+    if (!title_i18n) { badRequest(res, "title_i18n is required"); return; }
+    const { rows } = await query(
+      `INSERT INTO edu.lessons (course_id, title_i18n, order_index, created_by)
+       VALUES (NULL, $1, 0, $2)
+       RETURNING id, title_i18n, created_at`,
+      [JSON.stringify(title_i18n), req.user!.sub]
+    );
     created(res, rows[0]);
+  } catch (err) { serverError(res, err); }
+}
+
+// 把一个已经存在的 Lesson 引用进另一门课——这就是"复用"的实际动作：不复
+// 制一份新的 Lesson，只是在关联表里加一行。同一个 lesson_id 不能在同一
+// 个 course_id 底下重复挂两次（course_lessons 的主键就是 (course_id,
+// lesson_id)），重复挂会被数据库拦下来，这里转成好读的错误信息。
+export async function linkLessonToCourse(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { courseId, lessonId } = req.params;
+    const { order_index } = req.body as { order_index?: number };
+
+    const { rows: lessonRows } = await query(`SELECT id FROM edu.lessons WHERE id = $1`, [lessonId]);
+    if (!lessonRows.length) { notFound(res, "Lesson not found"); return; }
+
+    let idx = order_index;
+    if (idx == null) {
+      const { rows: maxRows } = await query(`SELECT COALESCE(MAX(order_index), -1) + 1 AS next_index FROM edu.course_lessons WHERE course_id = $1`, [courseId]);
+      idx = maxRows[0].next_index;
+    }
+
+    try {
+      await query(`INSERT INTO edu.course_lessons (course_id, lesson_id, order_index) VALUES ($1,$2,$3)`, [courseId, lessonId, idx]);
+    } catch (err) {
+      const e = err as { code?: string };
+      if (e?.code === "23505") { badRequest(res, "这个课时已经在这门课里了，不能重复加"); return; }
+      throw err;
+    }
+    ok(res, null, "已加入这门课");
+  } catch (err) { serverError(res, err); }
+}
+
+// 把一个 Lesson 从某门课里移除——只解除关联，Lesson 本身、它底下的步骤
+// 都不会被删掉（万一它还被别的课程引用，或者只是暂时不想放在这门课里）。
+// 真的要把 Lesson 整个删掉（连同步骤、连同它在所有课程里的关联）用下面
+// 的 deleteLesson。
+export async function unlinkLessonFromCourse(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { courseId, lessonId } = req.params;
+    const { rowCount } = await query(`DELETE FROM edu.course_lessons WHERE course_id = $1 AND lesson_id = $2`, [courseId, lessonId]);
+    if (!rowCount) { notFound(res, "这门课里没有这个课时"); return; }
+    ok(res, null, "已从这门课移除（课时本身还在，如果没有别的课程用到，可以去单独删除）");
   } catch (err) { serverError(res, err); }
 }
 
@@ -58,10 +139,18 @@ export async function getLesson(req: AuthRequest, res: Response): Promise<void> 
   try {
     const { lessonId } = req.params;
     const { rows: lessonRows } = await query(
-      `SELECT id, course_id, title_i18n, order_index FROM edu.lessons WHERE id = $1`,
+      `SELECT id, course_id, title_i18n FROM edu.lessons WHERE id = $1`,
       [lessonId]
     );
     if (!lessonRows.length) { notFound(res, "Lesson not found"); return; }
+
+    // 这个 Lesson 现在挂在哪些课程底下——多对多之后一个 Lesson 可能同时
+    // 属于好几门课，编辑页面需要知道这件事（比如提醒"这个课时也被别的课
+    // 程用到，改动会影响所有引用它的地方"）。
+    const { rows: courseRows } = await query(
+      `SELECT c.id, c.title_i18n FROM edu.course_lessons cl JOIN edu.courses c ON c.id = cl.course_id WHERE cl.lesson_id = $1`,
+      [lessonId]
+    );
 
     const { rows: steps } = await query(
       `SELECT ls.id, ls.order_index, ls.step_type, ls.media_url, ls.media_title,
@@ -72,7 +161,71 @@ export async function getLesson(req: AuthRequest, res: Response): Promise<void> 
        ORDER BY ls.order_index ASC`,
       [lessonId]
     );
-    ok(res, { ...lessonRows[0], steps });
+    ok(res, { ...lessonRows[0], courses: courseRows, steps });
+  } catch (err) { serverError(res, err); }
+}
+
+export async function updateLesson(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { lessonId } = req.params;
+    const { title_i18n } = req.body as { title_i18n?: object };
+
+    const { rows } = await query(
+      `UPDATE edu.lessons SET title_i18n = COALESCE($2, title_i18n)
+       WHERE id = $1
+       RETURNING id, title_i18n`,
+      [lessonId, title_i18n ? JSON.stringify(title_i18n) : null]
+    );
+    if (!rows.length) { notFound(res, "Lesson not found"); return; }
+    ok(res, rows[0]);
+  } catch (err) { serverError(res, err); }
+}
+
+// 删除课时——连带删掉它底下的步骤（步骤脱离课时没有意义，不像课程底下的
+// Activity还能独立存在被别的课时复用，所以这里直接级联删，不用像
+// deleteCourse那样先拦一手）。course_lessons 里所有引用这个 Lesson 的关
+// 联也会跟着没（外键 ON DELETE CASCADE），也就是说：真的删除会把这个
+// Lesson 从"所有"引用过它的课程里一起拿掉，不是只影响某一门课——只想
+// 从某一门课移除、Lesson本身留着，用上面的 unlinkLessonFromCourse。
+export async function deleteLesson(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { lessonId } = req.params;
+    await query(`DELETE FROM edu.lesson_steps WHERE lesson_id = $1`, [lessonId]);
+    const { rowCount } = await query(`DELETE FROM edu.lessons WHERE id = $1`, [lessonId]);
+    if (!rowCount) { notFound(res, "Lesson not found"); return; }
+    ok(res, null, "Deleted");
+  } catch (err) { serverError(res, err); }
+}
+
+// 在某门课底下调整 Lesson 顺序——只影响这门课里的 order_index，不影响
+// 这个 Lesson 在"别的"课程里的顺序（多对多之后，同一个 Lesson 在不同课
+// 程里排第几可以不一样，这也是为什么排序信息存在 course_lessons 而不是
+// lessons 表本身）。逻辑跟 moveStep 一样，交换相邻两个的 order_index。
+export async function moveLessonInCourse(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { courseId, lessonId } = req.params;
+    const { direction } = req.body as { direction?: "up" | "down" };
+    if (direction !== "up" && direction !== "down") { badRequest(res, "direction must be 'up' or 'down'"); return; }
+
+    const { rows: rows1 } = await query(
+      `SELECT order_index FROM edu.course_lessons WHERE course_id = $1 AND lesson_id = $2`, [courseId, lessonId]
+    );
+    if (!rows1.length) { notFound(res, "这门课里没有这个课时"); return; }
+    const currentIndex = rows1[0].order_index;
+
+    const { rows: neighborRows } = await query(
+      direction === "up"
+        ? `SELECT lesson_id, order_index FROM edu.course_lessons WHERE course_id = $1 AND order_index < $2 ORDER BY order_index DESC LIMIT 1`
+        : `SELECT lesson_id, order_index FROM edu.course_lessons WHERE course_id = $1 AND order_index > $2 ORDER BY order_index ASC LIMIT 1`,
+      [courseId, currentIndex]
+    );
+    if (!neighborRows.length) { ok(res, null, "Already at the edge — nothing to swap with"); return; }
+    const neighbor = neighborRows[0];
+
+    // 两两互换：邻居挪到"我"原本的位置，"我"挪到邻居原本的位置。
+    await query(`UPDATE edu.course_lessons SET order_index = $1 WHERE course_id = $2 AND lesson_id = $3`, [currentIndex, courseId, neighbor.lesson_id]);
+    await query(`UPDATE edu.course_lessons SET order_index = $1 WHERE course_id = $2 AND lesson_id = $3`, [neighbor.order_index, courseId, lessonId]);
+    ok(res, null, "Reordered");
   } catch (err) { serverError(res, err); }
 }
 

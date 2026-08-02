@@ -5,6 +5,9 @@ import { Toaster } from "react-hot-toast";
 import "@/i18n"; 
 import App from "./App";
 import "./index.css";
+import { applyFontPreferences } from "@/lib/fontPreferences";
+
+applyFontPreferences(); // 读 localStorage 里存的中/英字体选择，先套用再渲染，避免闪一下默认字体
 
 const queryClient = new QueryClient({
   defaultOptions: {

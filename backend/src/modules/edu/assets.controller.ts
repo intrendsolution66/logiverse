@@ -5,6 +5,10 @@
 // one-off upload-and-embed. Gated by the same courses.manage permission as
 // everything else in the course-authoring toolkit — anyone who can design
 // a course can manage the shared asset library, it isn't a separate role.
+//
+// PPT类素材上传时就转换成幻灯片图片（见 createAsset 里的 category==="ppt"
+// 分支）——转换成本放在低频的上传端，不是高频的播放端，学生在Discovery/
+// Lesson里打开PPT时能秒开，不用等LibreOffice转换。
 
 import type { Response } from "express";
 import type { AuthRequest } from "../../middlewares/authenticate.js";
@@ -16,6 +20,10 @@ import { convertPptxToSlideImages } from "../../utils/pptConverter.js";
 
 const CATEGORIES = ["background", "object", "icon", "video", "ppt", "other"];
 
+// 素材的"使用场景"——跟 category（图片/视频/PPT这种素材类型）是完全独立
+// 的两个维度。多选：同一部影片可能实体课、公开课都在用。
+const USAGE_CONTEXTS = ["in_person", "self_guided", "public_course"];
+
 export async function listAssets(req: AuthRequest, res: Response): Promise<void> {
   try {
     const { page, limit, offset } = parsePagination(req, 24);
@@ -23,6 +31,10 @@ export async function listAssets(req: AuthRequest, res: Response): Promise<void>
     const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
     const moduleType = typeof req.query.module_type === "string" ? req.query.module_type : "";
     const tag = typeof req.query.tag === "string" ? req.query.tag.trim() : "";
+    const usageContext = typeof req.query.usage_context === "string" ? req.query.usage_context : "";
+    // ?parent_preview=true —— 家长端 / operator 挑选预览素材时用，只看
+    // 已经开放预览的素材；不传这个参数就是原本行为，不受影响。
+    const parentPreviewOnly = req.query.parent_preview === "true";
 
     const conditions: string[] = [];
     const params: unknown[] = [];
@@ -42,6 +54,13 @@ export async function listAssets(req: AuthRequest, res: Response): Promise<void>
       params.push(tag);
       conditions.push(`$${params.length} = ANY(tags)`);
     }
+    if (usageContext && USAGE_CONTEXTS.includes(usageContext)) {
+      params.push(usageContext);
+      conditions.push(`$${params.length} = ANY(a.usage_contexts)`);
+    }
+    if (parentPreviewOnly) {
+      conditions.push(`a.parent_preview_enabled = true`);
+    }
     const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const { rows: countRows } = await query(`SELECT count(*)::int AS total FROM edu.assets ${whereClause}`, params);
@@ -54,7 +73,8 @@ export async function listAssets(req: AuthRequest, res: Response): Promise<void>
     params.push(limit, offset);
     const { rows } = await query(
       `SELECT a.id, a.category, a.name, a.width, a.height, a.created_at, a.tags,
-              a.module_type, a.grade_tier_id, a.language, gt.code AS grade_tier_code
+              a.module_type, a.grade_tier_id, a.language, gt.code AS grade_tier_code,
+              a.usage_contexts, a.parent_preview_enabled, a.parent_preview_seconds
        FROM edu.assets a
        LEFT JOIN edu.grade_tiers gt ON gt.id = a.grade_tier_id
        ${whereClause}
@@ -86,13 +106,20 @@ export async function getAsset(req: AuthRequest, res: Response): Promise<void> {
   try {
     const { assetId } = req.params;
     const { rows } = await query(
-      `SELECT id, category, name, file_data, width, height, created_at, module_type, grade_tier_id, language, tags
+      `SELECT id, category, name, file_data, slide_urls, width, height, created_at, module_type, grade_tier_id, language, tags,
+              usage_contexts, parent_preview_enabled, parent_preview_seconds
        FROM edu.assets WHERE id = $1`,
       [assetId]
     );
     if (!rows.length) { notFound(res, "Asset not found"); return; }
     ok(res, rows[0]);
   } catch (err) { serverError(res, err); }
+}
+
+function normalizeUsageContexts(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const cleaned = input.filter((c): c is string => typeof c === "string" && USAGE_CONTEXTS.includes(c));
+  return Array.from(new Set(cleaned)); // 去重，不限数量（最多也就3个可选值）
 }
 
 function normalizeTags(input: unknown): string[] {
@@ -105,38 +132,115 @@ function normalizeTags(input: unknown): string[] {
 
 export async function createAsset(req: AuthRequest, res: Response): Promise<void> {
   try {
-    const { category, name, file_data, width, height, module_type, grade_tier_id, language, tags } = req.body as Record<string, unknown>;
+    const { category, name, file_data, width, height, module_type, grade_tier_id, language, tags,
+            usage_contexts, parent_preview_enabled, parent_preview_seconds } = req.body as Record<string, unknown>;
     if (!file_data || typeof file_data !== "string") { badRequest(res, "file_data is required"); return; }
     const cat = typeof category === "string" && CATEGORIES.includes(category) ? category : "other";
     const cleanTags = normalizeTags(tags);
+    const cleanUsageContexts = normalizeUsageContexts(usage_contexts);
+    const previewEnabled = parent_preview_enabled === true;
+    // 预览秒数只对视频有意义——其他类型即使传了这个栏位也直接忽略，不
+    // 让前端的疏忽变成资料库里一个没意义的数字。
+    const previewSeconds = cat === "video" && Number.isInteger(parent_preview_seconds) && (parent_preview_seconds as number) > 0
+      ? (parent_preview_seconds as number)
+      : null;
 
-    // 素材库不再把图片整个塞进数据库 — file_data is base64 (a fresh
-    // upload), it gets written to disk and only the resulting URL is
-    // stored; if it's already a URL (pasted directly, or points at
-    // wherever a remote storage engine put it), it's stored as-is. Either
-    // way, what lands in the database from here on is just a URL string —
-    // see assetStorage.ts for where the bytes actually go.
     const isDataUrl = file_data.startsWith("data:");
-    const fileUrl = isDataUrl ? (await saveAssetFile(file_data)).url : file_data;
+    let fileUrl: string;
+    let slideUrls: string[] | null = null;
+
+    if (cat === "ppt" && isDataUrl) {
+      // PPT上传时就转换成幻灯片图片，不等学生打开时才转。file_data 存
+      // 第一页的URL，方便素材库网格直接显示真实封面；slide_urls 存完整
+      // 的按顺序排列的图片URL数组，给学生端的翻页阅读器用。
+      const match = file_data.match(/^data:([\w/+.-]+);base64,(.+)$/);
+      if (!match) throw new Error("PPT file_data must be a base64 data URL");
+      const pptxBuffer = Buffer.from(match[2], "base64");
+
+      const slides = await convertPptxToSlideImages(pptxBuffer);
+      if (!slides.length) { badRequest(res, "PPT转换后没有产生任何幻灯片，文件可能已损坏"); return; }
+
+      slideUrls = [];
+      for (const slide of slides) {
+        const dataUrl = `data:${slide.mimeType};base64,${slide.buffer.toString("base64")}`;
+        const { url } = await saveAssetFile(dataUrl);
+        slideUrls.push(url);
+      }
+      fileUrl = slideUrls[0];
+    } else if (isDataUrl) {
+      // 素材库不再把图片整个塞进数据库 — file_data is base64 (a fresh
+      // upload), it gets written to disk and only the resulting URL is
+      // stored.
+      fileUrl = (await saveAssetFile(file_data)).url;
+    } else {
+      // 已经是URL了（比如分片上传合并完的视频、或直接粘贴的远端URL），
+      // 原样存，不重复处理。
+      fileUrl = file_data;
+    }
 
     const { rows } = await query(
-      `INSERT INTO edu.assets (uploaded_by, category, name, file_data, width, height, module_type, grade_tier_id, language, tags)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING id, category, name, file_data, width, height, created_at, module_type, grade_tier_id, language, tags`,
-      [req.user!.sub, cat, name ?? null, fileUrl, width ?? null, height ?? null,
-       module_type ?? null, grade_tier_id ?? null, language ?? "universal", cleanTags]
+      `INSERT INTO edu.assets (uploaded_by, category, name, file_data, slide_urls, width, height, module_type, grade_tier_id, language, tags,
+                                usage_contexts, parent_preview_enabled, parent_preview_seconds)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       RETURNING id, category, name, file_data, slide_urls, width, height, created_at, module_type, grade_tier_id, language, tags,
+                 usage_contexts, parent_preview_enabled, parent_preview_seconds`,
+      [req.user!.sub, cat, name ?? null, fileUrl, slideUrls ? JSON.stringify(slideUrls) : null, width ?? null, height ?? null,
+       module_type ?? null, grade_tier_id ?? null, language ?? "universal", cleanTags,
+       cleanUsageContexts, previewEnabled, previewSeconds]
     );
     created(res, rows[0]);
   } catch (err) {
-    if (err instanceof Error && err.message.includes("base64 data URL")) { badRequest(res, "图片格式看起来不对，麻烦重新选一张图片再试一次"); return; }
+    if (err instanceof Error && err.message.includes("base64 data URL")) { badRequest(res, "文件格式看起来不对，麻烦重新选一个文件再试一次"); return; }
     serverError(res, err);
   }
+}
+
+// 编辑已上传素材的元数据——目前只开放这几个"分类/标注"性质的栏位可改：
+// name、tags、module_type/grade_tier_id/language、usage_contexts、
+// parent_preview_enabled、parent_preview_seconds。不允许改 category 或
+// file_data 本身（换文件/换类型本质是删掉重传，不是编辑），也不走
+// createAsset 那套PPT转换逻辑，单纯是一次元数据更新。
+export async function updateAsset(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { assetId } = req.params;
+    const { rows: existingRows } = await query(`SELECT uploaded_by, category FROM edu.assets WHERE id = $1`, [assetId]);
+    if (!existingRows.length) { notFound(res, "Asset not found"); return; }
+    if (existingRows[0].uploaded_by !== req.user!.sub) { forbidden(res, "You didn't upload this asset"); return; }
+
+    const { name, module_type, grade_tier_id, language, tags, usage_contexts, parent_preview_enabled, parent_preview_seconds } =
+      req.body as Record<string, unknown>;
+    const category = existingRows[0].category as string;
+    const cleanTags = tags !== undefined ? normalizeTags(tags) : null;
+    const cleanUsageContexts = usage_contexts !== undefined ? normalizeUsageContexts(usage_contexts) : null;
+    const previewEnabled = typeof parent_preview_enabled === "boolean" ? parent_preview_enabled : null;
+    const previewSeconds = category === "video" && Number.isInteger(parent_preview_seconds) && (parent_preview_seconds as number) > 0
+      ? (parent_preview_seconds as number)
+      : (parent_preview_seconds === null ? null : undefined); // undefined = 没传，COALESCE保留原值；null = 显式清空（比如取消秒数限制）
+
+    const { rows } = await query(
+      `UPDATE edu.assets SET
+         name = COALESCE($2, name),
+         module_type = COALESCE($3, module_type),
+         grade_tier_id = COALESCE($4, grade_tier_id),
+         language = COALESCE($5, language),
+         tags = COALESCE($6, tags),
+         usage_contexts = COALESCE($7, usage_contexts),
+         parent_preview_enabled = COALESCE($8, parent_preview_enabled),
+         parent_preview_seconds = CASE WHEN $9::boolean THEN $10 ELSE parent_preview_seconds END
+       WHERE id = $1
+       RETURNING id, category, name, file_data, slide_urls, width, height, created_at, module_type, grade_tier_id, language, tags,
+                 usage_contexts, parent_preview_enabled, parent_preview_seconds`,
+      [assetId, name ?? null, module_type ?? null, grade_tier_id ?? null, language ?? null, cleanTags,
+       cleanUsageContexts, previewEnabled, previewSeconds !== undefined, previewSeconds ?? null]
+    );
+    ok(res, rows[0]);
+  } catch (err) { serverError(res, err); }
 }
 
 export async function deleteAsset(req: AuthRequest, res: Response): Promise<void> {
   try {
     const { assetId } = req.params;
-    const { rows } = await query(`SELECT uploaded_by, file_data FROM edu.assets WHERE id = $1`, [assetId]);
+    const { rows } = await query(`SELECT uploaded_by, file_data, slide_urls FROM edu.assets WHERE id = $1`, [assetId]);
     if (!rows.length) { notFound(res, "Asset not found"); return; }
     // only the uploader can delete their own asset — keeps this simple
     // (no separate "admin can delete anyone's assets" path for now; an
@@ -144,21 +248,24 @@ export async function deleteAsset(req: AuthRequest, res: Response): Promise<void
     if (rows[0].uploaded_by !== req.user!.sub) { forbidden(res, "You didn't upload this asset"); return; }
 
     await query(`DELETE FROM edu.assets WHERE id = $1`, [assetId]);
-    await deleteAssetFile(rows[0].file_data as string); // best-effort — a stale DB row is worse than a stale file
+
+    // best-effort cleanup — a stale DB row is worse than a stale file
+    await deleteAssetFile(rows[0].file_data as string);
+    const slideUrls = rows[0].slide_urls as string[] | null;
+    if (slideUrls) {
+      for (const url of slideUrls) {
+        await deleteAssetFile(url); // file_data(=slideUrls[0]) 会被删两次，deleteAssetFile对不存在的文件是no-op，无所谓
+      }
+    }
+
     ok(res, null, "Deleted");
   } catch (err) { serverError(res, err); }
 }
 
 // ── PPT讲义: 上传 pptx → 后端转成一张一张的幻灯片图片 ──────────────────────────
-// This is a standalone conversion step, not part of createLevel — the
-// designer uploads the pptx here FIRST, sees a preview of the resulting
-// slide images, and only THEN builds the actual Activity (picking
-// Programme/Subject/Topic, naming it, etc.) using the URLs this returns.
-// Same two-step shape as picking an image from AssetPicker before it goes
-// into a module's config — conversion and classification are separate
-// concerns, doesn't make sense to redo a 10-30 second LibreOffice
-// conversion just because the designer changed their mind about which
-// Topic this belongs to.
+// This is a standalone conversion step for the course-authoring "explanation
+// PPT" flow (building an Activity), separate from the asset-library PPT
+// upload above (which now does its own conversion inline in createAsset).
 export async function convertPptToSlides(req: AuthRequest, res: Response): Promise<void> {
   try {
     const { file_data, filename } = req.body as { file_data?: string; filename?: string };

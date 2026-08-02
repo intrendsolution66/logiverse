@@ -5,25 +5,36 @@
 // where non-transparent pixels mark the walkable path. Collision is real
 // pixel sampling from the mask via canvas getImageData.
 //
-// The path the student has WALKED is now marked as a visible trail (small
-// dots left behind as the ball moves) — separate from the designer's mask
-// (which marks what's walkable), this trail marks what's ALREADY BEEN
-// walked, so a student can see their own progress and backtrack visually.
-// Two trail controls: clear the whole trail, or switch to an eraser tool
-// and drag over just the part they want gone — same "tool switches what
-// dragging does" pattern the maze DESIGNER already uses for paint/erase,
-// just applied to the student's own trail instead of the mask.
+// 支持多组"起点→终点"配对——同时有好几个球，每个球各自要从自己的起点
+// 走到自己配对的终点，全部到齐才算过关。旧数据（只有单一 start_x/y、
+// end_x/y，没有 pairs）会自动被当成"只有1对"处理，玩法完全不受影响。
+// 拖动的时候，靠近哪个球（且那个球还没到终点）就拖动哪个，一次只能拖
+// 一个，不需要真的同时多指操作。
+//
+// The path each ball has WALKED is marked as a visible trail (small dots
+// left behind as it moves) — separate from the designer's mask (which
+// marks what's walkable), trails mark what's ALREADY BEEN walked so a
+// student can see their own progress and backtrack visually. Two trail
+// controls: clear all trails, or switch to an eraser tool and drag over
+// just the part they want gone.
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
 
+export interface MazePoint { x: number; y: number }
+export interface MazePair { start: MazePoint; end: MazePoint }
+
 export interface MazeConfig {
   bg_image_url: string;
   mask_image_url: string;
-  start_x: number; start_y: number; // normalized 0..1
+  start_x: number; start_y: number; // 旧栏位——normalized 0..1，pairs为空时当成唯一一对
   end_x: number; end_y: number;
+  // 多组起点/终点配对——同时有好几个球。为空/未设时，退回用上面四个旧
+  // 栏位当成只有一对（向后兼容旧的单球迷宫）。
+  pairs?: MazePair[];
   timer_mode: "stopwatch" | "countdown";
   time_limit?: number | null;
+  question_i18n?: { zh?: string; en?: string };
 }
 export interface MazeResult {
   score: number; max_score: number; time_spent_seconds: number; mistakes: number; completed: boolean;
@@ -34,6 +45,24 @@ const PLAYER_R = 16;
 const END_R = 24;
 const TRAIL_R = 6;
 const ERASE_R = 26;
+const GRAB_R = PLAYER_R * 2;
+// 球数量多的时候用不同颜色区分是哪个球对哪个终点，第1对固定用原本的
+// 橙色/绿色配色（视觉上跟旧的单球迷宫保持一致），第2对开始才用新颜色。
+const BALL_COLORS = ["#ff7a59", "#5b8def", "#a855f7", "#f59e0b", "#14b8a6", "#ec4899", "#84cc16", "#06b6d4"];
+const END_COLORS = ["#2e9e5b", "#3b6fd8", "#8b3fd8", "#c2760a", "#0e8f7a", "#c22a70", "#5a8a10", "#0891a8"];
+
+interface Ball {
+  id: number;
+  start: MazePoint; end: MazePoint; // 像素坐标（已经乘过 W/H）
+  pos: { x: number; y: number };
+  trail: { x: number; y: number }[];
+  done: boolean;
+}
+
+function normalizePairs(config: MazeConfig): MazePair[] {
+  if (config.pairs && config.pairs.length > 0) return config.pairs;
+  return [{ start: { x: config.start_x, y: config.start_y }, end: { x: config.end_x, y: config.end_y } }];
+}
 
 export default function MazeGame({ config, onComplete }: {
   config: MazeConfig; onComplete: (r: MazeResult) => void;
@@ -43,18 +72,28 @@ export default function MazeGame({ config, onComplete }: {
   const bgImgRef = useRef<HTMLImageElement | null>(null);
   const maskImgRef = useRef<HTMLImageElement | null>(null);
   const [imagesLoaded, setImagesLoaded] = useState(false);
-  const [playerPos, setPlayerPos] = useState({ x: 0, y: 0 });
-  const [trail, setTrail] = useState<{ x: number; y: number }[]>([]);
+
+  const pairs = normalizePairs(config);
+  const [balls, setBalls] = useState<Ball[]>(() =>
+    pairs.map((p, i) => {
+      const start = { x: p.start.x * W, y: p.start.y * H };
+      const end = { x: p.end.x * W, y: p.end.y * H };
+      return { id: i, start, end, pos: start, trail: [start], done: false };
+    })
+  );
+  const [activeBallId, setActiveBallId] = useState<number | null>(null);
   const [tool, setTool] = useState<"move" | "erase">("move");
   const [dragging, setDragging] = useState(false);
-  const [bumps, setBumps] = useState(0); // tried to move off-path
+  const [bumps, setBumps] = useState(0); // 试图走到不能走的地方，累计所有球的次数
   const [elapsed, setElapsed] = useState(0);
   const [finished, setFinished] = useState(false);
-  const [status, setStatus] = useState("拖着小球，沿着走得通的路走到终点吧！");
+  const [status, setStatus] = useState(
+    config.question_i18n?.zh || config.question_i18n?.en ||
+    (pairs.length > 1 ? `拖着每个小球，各自走到自己颜色对应的终点吧！（共 ${pairs.length} 个）` : "拖着小球，沿着走得通的路走到终点吧！")
+  );
 
   const startRef = useRef(Date.now());
-  const startPx = { x: config.start_x * W, y: config.start_y * H };
-  const endPx = { x: config.end_x * W, y: config.end_y * H };
+  const offPathRef = useRef(false); // 上一帧在不在路上，用来判断"刚踩出去"那一瞬间，不是每一帧都算
 
   useEffect(() => {
     let loaded = 0;
@@ -74,8 +113,6 @@ export default function MazeGame({ config, onComplete }: {
     mask.src = config.mask_image_url;
     maskImgRef.current = mask;
 
-    setPlayerPos(startPx);
-    setTrail([startPx]);
     startRef.current = Date.now();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.bg_image_url, config.mask_image_url]);
@@ -91,12 +128,13 @@ export default function MazeGame({ config, onComplete }: {
   const finish = useCallback((completed: boolean) => {
     setFinished(true);
     onComplete({
-      score: completed ? 1 : 0, max_score: 1,
+      score: completed ? 1 : balls.filter((b) => b.done).length / balls.length,
+      max_score: 1,
       time_spent_seconds: (Date.now() - startRef.current) / 1000,
       mistakes: bumps, completed,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bumps]);
+  }, [bumps, balls]);
 
   useEffect(() => {
     if (finished || !imagesLoaded) return;
@@ -120,25 +158,41 @@ export default function MazeGame({ config, onComplete }: {
         ctx.clearRect(0, 0, W, H);
         ctx.drawImage(bgImgRef.current, 0, 0, W, H);
 
-        // walked trail — small translucent dots, drawn UNDER the player/end markers
-        ctx.fillStyle = "rgba(255,122,89,0.45)";
-        trail.forEach((p) => { ctx.beginPath(); ctx.arc(p.x, p.y, TRAIL_R, 0, Math.PI * 2); ctx.fill(); });
+        balls.forEach((b, i) => {
+          const ballColor = BALL_COLORS[i % BALL_COLORS.length];
+          const endColor = END_COLORS[i % END_COLORS.length];
 
-        ctx.beginPath(); ctx.arc(endPx.x, endPx.y, END_R, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(46,158,91,0.85)"; ctx.fill();
-        ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
-        ctx.font = "26px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#fff";
-        ctx.fillText("🏁", endPx.x, endPx.y + 9);
+          // 走过的路——半透明小点，画在球/终点标记底下
+          ctx.fillStyle = hexToRgba(ballColor, 0.4);
+          b.trail.forEach((p) => { ctx.beginPath(); ctx.arc(p.x, p.y, TRAIL_R, 0, Math.PI * 2); ctx.fill(); });
 
-        ctx.beginPath(); ctx.arc(playerPos.x, playerPos.y, PLAYER_R, 0, Math.PI * 2);
-        ctx.fillStyle = "#ff7a59"; ctx.fill();
-        ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+          // 终点标记
+          ctx.beginPath(); ctx.arc(b.end.x, b.end.y, END_R, 0, Math.PI * 2);
+          ctx.fillStyle = hexToRgba(endColor, 0.9); ctx.fill();
+          ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+          ctx.font = "22px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#fff";
+          ctx.fillText(b.done ? "✅" : "🏁", b.end.x, b.end.y + 8);
+
+          // 球本身——已完成的球画淡一点，视觉上区分"还要不要管它"
+          ctx.save();
+          if (b.done) ctx.globalAlpha = 0.55;
+          ctx.beginPath(); ctx.arc(b.pos.x, b.pos.y, PLAYER_R, 0, Math.PI * 2);
+          ctx.fillStyle = ballColor; ctx.fill();
+          ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+          ctx.restore();
+        });
       }
       raf = requestAnimationFrame(draw);
     };
     draw();
     return () => cancelAnimationFrame(raf);
-  }, [imagesLoaded, playerPos, trail, endPx.x, endPx.y]);
+  }, [imagesLoaded, balls]);
+
+  function hexToRgba(hex: string, alpha: number) {
+    const m = hex.replace("#", "");
+    const r = parseInt(m.slice(0, 2), 16), g = parseInt(m.slice(2, 4), 16), b = parseInt(m.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
 
   function toCanvasXY(e: React.PointerEvent<HTMLCanvasElement>) {
     const rect = canvasRef.current!.getBoundingClientRect();
@@ -150,45 +204,90 @@ export default function MazeGame({ config, onComplete }: {
     if (finished) return;
     const { x, y } = toCanvasXY(e);
     if (tool === "erase") { setDragging(true); eraseTrailNear(x, y); return; }
-    if (Math.hypot(x - playerPos.x, y - playerPos.y) < PLAYER_R * 2) setDragging(true);
+    // 找离点击位置最近、还没到终点的球，且要在抓取范围内——避免隔着老远
+    // 不小心抓到别的球
+    let nearest: Ball | null = null, nearestDist = Infinity;
+    for (const b of balls) {
+      if (b.done) continue;
+      const d = Math.hypot(x - b.pos.x, y - b.pos.y);
+      if (d < GRAB_R && d < nearestDist) { nearest = b; nearestDist = d; }
+    }
+    if (nearest) { setActiveBallId(nearest.id); setDragging(true); offPathRef.current = false; }
   }
 
   function eraseTrailNear(x: number, y: number) {
-    setTrail((t) => t.filter((p) => Math.hypot(p.x - x, p.y - y) > ERASE_R));
+    setBalls((bs) => bs.map((b) => ({ ...b, trail: b.trail.filter((p) => Math.hypot(p.x - x, p.y - y) > ERASE_R) })));
   }
 
   function handlePointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
     if (!dragging || finished) return;
     const { x, y } = toCanvasXY(e);
     if (tool === "erase") { eraseTrailNear(x, y); return; }
-    if (isWalkable(x, y)) {
-      setPlayerPos({ x, y });
-      setTrail((t) => [...t, { x, y }]);
-      setStatus("继续沿着路走～");
-      if (Math.hypot(x - endPx.x, y - endPx.y) < END_R) {
-        setDragging(false);
-        setStatus("🎉 到达终点！");
-        setTimeout(() => finish(true), 400);
+    if (activeBallId === null) return;
+
+    // 真的拦截——不能直接把球丢到指针位置，得沿着"上一个位置→指针位置"
+    // 这条线一小步一小步检查，走到第一个不能走的点就停在最后一个还合
+    // 法的点，跟真的撞墙一样。分成 STEPS 份检查而不是只看端点，是因为
+    // 拖得快的时候两次 pointermove 之间指针可能已经跳过了墙那么远，
+    // 只看终点会让球"穿墙"过去；沿路径插值检查才不会漏掉中间那堵墙。
+    const STEPS = 20;
+    setBalls((bs) => {
+      const ball = bs.find((b) => b.id === activeBallId);
+      if (!ball) return bs;
+      const from = ball.pos;
+      let landing = from;
+      let hitWall = false;
+      for (let i = 1; i <= STEPS; i++) {
+        const t = i / STEPS;
+        const px = from.x + (x - from.x) * t;
+        const py = from.y + (y - from.y) * t;
+        if (isWalkable(px, py)) {
+          landing = { x: px, y: py };
+        } else {
+          hitWall = true;
+          break;
+        }
       }
-    } else {
-      setBumps((b) => b + 1);
-      setStatus("这里走不通哦，往回一点试试～");
-    }
+
+      if (hitWall && !offPathRef.current) {
+        setBumps((n) => n + 1);
+        setStatus("撞墙了，沿着路走走看～");
+      }
+      offPathRef.current = hitWall;
+
+      const next = bs.map((b) => {
+        if (b.id !== activeBallId) return b;
+        const reachedEnd = Math.hypot(landing.x - b.end.x, landing.y - b.end.y) < END_R;
+        return { ...b, pos: landing, trail: [...b.trail, landing], done: reachedEnd || b.done };
+      });
+      const allDone = next.every((b) => b.done);
+      if (allDone) {
+        setDragging(false);
+        setStatus("🎉 全部到达终点！");
+        setTimeout(() => finish(true), 400);
+      } else if (!hitWall) {
+        const justFinished = next.find((b) => b.id === activeBallId)?.done && !bs.find((b) => b.id === activeBallId)?.done;
+        setStatus(justFinished ? "🎉 这个球到了！还有别的球没到～" : "继续沿着路走～");
+      }
+      return next;
+    });
   }
 
-  function handlePointerUp() { setDragging(false); }
-  function clearTrail() { setTrail([playerPos]); }
+  function handlePointerUp() { setDragging(false); setActiveBallId(null); }
+  function clearTrail() { setBalls((bs) => bs.map((b) => ({ ...b, trail: [b.pos] }))); }
 
   const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
+  const doneCount = balls.filter((b) => b.done).length;
 
   if (finished) {
     return (
       <div className="text-center py-10">
         <div className="text-6xl">🏁</div>
         <div className="text-xl font-semibold mt-3 text-foreground">
-          {status.includes("到达") ? `走到终点了！用时 ${timerValue.toFixed(1)} 秒` : "时间到"}
+          {doneCount === balls.length ? `全部走到终点了！用时 ${timerValue.toFixed(1)} 秒` : `时间到，完成 ${doneCount} / ${balls.length} 个`}
         </div>
+        <div className="text-sm text-muted-foreground mt-1">💥 一共撞墙 {bumps} 次</div>
       </div>
     );
   }
@@ -196,7 +295,7 @@ export default function MazeGame({ config, onComplete }: {
   return (
     <div className="max-w-5xl mx-auto w-full">
       <div className="flex justify-between items-center text-base font-medium text-muted-foreground mb-3 flex-wrap gap-2">
-        <span>🧭 走迷宫</span>
+        <span>🧭 走迷宫{balls.length > 1 ? `　${doneCount}/${balls.length}` : ""}</span>
         <div className="flex items-center gap-2">
           <div className="flex gap-1.5">
             <button
@@ -215,6 +314,7 @@ export default function MazeGame({ config, onComplete }: {
               🗑️ 全部清除
             </button>
           </div>
+          <span>💥 撞墙 {bumps} 次</span>
           <span>⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
         </div>
       </div>

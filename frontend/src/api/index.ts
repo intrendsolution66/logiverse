@@ -21,6 +21,13 @@ export const authApi = {
   logout:     (refreshToken?: string) => api.post("/auth/logout", { refreshToken }),
   logoutAll:  () => api.post("/auth/logout-all"),
   me:         () => api.get("/auth/me").then(d<User>),
+  // 用户自己更新自己的资料——跟userApi/adminUserDetailApi那些operator改
+  // 别人资料的接口不一样，这个不接受userId，只能改当前登录的自己
+  updateMe: (b: {
+    full_name_zh?: string; full_name_en?: string; preferred_name?: string; avatar_url?: string; bio?: string;
+    gender_code?: string; date_of_birth?: string; nationality_code?: string; language_code?: string; timezone?: string;
+    email?: string; mobile?: string;
+  }) => api.put("/auth/me", b),
   changePassword: (b: object) => api.put("/auth/change-password", b),
   submitVerification: (b: object) => api.post("/auth/verification", b),
   getVerification:    () => api.get("/auth/verification").then(d<unknown>),
@@ -61,9 +68,12 @@ export const taxonomyApi = {
   createProgramme: (b: { code: string; name_zh: string; name_en?: string; description?: string }) => api.post("/programmes", b),
   updateProgramme: (id: string, b: { name_zh?: string; name_en?: string; description?: string }) => api.patch(`/programmes/${id}`, b),
   deleteProgramme: (id: string) => api.delete(`/programmes/${id}`),
-  listSubjects: (programmeId?: string) => api.get("/subjects", { params: programmeId ? { programme_id: programmeId } : {} }).then(d<Array<{ id: string; programme_id: string; code: string; name_zh: string; name_en?: string }>>),
-  createSubject: (b: { programme_id: string; code: string; name_zh: string; name_en?: string }) => api.post("/subjects", b),
-  updateSubject: (id: string, b: { name_zh?: string; name_en?: string }) => api.patch(`/subjects/${id}`, b),
+  listSubjects: (programmeId?: string) => api.get("/subjects", { params: programmeId ? { programme_id: programmeId } : {} }).then(d<Array<{ id: string; programme_id?: string; code: string; name_zh: string; name_en?: string; prefix?: string }>>),
+  // programme_id 选填——可以先建 Subject，之后再透过 updateSubject 补上归属；
+  // prefix 现在会接进实际的 Activity 编号（Subject前缀-Topic前缀-Group代号-
+  // 流水号），新建时必填。
+  createSubject: (b: { programme_id?: string; code: string; name_zh: string; name_en?: string; prefix: string }) => api.post("/subjects", b),
+  updateSubject: (id: string, b: { name_zh?: string; name_en?: string; programme_id?: string; prefix?: string }) => api.patch(`/subjects/${id}`, b),
   deleteSubject: (id: string) => api.delete(`/subjects/${id}`),
 };
 
@@ -76,7 +86,9 @@ export const settingsApi = {
 // ── 习题分类 (exercise classification) ─────────────────────────────────────────
 export const exerciseClassificationApi = {
   listCategories: (subjectId?: string) => api.get("/exercise-categories", { params: subjectId ? { subject_id: subjectId } : {} }).then(d<Array<{ id: string; code: string; name_zh: string; name_en?: string; prefix: string; subject_id?: string }>>),
-  createCategory: (b: { code: string; name_zh: string; name_en?: string; prefix: string; subject_id?: string }) => api.post("/exercise-categories", b),
+  // code 不用传了——后端自动生成一个 UUID 当内部唯一键，跟真正会出现在
+  // 编号里的 prefix 是两回事。
+  createCategory: (b: { name_zh: string; name_en?: string; prefix: string; subject_id?: string }) => api.post("/exercise-categories", b),
   updateCategory: (id: string, b: { name_zh?: string; name_en?: string; prefix?: string; subject_id?: string }) => api.patch(`/exercise-categories/${id}`, b),
   deleteCategory: (id: string) => api.delete(`/exercise-categories/${id}`),
   listGroups: (categoryId?: string) => api.get("/exercise-groups", { params: categoryId ? { category_id: categoryId } : {} }).then(d<Array<{ id: string; category_id: string; code: string; name_zh: string; name_en?: string }>>),
@@ -93,6 +105,9 @@ export const lessonsApi = {
   }>>),
   createLesson: (courseId: string, b: { title_i18n: Record<string,string>; order_index?: number }) =>
     api.post(`/courses/${courseId}/lessons`, b),
+  updateLesson: (lessonId: string, b: { title_i18n?: Record<string,string>; order_index?: number }) =>
+    api.patch(`/lessons/${lessonId}`, b),
+  deleteLesson: (lessonId: string) => api.delete(`/lessons/${lessonId}`),
   getLesson: (lessonId: string) => api.get(`/lessons/${lessonId}`).then(d<{
     id: string; course_id: string; title_i18n: Record<string,string>; order_index: number;
     steps: Array<{
@@ -109,24 +124,103 @@ export const lessonsApi = {
 
 // ── Asset library (素材库) ─────────────────────────────────────────────────────
 export const assetsApi = {
-  listAssets: (params?: { category?: string; search?: string; module_type?: string; tag?: string; page?: number; limit?: number }) =>
+  listAssets: (params?: { category?: string; search?: string; module_type?: string; tag?: string; usage_context?: string; parent_preview?: boolean; sort?: "name" | "category" | "created_at"; order?: "asc" | "desc"; page?: number; limit?: number }) =>
     api.get("/assets", { params }).then((res) => ({
       data: res.data.data as Array<{
         id: string; category: string; name?: string; width?: number; height?: number; created_at: string;
         module_type?: string; grade_tier_id?: string; grade_tier_code?: string; language?: string; tags: string[];
+        usage_contexts?: string[]; parent_preview_enabled?: boolean; parent_preview_seconds?: number;
       }>,
       meta: res.data.meta as { page: number; limit: number; total: number; totalPages: number },
     })),
   listAllTags: () => api.get("/assets/tags").then(d<string[]>),
   getAsset: (assetId: string) => api.get(`/assets/${assetId}`).then(d<{
-    id: string; category: string; name?: string; file_data: string; width?: number; height?: number;
+    id: string; category: string; name?: string; file_data: string; slide_urls?: string[] | null; width?: number; height?: number;
     module_type?: string; grade_tier_id?: string; language?: string; tags: string[];
+    usage_contexts?: string[]; parent_preview_enabled?: boolean; parent_preview_seconds?: number;
   }>),
   createAsset: (b: {
     category: string; name?: string; file_data: string; width?: number; height?: number;
     module_type?: string; grade_tier_id?: string; language?: string; tags?: string[];
+    usage_contexts?: string[]; parent_preview_enabled?: boolean; parent_preview_seconds?: number;
   }) => api.post<{ data: { id: string; file_data: string } }>("/assets", b),
+  // 编辑已上传素材的元数据——不改文件本身，只改名称/标签/等级/使用场景/
+  // 家长预览这几个"标注类"栏位。parent_preview_seconds 传 null 表示"清空
+  // 秒数限制"，不传（undefined）表示"不动这个栏位"。
+  updateAsset: (assetId: string, b: {
+    name?: string; module_type?: string; grade_tier_id?: string; language?: string; tags?: string[];
+    usage_contexts?: string[]; parent_preview_enabled?: boolean; parent_preview_seconds?: number | null;
+  }) => api.put(`/assets/${assetId}`, b),
   deleteAsset: (assetId: string) => api.delete(`/assets/${assetId}`),
+};
+
+// ── Asset chunk upload (大文件分片上传，目前用于视频素材) ──────────────────────
+export const assetChunkUploadApi = {
+  init: (b: { fileName: string; fileSize: number; totalChunks: number; mimeType: string }) =>
+    api.post("/assets/chunk-upload/init", b).then(d<{ uploadId: string }>),
+  status: (uploadId: string) =>
+    api.get(`/assets/chunk-upload/${uploadId}/status`).then(d<{ receivedChunks: number[] }>),
+  uploadChunk: (uploadId: string, chunkIndex: number, chunk: Blob) => {
+    const formData = new FormData();
+    formData.append("chunk", chunk);
+    // 注意：不要手动设置 Content-Type，让浏览器/axios自动带上multipart的boundary
+    return api.post(`/assets/chunk-upload/${uploadId}/chunk/${chunkIndex}`, formData, {
+      headers: { "Content-Type": undefined },
+    });
+  },
+  complete: (uploadId: string) =>
+    api.post(`/assets/chunk-upload/${uploadId}/complete`).then(d<{ url: string; mimeType: string }>),
+};
+
+// ── 学生模式选择 / 订阅状态 ──────────────────────────────────────────────────
+export const studentModeApi = {
+  getModes: () => api.get("/student/modes").then(d<{ hasActiveSubscription: boolean; gradeTierId: string | null }>),
+};
+
+// ── Discovery 模式 (Programme → Topic → Activity，数据源是 course_levels) ─────
+export const discoveryApi = {
+  listTopics: (programmeId: string) => api.get("/discovery/topics", { params: { programme_id: programmeId } }).then(d<Array<{
+    id: string; name_zh: string; name_en?: string; subject_name_zh?: string; activity_count: number;
+  }>>),
+  listActivities: (categoryId: string) => api.get("/discovery/activities", { params: { category_id: categoryId } }).then(d<Array<{
+    id: string; exercise_number?: string; title_i18n?: Record<string, string>; module_type: string;
+    difficulty?: string; duration_minutes?: number;
+    completed?: boolean; score?: number; max_score?: number; played_at?: string;
+  }>>),
+};
+
+// ── Self Guided Learning (Course → Lesson → 步骤，按序学习) ────────────────────
+export const selfGuidedApi = {
+  listCourses: () => api.get("/self-guided/courses").then(d<Array<{
+    id: string; title_i18n: Record<string, string>; description_i18n?: Record<string, string>; age_group?: string; lesson_count: number;
+  }>>),
+  listLessons: (courseId: string) => api.get(`/self-guided/courses/${courseId}/lessons`).then(d<Array<{
+    id: string; title_i18n: Record<string, string>; order_index: number; step_count: number;
+  }>>),
+  getLesson: (lessonId: string) => api.get(`/self-guided/lessons/${lessonId}`).then(d<{
+    id: string; course_id: string; title_i18n: Record<string, string>; order_index: number;
+    steps: Array<{
+      id: string; order_index: number; step_type: "video" | "ppt" | "level";
+      media_url?: string; media_title?: string;
+      course_level_id?: string; level_title_i18n?: Record<string, string>; module_type?: string;
+    }>;
+  }>),
+};
+
+// ── Lesson步骤进度 (只服务 lesson_steps 里没有 course_level_id 的 video/ppt 步骤；
+//    Discovery 和 Lesson里的 level 步骤走的是下面 eduApi.submitProgress，跟这里无关) ──
+export const mediaProgressApi = {
+  submit: (b: {
+    lesson_step_id: string; media_type: "video" | "ppt";
+    seconds_watched?: number; duration_seconds?: number;
+    last_slide_index?: number; total_slides?: number;
+    completed?: boolean;
+  }) => api.post("/media-progress", b).then(d<{ id: string; completed: boolean; seconds_watched?: number; last_slide_index?: number; view_count: number }>),
+  get: (lessonStepId: string) =>
+    api.get("/media-progress", { params: { lessonStepId } }).then(d<{
+      id: string; completed: boolean; seconds_watched?: number; duration_seconds?: number;
+      last_slide_index?: number; total_slides?: number; view_count: number;
+    } | null>),
 };
 
 // ── 学生小组 (student groups) ──────────────────────────────────────────────────
@@ -164,6 +258,26 @@ export const adminUsersApi = {
     })),
   updateStudentEnrollment: (studentId: string, enrollment_type: string) =>
     api.patch(`/admin/students/${studentId}/enrollment`, { enrollment_type }),
+  // 延长学生订阅——不管原本是试用中/已过期/被取消，统一给N天的使用权限
+  extendStudentSubscription: (studentId: string, days: number) =>
+    api.post(`/admin/students/${studentId}/extend-subscription`, { days }),
+  // operator 专用——全平台学习记录，不受"只能看自己/自己孩子/自己班级"
+  // 限制，可以按学生/Activity/模块类型/完成状态/日期区间筛选
+  listAllProgressRecords: (params: {
+    search?: string; student_id?: string; module_type?: string; completed?: boolean;
+    date_from?: string; date_to?: string; page?: number; limit?: number;
+  }) => api.get("/admin/progress-records", { params }).then((res) => ({
+    data: res.data.data as Array<{
+      id: string; played_at: string; module_type: string; score: number; max_score: number;
+      time_spent_seconds: number; mistakes: number; completed: boolean; attempt_number?: number;
+      student_id: string; username: string; full_name_zh?: string; full_name_en?: string; role_codes: string[];
+      course_level_id?: string; level_title_i18n?: Record<string, string>; exercise_number?: string;
+    }>,
+    meta: res.data.meta as { page: number; limit: number; total: number; totalPages: number },
+  })),
+  // 跟延长订阅相反——把这个学生正在订阅中的状态直接改成过期
+  expireStudentSubscription: (studentId: string) =>
+    api.post(`/admin/students/${studentId}/expire-subscription`),
   listTeachers: (params?: { search?: string; sort?: string; order?: "asc"|"desc"; page?: number; limit?: number }) =>
     api.get("/admin/teachers", { params }).then((res) => ({
       data: res.data.data as Array<{
@@ -208,6 +322,11 @@ export const adminUserDetailApi = {
   }>),
   update: (userId: string, b: { full_name_zh?: string; full_name_en?: string; email?: string }) => api.patch(`/admin/users/${userId}`, b),
   deactivate: (userId: string) => api.delete(`/admin/users/${userId}`),
+  // 封锁/解封——跟deactivate（软删除）不一样，这个是可逆的，账号资料都
+  // 还在，只是不能登录。跟"登录失败太多次自动锁定"也不一样，不会自动
+  // 解除，只能operator自己解封。
+  block: (userId: string) => api.post(`/admin/users/${userId}/block`),
+  unblock: (userId: string) => api.post(`/admin/users/${userId}/unblock`),
   linkGuardian: (parentUserId: string, studentUserId: string) =>
     api.post("/admin/guardian-relationships", { parent_user_id: parentUserId, student_user_id: studentUserId }),
   unlinkGuardian: (parentUserId: string, studentUserId: string) =>
@@ -293,6 +412,11 @@ export const eduApi = {
     })),
   createCourse: (b: { title_i18n: Record<string,string>; description_i18n?: Record<string,string>; age_group?: string; grade_tier_id: string }) =>
     api.post("/courses", b),
+  updateCourse: (courseId: string, b: { title_i18n?: Record<string,string>; description_i18n?: Record<string,string>; age_group?: string; grade_tier_id?: string }) =>
+    api.patch(`/courses/${courseId}`, b),
+  // force=true：Activity 保留、只解除跟这门课的关联；课时(Lesson)连同
+  // 底下的步骤一起级联删掉。不传的话，底下还有 Activity/课时会被拦下来。
+  deleteCourse: (courseId: string, force?: boolean) => api.delete(`/courses/${courseId}`, { params: force ? { force: "true" } : {} }),
   listLevels: (courseId: string) => api.get(`/courses/${courseId}/levels`).then(d<Array<{
     id:string; order_index:number; module_type:string; title_i18n?:Record<string,string>;
     exercise_number?: string; category_id?: string; group_id?: string; curriculum_type_id?: string;
@@ -315,21 +439,41 @@ export const eduApi = {
       id: string; course_id: string; module_type: string; title_i18n?: Record<string,string>;
       exercise_number?: string; created_at: string;
       course_title_i18n?: Record<string,string>;
-      programme_id?: string; programme_name_zh?: string;
-      subject_id?: string; subject_name_zh?: string;
-      category_id?: string; topic_name_zh?: string;
+      // 一个 Activity 现在可以同时挂好几个 Topic（多对多），后端回传的
+      // 是这个 Activity 挂着的全部 Topic，不再是单一一个。
+      topics: Array<{
+        category_id: string; topic_name_zh?: string;
+        subject_id?: string; subject_name_zh?: string;
+        programme_id?: string; programme_name_zh?: string;
+      }>;
     }>,
     meta: res.data.meta as { page: number; limit: number; total: number; totalPages: number },
   })),
   createLevel: (courseId: string, b: {
     module_type: string; order_index?: number; title_i18n?: Record<string,string>; config: object;
     explanation_text?: string; explanation_image_url?: string; explanation_video_url?: string;
-    category_id?: string; group_id?: string; curriculum_type_id?: string; hint_text?: string; audio_url?: string;
+    // category_id 是旧的单一栏位（向后兼容），category_ids 是新的多选——
+    // 一个 Activity 现在可以同时挂好几个 Topic。两个都传的话后端以
+    // category_ids 为准。
+    category_id?: string; category_ids?: string[]; group_id?: string; curriculum_type_id?: string; hint_text?: string; audio_url?: string;
     activity_type?: string; teaching_modes?: string[]; difficulty?: string;
     age_group_min?: number; age_group_max?: number; duration_minutes?: number;
     learning_outcomes?: string; skills_developed?: string[]; language?: string; tags?: string[];
   }) =>
     api.post(`/courses/${courseId}/levels`, b),
+  // 独立建 Activity，不需要先有 Course——底层是 POST /activities，跟
+  // createLevel 是同一个后端函数，courseId 从这里的可选栏位读（不传就是
+  // 完全不挂在任何 Course 底下）。
+  createActivity: (b: {
+    module_type: string; order_index?: number; title_i18n?: Record<string,string>; config: object;
+    explanation_text?: string; explanation_image_url?: string; explanation_video_url?: string;
+    category_id?: string; category_ids?: string[]; group_id?: string; curriculum_type_id?: string; hint_text?: string; audio_url?: string;
+    activity_type?: string; teaching_modes?: string[]; difficulty?: string;
+    age_group_min?: number; age_group_max?: number; duration_minutes?: number;
+    learning_outcomes?: string; skills_developed?: string[]; language?: string; tags?: string[];
+    course_id?: string;
+  }) =>
+    api.post(`/activities`, b),
   getLevel: (levelId: string) => api.get(`/levels/${levelId}`).then(d<{
     id:string; module_type:string; title_i18n?:Record<string,string>; config: Record<string, unknown>;
     explanation_text?: string; explanation_image_url?: string; explanation_video_url?: string;
@@ -343,14 +487,14 @@ export const eduApi = {
     id:string; module_type:string; title_i18n?:Record<string,string>; config: Record<string, unknown>;
     explanation_text?: string; explanation_image_url?: string; explanation_video_url?: string;
     hint_text?: string; audio_url?: string; exercise_number?: string;
-    category_id?: string; group_id?: string; curriculum_type_id?: string;
+    category_id?: string; category_ids?: string[]; group_id?: string; curriculum_type_id?: string;
     activity_type?: string; teaching_modes?: string[]; difficulty?: string;
     age_group_min?: number; age_group_max?: number; duration_minutes?: number;
     learning_outcomes?: string; skills_developed?: string[]; language?: string; tags?: string[];
   }>),
   updateLevel: (levelId: string, b: {
     title_i18n?: Record<string,string>; config?: object; explanation_text?: string; explanation_image_url?: string; explanation_video_url?: string;
-    hint_text?: string; audio_url?: string; category_id?: string; group_id?: string; curriculum_type_id?: string;
+    hint_text?: string; audio_url?: string; category_id?: string; category_ids?: string[]; group_id?: string; curriculum_type_id?: string;
     activity_type?: string; teaching_modes?: string[]; difficulty?: string;
     age_group_min?: number; age_group_max?: number; duration_minutes?: number;
     learning_outcomes?: string; skills_developed?: string[]; language?: string; tags?: string[];
@@ -370,6 +514,34 @@ export const eduApi = {
     time_spent_seconds: number; mistakes: number; completed: boolean; extra_data?: object;
   }) => api.post(`/levels/${levelId}/progress`, b),
   myProgress: () => api.get("/progress/me").then(d<unknown[]>),
+
+  // ── 家长预览 (订阅前，按课程分组的版本——目前前端还没接，先留着) ──────────
+  listParentPreviewCourses: () => api.get("/parent-preview/courses").then(d<Array<{
+    id: string; title_i18n?: Record<string,string>; description_i18n?: Record<string,string>;
+    age_group?: string; grade_tier_id?: string; grade_tier_name_i18n?: Record<string,string>;
+    preview_assets: Array<{ id: string; category: string; name?: string; file_data: string; slide_urls?: string[]; parent_preview_seconds?: number }>;
+    preview_activities: Array<{ id: string; title_i18n?: Record<string,string>; module_type: string; difficulty?: string }>;
+  }>>),
+  getParentPreviewCourse: (courseId: string) => api.get(`/parent-preview/courses/${courseId}`).then(d<{
+    id: string; title_i18n?: Record<string,string>; description_i18n?: Record<string,string>;
+    age_group?: string; grade_tier_id?: string; grade_tier_name_i18n?: Record<string,string>;
+    preview_assets: Array<{ id: string; category: string; name?: string; file_data: string; slide_urls?: string[]; parent_preview_seconds?: number }>;
+    preview_activities: Array<{ id: string; title_i18n?: Record<string,string>; module_type: string; difficulty?: string }>;
+  }>),
+
+  // ── 家长预览 (Topic 浏览版——ParentPreviewPage.tsx 实际在用的) ────────────────
+  listParentPreviewTopics: (params: { programme_id?: string; subject_id?: string; grade_tier_id?: string }) =>
+    api.get("/parent-preview/topics", { params }).then(d<Array<{
+      id: string; name_zh: string; name_en?: string;
+      subject_id: string; subject_name_zh: string;
+      programme_id: string; programme_name_zh: string;
+      activity_count: number;
+    }>>),
+  listParentPreviewActivities: (categoryId: string, params?: { grade_tier_id?: string }) =>
+    api.get("/parent-preview/activities", { params: { category_id: categoryId, ...params } }).then(d<Array<{
+      id: string; exercise_number?: string; title_i18n?: Record<string,string>;
+      module_type: string; difficulty?: string; duration_minutes?: number;
+    }>>),
 };
 
 // ── Orgs (school/branch) ──────────────────────────────────────────────────────
@@ -392,4 +564,16 @@ export const orgApi = {
   getSettings:  (orgId: string) => api.get(`/orgs/${orgId}/settings`).then(d<unknown[]>),
   setSetting:   (orgId: string, key: string, b: object) => api.put(`/orgs/${orgId}/settings/${key}`, b),
   getAuditLogs: (orgId: string, params?: object) => api.get(`/orgs/${orgId}/audit-logs`, { params }),
+};
+
+export const dataCleanupApi = {
+  listPlayedActivities: () => api.get("/admin/cleanup/played-activities").then(d<Array<{
+    id: string; module_type: string; title_i18n?: Record<string,string>; exercise_number?: string;
+    play_count: number; student_count: number; last_played_at?: string;
+    assignment_count: number; lesson_step_count: number; topic_count: number;
+  }>>),
+  purgeOne: (levelId: string) => api.delete(`/admin/cleanup/activities/${levelId}`),
+  purgeBulk: (levelIds: string[]) => api.post("/admin/cleanup/activities/bulk-delete", { level_ids: levelIds }).then(d<{
+    deleted: number; failed: string[]; total: number;
+  }>),
 };

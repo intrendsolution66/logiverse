@@ -1,16 +1,13 @@
 // frontend/src/games/CountingGame.tsx
 //
-// The 点点数数 (counting) engine, ported from the standalone HTML prototype
-// into a real React component. This is the FIRST module wired all the way
-// through the real stack (Phase 1 pilot) — the pattern here (accept a typed
-// `config` prop matching the backend's counting_configs shape, call
-// `onComplete` with the play-session summary when done) is what every other
-// module's engine component will follow as they get ported in Phase 2.
-//
-// Deliberately kept to "select" mode + emoji themes for this first pass —
-// the prototype's "tap" mode and custom-icon-upload are config knobs the
-// course designer sets, not something this component needs to re-implement
-// from scratch; they slot in the same way once the designer UI supports them.
+// 改动集中在 CustomSceneCountingGame：
+// - CountingConfig.positions 每项加了可选的 `type`（对应 SceneEditor 里
+//   物件打的"类型"标签，比如"苹果"）
+// - CountingConfig 加了 `target_types`：这一题实际要问的类型集合，由
+//   课程设计师在 CourseDesignerPage 里勾选
+// - 答案不再是 positions.length（全部物件总数），而是"target_types 里
+//   这几种类型加起来有几个"；如果 target_types 没设（旧数据，或设计师
+//   压根没给物件打类型），退回原本"数全部"的行为，不影响已有的Activity
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
@@ -25,20 +22,16 @@ export interface CountingConfig {
   total_questions: number;
   timer_mode: "stopwatch" | "countdown";
   time_limit?: number | null;
-  // 自定义画面 (authored scene) — a fixed single scene instead of random
-  // generation: designer places objects at exact positions on a background,
-  // matching how focus_tap's custom mode works. mode="custom_scene" and a
-  // non-empty positions array together turn this on; otherwise this
-  // component behaves exactly as before (random count within min/max).
-  //
-  // Each position can now carry its OWN image_url + rotation + size (每个
-  //物件可以是不同图案，能旋转) — image_url is optional per-position for
-  // backward compat with OLD custom_scene exercises, which only ever had
-  // one shared custom_icon_url repeated at bare {x,y} positions.
   mode?: "random" | "custom_scene";
   bg_image_url?: string | null;
-  positions?: { x: number; y: number; image_url?: string; w?: number; h?: number; rotation?: number }[];
-  texts?: { text: string; x: number; y: number; fontSize: number; color: string; fontFamily: string; rotation: number }[];
+  positions?: { x: number; y: number; image_url?: string; w?: number; h?: number; rotation?: number; type?: string; flip_x?: boolean; flip_y?: boolean }[];
+  texts?: { text: string; x: number; y: number; fontSize: number; color: string; fontFamily: string; rotation: number; bold?: boolean; italic?: boolean; underline?: boolean }[];
+  // 这一题要问哪几种物件类型的和——不设或空数组时，退回"数全部物件"的
+  // 旧行为（向后兼容没有打类型标签的旧Activity）。
+  target_types?: string[];
+  // 课程设计师自己写的题目句子（比如"苹果和西瓜一共有几个？"）——有值时
+  // 优先显示这个，没有才退回下面按 target_types 自动生成的句子。
+  question_i18n?: { zh?: string; en?: string };
 }
 
 export interface CountingResult {
@@ -63,16 +56,27 @@ function shuffle<T>(arr: T[]): T[] {
 }
 function randInt(a: number, b: number) { return a + Math.floor(Math.random() * (b - a + 1)); }
 
-// ── 自定义画面 (authored scene): fixed background + precisely placed objects,
-// one fixed answer — same "authored, not generated" principle as
-// maze/spot_diff. A separate component (not a branch inside the random-mode
-// one) because it needs none of that component's bag/loop state — keeping
-// hooks unconditional per-component, not conditionally skipped inside one.
 function CustomSceneCountingGame({ config, onComplete }: {
   config: CountingConfig; onComplete: (result: CountingResult) => void;
 }) {
   const positions = config.positions ?? [];
-  const target = positions.length;
+  const targetTypes = (config.target_types ?? []).filter(Boolean);
+  const hasTypedTargets = targetTypes.length > 0;
+
+  // 有指定target_types：只数这几种类型的物件；没指定：数全部（旧行为，
+  // 也覆盖了"设计师压根没给物件打类型"的情况）。
+  const target = hasTypedTargets
+    ? positions.filter((p) => p.type && targetTypes.includes(p.type)).length
+    : positions.length;
+
+  const questionText = config.question_i18n?.zh || config.question_i18n?.en || (
+    hasTypedTargets
+      ? targetTypes.length === 1
+        ? `一共有多少个${targetTypes[0]}？`
+        : `${targetTypes.join("和")}一共有多少个？`
+      : "一共有多少个？"
+  );
+
   const [choices] = useState<number[]>(() => {
     const want = Math.min(config.num_choices || 3, 6);
     const cand = new Set<number>([target]);
@@ -137,15 +141,19 @@ function CustomSceneCountingGame({ config, onComplete }: {
         }}
       >
         {positions.map((p, i) => {
-          const src = p.image_url ?? config.custom_icon_url ?? ""; // per-position image, falling back to the old shared-icon field for scenes authored before per-position images existed
-          const sizePct = p.w ? (p.w / GAME_CANVAS_W) * 100 : 7; // default matches the old fixed 7% size
+          const src = p.image_url ?? config.custom_icon_url ?? "";
+          const sizePct = p.w ? (p.w / GAME_CANVAS_W) * 100 : 7;
+          const flipX = p.flip_x ? -1 : 1, flipY = p.flip_y ? -1 : 1;
           return (
             <img
               key={i} src={src} alt=""
               className="absolute object-contain -translate-x-1/2 -translate-y-1/2 drop-shadow"
               style={{
                 left: `${p.x * 100}%`, top: `${p.y * 100}%`, width: `${sizePct}%`, aspectRatio: "1 / 1",
-                transform: `translate(-50%, -50%) rotate(${p.rotation ?? 0}deg)`,
+                // 顺序要跟 SceneEditor.tsx 里 canvas 渲染的合成顺序一致（先翻转、
+                // 再旋转，都绕物件自己的中心）——不然设计师编辑时看到的跟学生玩
+                // 的时候看到的会对不上。
+                transform: `translate(-50%, -50%) rotate(${p.rotation ?? 0}deg) scale(${flipX}, ${flipY})`,
               }}
             />
           );
@@ -156,8 +164,11 @@ function CustomSceneCountingGame({ config, onComplete }: {
             className="absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap"
             style={{
               left: `${t.x * 100}%`, top: `${t.y * 100}%`,
-              fontSize: `${(t.fontSize / GAME_CANVAS_H) * 100}cqh`, // scales with the container like the objects do
+              fontSize: `${(t.fontSize / GAME_CANVAS_H) * 100}cqh`,
               color: t.color, fontFamily: t.fontFamily,
+              fontWeight: t.bold ? "bold" : "normal",
+              fontStyle: t.italic ? "italic" : "normal",
+              textDecoration: t.underline ? "underline" : "none",
               transform: `translate(-50%, -50%) rotate(${t.rotation ?? 0}deg)`,
             }}
           >
@@ -166,7 +177,7 @@ function CustomSceneCountingGame({ config, onComplete }: {
         ))}
       </div>
 
-      <p className="text-center text-lg font-semibold text-foreground mb-3">一共有多少个？</p>
+      <p className="text-center text-lg font-semibold text-foreground mb-3">{questionText}</p>
       <div className="flex gap-4 justify-center mb-3">
         {choices.map((val) => (
           <button
@@ -287,7 +298,6 @@ function RandomCountingGame({ config, onComplete }: {
     return () => clearInterval(id);
   }, [finished]);
 
-  // countdown auto-fail
   useEffect(() => {
     if (config.timer_mode !== "countdown" || !config.time_limit || finished) return;
     if (elapsed >= config.time_limit) {
@@ -379,3 +389,4 @@ function RandomCountingGame({ config, onComplete }: {
     </div>
   );
 }
+

@@ -116,7 +116,8 @@ export async function listCourses(req: AuthRequest, res: Response): Promise<void
     params.push(limit, offset);
     const { rows } = await query(
       `SELECT c.id, c.title_i18n, c.description_i18n, c.age_group, c.created_at,
-              c.grade_tier_id, gt.code AS grade_tier_code, gt.name_i18n AS grade_tier_name_i18n
+              c.grade_tier_id, gt.code AS grade_tier_code, gt.name_i18n AS grade_tier_name_i18n,
+              c.show_in_parent_catalog, c.preview_asset_ids
        FROM edu.courses c
        LEFT JOIN edu.grade_tiers gt ON gt.id = c.grade_tier_id
        ${whereClause}
@@ -131,20 +132,89 @@ export async function listCourses(req: AuthRequest, res: Response): Promise<void
 
 export async function createCourse(req: AuthRequest, res: Response): Promise<void> {
   try {
-    const { title_i18n, description_i18n, age_group, organization_id, grade_tier_id } = req.body as Record<string, unknown>;
+    const { title_i18n, description_i18n, age_group, organization_id, grade_tier_id, show_in_parent_catalog, preview_asset_ids } = req.body as Record<string, unknown>;
     if (!title_i18n) { badRequest(res, "title_i18n is required"); return; }
     if (!grade_tier_id) { badRequest(res, "grade_tier_id is required — pick a grade tier (see /edu/grade-tiers) or create one first"); return; }
+    const cleanPreviewAssetIds = Array.isArray(preview_asset_ids) ? preview_asset_ids.filter((id) => typeof id === "string") : [];
 
     const { rows } = await query(
-      `INSERT INTO edu.courses (title_i18n, description_i18n, age_group, organization_id, grade_tier_id, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, title_i18n, description_i18n, age_group, grade_tier_id, created_at`,
+      `INSERT INTO edu.courses (title_i18n, description_i18n, age_group, organization_id, grade_tier_id, created_by, show_in_parent_catalog, preview_asset_ids)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, title_i18n, description_i18n, age_group, grade_tier_id, created_at, show_in_parent_catalog, preview_asset_ids`,
       [JSON.stringify(title_i18n), description_i18n ? JSON.stringify(description_i18n) : null,
-       age_group ?? null, organization_id ?? null, grade_tier_id, req.user!.sub]
+       age_group ?? null, organization_id ?? null, grade_tier_id, req.user!.sub,
+       show_in_parent_catalog === true, cleanPreviewAssetIds]
     );
     created(res, rows[0]);
   } catch (err) { serverError(res, err); }
 }
+
+export async function updateCourse(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { courseId } = req.params;
+    const { title_i18n, description_i18n, age_group, grade_tier_id, show_in_parent_catalog, preview_asset_ids } = req.body as Record<string, unknown>;
+    const cleanPreviewAssetIds = Array.isArray(preview_asset_ids) ? preview_asset_ids.filter((id) => typeof id === "string") : null;
+
+    const { rows } = await query(
+      `UPDATE edu.courses SET
+         title_i18n = COALESCE($2, title_i18n),
+         description_i18n = COALESCE($3, description_i18n),
+         age_group = COALESCE($4, age_group),
+         grade_tier_id = COALESCE($5, grade_tier_id),
+         show_in_parent_catalog = COALESCE($6, show_in_parent_catalog),
+         preview_asset_ids = COALESCE($7, preview_asset_ids),
+         updated_at = now()
+       WHERE id = $1
+       RETURNING id, title_i18n, description_i18n, age_group, grade_tier_id, show_in_parent_catalog, preview_asset_ids`,
+      [courseId, title_i18n ? JSON.stringify(title_i18n) : null, description_i18n ? JSON.stringify(description_i18n) : null, age_group ?? null, grade_tier_id ?? null,
+       typeof show_in_parent_catalog === "boolean" ? show_in_parent_catalog : null, cleanPreviewAssetIds]
+    );
+    if (!rows.length) { notFound(res, "Course not found"); return; }
+    ok(res, rows[0]);
+  } catch (err) { serverError(res, err); }
+}
+ 
+// 删除课程前先确认底下没有还在用的Activity或Lesson——不像Programme那样
+// 靠数据库FK报错兜底，这里主动查一遍给出更明确的提示，因为课程被引用的
+// 层级更深（Level、Lesson、Lesson step三层都可能挂着东西）。
+export async function deleteCourse(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { courseId } = req.params;
+    const force = req.query.force === "true" || (req.body as { force?: boolean } | undefined)?.force === true;
+
+    const { rows: levelCountRows } = await query(`SELECT count(*)::int AS n FROM edu.course_levels WHERE course_id = $1`, [courseId]);
+    const { rows: lessonCountRows } = await query(`SELECT count(*)::int AS n FROM edu.lessons WHERE course_id = $1`, [courseId]);
+
+    if ((levelCountRows[0].n > 0 || lessonCountRows[0].n > 0) && !force) {
+      badRequest(
+        res,
+        `这门课程底下还有 ${levelCountRows[0].n} 个Activity和 ${lessonCountRows[0].n} 个课时，请先清空或转移，才能删除课程`
+      );
+      return;
+    }
+
+    if (force) {
+      // Activity 不删——只是解除跟这门课的关联。Activity 现在本来就不
+      // 需要依附在某门课底下（course_id 已经是选填的），解除关联之后
+      // 它还在，之后照样能被任何 Lesson 单独引用。
+      await query(`UPDATE edu.course_levels SET course_id = NULL WHERE course_id = $1`, [courseId]);
+
+      // Lesson 不一样——它是真的属于这门课的东西，脱离课程没有独立存在
+      // 的意义，直接连同底下的步骤一起级联删掉。
+      const { rows: lessonRows } = await query(`SELECT id FROM edu.lessons WHERE course_id = $1`, [courseId]);
+      const lessonIds = (lessonRows as Array<{ id: string }>).map((r) => r.id);
+      if (lessonIds.length) {
+        await query(`DELETE FROM edu.lesson_steps WHERE lesson_id = ANY($1)`, [lessonIds]);
+        await query(`DELETE FROM edu.lessons WHERE course_id = $1`, [courseId]);
+      }
+    }
+
+    const { rowCount } = await query(`DELETE FROM edu.courses WHERE id = $1`, [courseId]);
+    if (!rowCount) { notFound(res, "Course not found"); return; }
+    ok(res, null, force ? "已删除（Activity 已保留、解除关联；课时已一起清空）" : "Deleted");
+  } catch (err) { serverError(res, err); }
+}
+
 
 // ── Levels ───────────────────────────────────────────────────────────────────
 export async function listLevels(req: AuthRequest, res: Response): Promise<void> {
@@ -154,7 +224,7 @@ export async function listLevels(req: AuthRequest, res: Response): Promise<void>
       `SELECT cl.id, cl.course_id, cl.order_index, cl.module_type, cl.module_config_id,
               cl.title_i18n, cl.video_url_i18n, cl.ppt_url_i18n, cl.illustration_url, cl.points_reward,
               cl.exercise_number, cl.category_id, cl.group_id, cl.curriculum_type_id,
-              cl.activity_type, cl.difficulty, cl.tags,
+              cl.activity_type, cl.difficulty, cl.tags, cl.parent_preview_enabled,
               ec.name_zh AS category_name_zh, eg.name_zh AS group_name_zh, ect.name_zh AS curriculum_type_name_zh,
               s.name_zh AS subject_name_zh, p.name_zh AS programme_name_zh
        FROM edu.course_levels cl
@@ -202,25 +272,36 @@ function normalizeSkillsList(input: unknown): string[] {
 
 export async function createLevel(req: AuthRequest, res: Response): Promise<void> {
   try {
-    const { courseId } = req.params;
+    // courseId 现在是选填的——可以从路由参数来（POST /courses/:courseId/levels，
+    // 老路由，建的时候就属于某门课），也可以从请求体来（POST /activities，
+    // 新路由，压根不挂在任何 Course 下，course_id 存 NULL）。Activity 不该
+    // 被强制绑在一门课底下，之后要用哪个 Lesson 引用它，靠 lesson_steps
+    // 自己的记录，不靠这个栏位。
+    const courseId: string | null = req.params.courseId || (req.body?.course_id as string | undefined) || null;
     const {
       module_type, order_index, title_i18n, config, explanation_text, explanation_image_url, explanation_video_url,
-      category_id, group_id, curriculum_type_id, hint_text, audio_url,
+      category_id, category_ids, group_id, curriculum_type_id, hint_text, audio_url,
       activity_type, teaching_modes, difficulty, age_group_min, age_group_max, duration_minutes,
-      learning_outcomes, skills_developed, language, tags,
+      learning_outcomes, skills_developed, language, tags, parent_preview_enabled,
     } = req.body as {
       module_type: string; order_index?: number; title_i18n?: object; config: Record<string, unknown>;
       explanation_text?: string; explanation_image_url?: string; explanation_video_url?: string;
-      category_id?: string; group_id?: string; curriculum_type_id?: string;
+      // category_id 是旧的单一栏位（向后兼容——还有旧前端代码可能只传
+      // 这个）；category_ids 是新的多选（一个 Activity 可以同时挂好几个
+      // Topic）。两个都传的话以 category_ids 为准；都没传就是"先不分类"。
+      category_id?: string; category_ids?: string[]; group_id?: string; curriculum_type_id?: string;
       hint_text?: string; audio_url?: string;
       activity_type?: string; teaching_modes?: string[]; difficulty?: string;
       age_group_min?: number; age_group_max?: number; duration_minutes?: number;
       learning_outcomes?: string; skills_developed?: string[]; language?: string; tags?: string[];
+      parent_preview_enabled?: boolean;
     };
     if (!module_type) { badRequest(res, "module_type is required"); return; }
-    // category_id (Topic) 新建时不强制要求——可以先建 Activity，之后再
-    // 透过 updateLevel 补上分类，跟 updateLevel 那边一直以来的选填逻辑
-    // 一致，不用再分"新建强制/编辑不强制"这两套规则。
+    // Topic 新建时不强制要求——可以先建 Activity，之后再透过 updateLevel
+    // 补上分类。一个 Activity 现在可以同时挂好几个 Topic（多对多，见
+    // edu.activity_topic_links），下面统一转成数组处理。
+    const categoryIds = Array.from(new Set((category_ids && category_ids.length ? category_ids : (category_id ? [category_id] : [])).filter(Boolean)));
+    const primaryCategoryId = categoryIds[0] ?? null; // 旧栏位/编号生成还是要挑一个"主"分类，用第一个
 
     const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "sudoku", "line_match", "coloring", "ppt_lecture", "video_lecture"];
     if (!SUPPORTED.includes(module_type)) {
@@ -234,7 +315,7 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
     // increment should be durable even if something later in level
     // creation fails and rolls back (same "gaps are fine, duplicates
     // aren't" tradeoff every auto-increment sequence makes).
-    const exerciseNumber = category_id ? await nextExerciseNumber(category_id, group_id ?? null) : null;
+    const exerciseNumber = primaryCategoryId ? await nextExerciseNumber(primaryCategoryId, group_id ?? null) : null;
 
     const result = await withTransaction(async (client) => {
       const cfg = config ?? {};
@@ -257,8 +338,8 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
         }
         const { rows: cfgRows } = await client.query(
           `INSERT INTO edu.counting_configs
-             (theme, custom_icon_url, bg_image_url, min_val, max_val, quiz_mode, num_choices, total_questions, timer_mode, time_limit, mode, positions, texts)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+             (theme, custom_icon_url, bg_image_url, min_val, max_val, quiz_mode, num_choices, total_questions, timer_mode, time_limit, mode, positions, texts, target_types, question_i18n)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
            RETURNING id`,
           [
             cfg.theme ?? "apple", cfg.custom_icon_url ?? null, cfg.bg_image_url ?? null,
@@ -267,16 +348,18 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
             cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
             cfg.mode ?? "random", cfg.positions ? JSON.stringify(cfg.positions) : null,
             cfg.texts ? JSON.stringify(cfg.texts) : null,
+            cfg.target_types ? JSON.stringify(cfg.target_types) : null,
+            cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null,
           ]
         );
         configId = cfgRows[0].id;
       } else if (module_type === "spot_diff") {
         if (!cfg.image_a_url || !cfg.image_b_url) throw new Error("image_a_url and image_b_url are required for spot_diff");
         const { rows: cfgRows } = await client.query(
-          `INSERT INTO edu.spot_diff_configs (image_a_url, image_b_url, hotspots, timer_mode, time_limit)
-           VALUES ($1,$2,$3,$4,$5)
+          `INSERT INTO edu.spot_diff_configs (image_a_url, image_b_url, hotspots, timer_mode, time_limit, question_i18n)
+           VALUES ($1,$2,$3,$4,$5,$6)
            RETURNING id`,
-          [cfg.image_a_url, cfg.image_b_url, JSON.stringify(cfg.hotspots ?? []), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+          [cfg.image_a_url, cfg.image_b_url, JSON.stringify(cfg.hotspots ?? []), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
         );
         configId = cfgRows[0].id;
       } else if (module_type === "focus_tap") {
@@ -284,11 +367,12 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
           throw new Error("custom 模式的专注力点数字需要背景图和至少2个标记位置");
         }
         const { rows: cfgRows } = await client.query(
-          `INSERT INTO edu.focus_tap_configs (mode, grid_size, bg_image_url, positions, timer_mode, time_limit)
-           VALUES ($1,$2,$3,$4,$5,$6)
+          `INSERT INTO edu.focus_tap_configs (mode, grid_size, bg_image_url, positions, timer_mode, time_limit, question_i18n)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)
            RETURNING id`,
           [cfg.mode ?? "grid", cfg.grid_size ?? 4, cfg.bg_image_url ?? null,
-           cfg.positions ? JSON.stringify(cfg.positions) : null, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+           cfg.positions ? JSON.stringify(cfg.positions) : null, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
+           cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
         );
         configId = cfgRows[0].id;
       } else if (module_type === "memory") {
@@ -296,21 +380,24 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
           throw new Error("custom 主题的Memory配对需要至少2张自定义图片");
         }
         const { rows: cfgRows } = await client.query(
-          `INSERT INTO edu.memory_configs (theme, custom_icons, bg_image_url, pairs_count, preview_seconds, timer_mode, time_limit)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)
+          `INSERT INTO edu.memory_configs (theme, custom_icons, bg_image_url, pairs_count, preview_seconds, timer_mode, time_limit, question_i18n, layout, positions)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
            RETURNING id`,
           [cfg.theme ?? "animal", cfg.custom_icons ? JSON.stringify(cfg.custom_icons) : null, cfg.bg_image_url ?? null,
-           cfg.pairs_count ?? 6, cfg.preview_seconds ?? 3, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+           cfg.pairs_count ?? 6, cfg.preview_seconds ?? 3, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
+           cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null,
+           cfg.layout ?? "grid", cfg.positions ? JSON.stringify(cfg.positions) : null]
         );
         configId = cfgRows[0].id;
       } else if (module_type === "pattern") {
         const { rows: cfgRows } = await client.query(
-          `INSERT INTO edu.pattern_configs (theme, pattern_types, seq_length, num_choices, total_questions, timer_mode, time_limit)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)
+          `INSERT INTO edu.pattern_configs (theme, pattern_types, seq_length, num_choices, total_questions, timer_mode, time_limit, question_i18n)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
            RETURNING id`,
           [cfg.theme ?? "shape", JSON.stringify(cfg.pattern_types ?? ["AB","ABC","AAB","ABB","AABB"]),
            cfg.seq_length ?? 7, cfg.num_choices ?? 3, cfg.total_questions ?? 5,
-           cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+           cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
+           cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
         );
         configId = cfgRows[0].id;
       } else if (module_type === "word_problem") {
@@ -342,13 +429,15 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
       } else if (module_type === "maze") { // authored content, not generation: every field here IS the puzzle, not a parameter for making one
         if (!cfg.bg_image_url || !cfg.mask_image_url) throw new Error("bg_image_url and mask_image_url are required for maze");
         const { rows: cfgRows } = await client.query(
-          `INSERT INTO edu.maze_configs (bg_image_url, mask_image_url, start_x, start_y, end_x, end_y, timer_mode, time_limit)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+          `INSERT INTO edu.maze_configs (bg_image_url, mask_image_url, start_x, start_y, end_x, end_y, timer_mode, time_limit, question_i18n, pairs)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
            RETURNING id`,
           [
             cfg.bg_image_url, cfg.mask_image_url,
             cfg.start_x ?? 0.1, cfg.start_y ?? 0.5, cfg.end_x ?? 0.9, cfg.end_y ?? 0.5,
             cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
+            cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null,
+            cfg.pairs ? JSON.stringify(cfg.pairs) : null,
           ]
         );
         configId = cfgRows[0].id;
@@ -358,10 +447,10 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
         if (!regions?.length) throw new Error("至少要标记1个区块");
         if (regions.some((r) => r.rule === "specific" && !r.target_color)) throw new Error("选了「指定颜色」的区块，要填要求的颜色");
         const { rows: cfgRows } = await client.query(
-          `INSERT INTO edu.coloring_configs (bg_image_url, region_mask_url, regions, timer_mode, time_limit)
-           VALUES ($1,$2,$3,$4,$5)
+          `INSERT INTO edu.coloring_configs (bg_image_url, region_mask_url, regions, timer_mode, time_limit, question_i18n)
+           VALUES ($1,$2,$3,$4,$5,$6)
            RETURNING id`,
-          [cfg.bg_image_url, cfg.region_mask_url, JSON.stringify(regions), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+          [cfg.bg_image_url, cfg.region_mask_url, JSON.stringify(regions), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
         );
         configId = cfgRows[0].id;
       } else if (module_type === "line_match") { // authored content: every pair IS the puzzle, same as maze/sudoku — no random-generation mode
@@ -369,10 +458,10 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
         if (!pairs?.length) throw new Error("至少要有1组配对");
         if (pairs.some((p) => !p.left?.content || !p.right?.content)) throw new Error("每一组配对，左右两边都要填内容");
         const { rows: cfgRows } = await client.query(
-          `INSERT INTO edu.line_match_configs (pairs, shuffle_right, timer_mode, time_limit)
-           VALUES ($1,$2,$3,$4)
+          `INSERT INTO edu.line_match_configs (pairs, shuffle_right, timer_mode, time_limit, question_i18n)
+           VALUES ($1,$2,$3,$4,$5)
            RETURNING id`,
-          [JSON.stringify(pairs), cfg.shuffle_right ?? true, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+          [JSON.stringify(pairs), cfg.shuffle_right ?? true, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
         );
         configId = cfgRows[0].id;
       } else if (module_type === "ppt_lecture") { // 讲义类，不是游戏：一份转好的幻灯片图片清单，没有对错判断
@@ -398,10 +487,10 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
           throw new Error("每个空格的答案必须是1到9的数字");
         }
         const { rows: cfgRows } = await client.query(
-          `INSERT INTO edu.sudoku_configs (bg_image_url, cells, difficulty, timer_mode, time_limit)
-           VALUES ($1,$2,$3,$4,$5)
+          `INSERT INTO edu.sudoku_configs (bg_image_url, cells, difficulty, timer_mode, time_limit, question_i18n)
+           VALUES ($1,$2,$3,$4,$5,$6)
            RETURNING id`,
-          [cfg.bg_image_url, JSON.stringify(cells), cfg.difficulty ?? "medium", cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+          [cfg.bg_image_url, JSON.stringify(cells), cfg.difficulty ?? "medium", cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
         );
         configId = cfgRows[0].id;
       }
@@ -410,20 +499,36 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
         `INSERT INTO edu.course_levels
            (course_id, order_index, module_type, module_config_id, title_i18n, created_by, explanation_text, explanation_image_url, explanation_video_url,
             category_id, group_id, curriculum_type_id, exercise_number, hint_text, audio_url,
-            activity_type, teaching_modes, difficulty, age_group_min, age_group_max, duration_minutes, learning_outcomes, skills_developed, language, tags)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+            activity_type, teaching_modes, difficulty, age_group_min, age_group_max, duration_minutes, learning_outcomes, skills_developed, language, tags,
+            parent_preview_enabled)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
          RETURNING id, course_id, order_index, module_type, module_config_id, title_i18n, explanation_text, explanation_image_url, explanation_video_url,
                    category_id, group_id, curriculum_type_id, exercise_number, hint_text, audio_url,
-                   activity_type, teaching_modes, difficulty, age_group_min, age_group_max, duration_minutes, learning_outcomes, skills_developed, language, tags`,
+                   activity_type, teaching_modes, difficulty, age_group_min, age_group_max, duration_minutes, learning_outcomes, skills_developed, language, tags,
+                   parent_preview_enabled`,
         [courseId, order_index ?? 0, module_type, configId, title_i18n ? JSON.stringify(title_i18n) : null, req.user!.sub,
          explanation_text ?? null, explanation_image_url ?? null, explanation_video_url ?? null,
-         category_id ?? null, group_id ?? null, curriculum_type_id ?? null, exerciseNumber,
+         primaryCategoryId, group_id ?? null, curriculum_type_id ?? null, exerciseNumber,
          hint_text ?? null, audio_url ?? null,
          activity_type ?? "game", teaching_modes ? JSON.stringify(teaching_modes) : "[]", difficulty ?? null,
          age_group_min ?? null, age_group_max ?? null, duration_minutes ?? null,
-         learning_outcomes ?? null, JSON.stringify(normalizeSkillsList(skills_developed)), language ?? "universal", normalizeActivityTags(tags)]
+         learning_outcomes ?? null, JSON.stringify(normalizeSkillsList(skills_developed)), language ?? "universal", normalizeActivityTags(tags),
+         parent_preview_enabled === true]
       );
-      return levelRows[0];
+      const newLevel = levelRows[0];
+
+      // 多对多关联——一个 Activity 可以同时挂好几个 Topic，全部写进
+      // activity_topic_links；上面 course_levels.category_id 那个旧栏位
+      // 只留第一个当"主分类"，向后兼容还没改的读取逻辑。
+      for (const cid of categoryIds) {
+        await client.query(
+          `INSERT INTO edu.activity_topic_links (course_level_id, category_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+          [newLevel.id, cid]
+        );
+      }
+      newLevel.category_ids = categoryIds;
+
+      return newLevel;
     });
 
     created(res, result);
@@ -437,6 +542,13 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
     serverError(res, err);
   }
 }
+
+// 新增：独立建 Activity，不挂在任何 Course 底下——路由挂
+// POST /activities（不像 createLevel 原本那条 POST /courses/:courseId/levels
+// 需要在 URL 里带 courseId）。底层跟 createLevel 是同一个函数：courseId
+// 现在从路由参数或请求体读都行，两个都没有就是 null，这个别名单纯是让
+// 路由注册的地方语义读起来更清楚。
+export const createActivity = createLevel;
 
 // 编辑已经建好的习题 — this didn't exist at all until now: once created,
 // a level could never be changed, only deleted-and-recreated (and deletion
@@ -458,23 +570,30 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
     const { levelId } = req.params;
     const {
       title_i18n, config, explanation_text, explanation_image_url, explanation_video_url,
-      category_id, group_id, curriculum_type_id, hint_text, audio_url,
+      category_id, category_ids, group_id, curriculum_type_id, hint_text, audio_url,
       activity_type, teaching_modes, difficulty, age_group_min, age_group_max, duration_minutes,
-      learning_outcomes, skills_developed, language, tags,
+      learning_outcomes, skills_developed, language, tags, parent_preview_enabled,
     } = req.body as {
       title_i18n?: object; config?: Record<string, unknown>;
       explanation_text?: string; explanation_image_url?: string; explanation_video_url?: string;
-      category_id?: string; group_id?: string; curriculum_type_id?: string;
+      category_id?: string; category_ids?: string[]; group_id?: string; curriculum_type_id?: string;
       hint_text?: string; audio_url?: string;
       activity_type?: string; teaching_modes?: string[]; difficulty?: string;
       age_group_min?: number; age_group_max?: number; duration_minutes?: number;
       learning_outcomes?: string; skills_developed?: string[]; language?: string; tags?: string[];
+      parent_preview_enabled?: boolean;
     };
-    // 注意：这里不像 createLevel 那样强制要求 category_id ——那个是"新建
+    // 注意：这里不像 createLevel 那样强制要求 Topic ——那个是"新建
     // Activity时必须先确定Topic"，这里如果本来就没有Topic（比如这个功能
     // 上线之前建的老 Activity），编辑其他内容（比如改个错字）不应该被
-    // 卡住、逼着先补分类。下面 UPDATE 语句对 category_id 用 COALESCE，
-    // 没传就保留原样，不会因为这次编辑没带这个栏位就被清空。
+    // 卡住、逼着先补分类。categoryIdsProvided 区分"这次请求根本没带
+    // category_ids/category_id 这两个字段"（不动关联）vs"带了、哪怕是
+    // 空数组"（表示要把 Topic 关联换成这个新的集合，空数组=清空全部）。
+    const categoryIdsProvided = category_ids !== undefined || category_id !== undefined;
+    const categoryIds = categoryIdsProvided
+      ? Array.from(new Set((category_ids && category_ids.length ? category_ids : (category_id ? [category_id] : [])).filter(Boolean)))
+      : [];
+    const primaryCategoryId = categoryIds[0] ?? null;
 
     const { rows: existingRows } = await query(
       `SELECT module_type, module_config_id, exercise_number FROM edu.course_levels WHERE id = $1`,
@@ -484,13 +603,13 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
     const { module_type, module_config_id, exercise_number: existingExerciseNumber } = existingRows[0] as { module_type: string; module_config_id: string; exercise_number: string | null };
 
     // 如果这个 Activity 从来没有过编号（建立的时候还没选 Topic，所以当时
-    // 没生成），现在编辑时补上了 category_id，就该顺便把编号也生成出来——
+    // 没生成），现在编辑时补上了 Topic，就该顺便把编号也生成出来——
     // 这不是"重新编号"（那种情况上面的注释说了刻意不做，避免打乱已经在用
     // 的编号），是"第一次有条件生成"，两者是不同的事。已经有编号的
     // Activity，这里不会去动它，边界条件只在"之前是null、现在有了
-    // category_id"这一种情况下才触发。
-    const shouldGenerateNumber = !existingExerciseNumber && category_id;
-    const newExerciseNumber = shouldGenerateNumber ? await nextExerciseNumber(category_id, group_id ?? null) : null;
+    // Topic"这一种情况下才触发。
+    const shouldGenerateNumber = !existingExerciseNumber && primaryCategoryId;
+    const newExerciseNumber = shouldGenerateNumber ? await nextExerciseNumber(primaryCategoryId, group_id ?? null) : null;
 
     await withTransaction(async (client) => {
       if (config) {
@@ -507,44 +626,51 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
           await client.query(
             `UPDATE edu.counting_configs SET
                theme=$2, custom_icon_url=$3, bg_image_url=$4, min_val=$5, max_val=$6, quiz_mode=$7,
-               num_choices=$8, total_questions=$9, timer_mode=$10, time_limit=$11, mode=$12, positions=$13, texts=$14
+               num_choices=$8, total_questions=$9, timer_mode=$10, time_limit=$11, mode=$12, positions=$13, texts=$14,
+               target_types=$15, question_i18n=$16
              WHERE id=$1`,
             [
               module_config_id, cfg.theme ?? "apple", cfg.custom_icon_url ?? null, cfg.bg_image_url ?? null,
               cfg.min_val ?? 1, cfg.max_val ?? 10, cfg.quiz_mode ?? "select",
               cfg.num_choices ?? 3, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
               cfg.mode ?? "random", cfg.positions ? JSON.stringify(cfg.positions) : null, cfg.texts ? JSON.stringify(cfg.texts) : null,
+              cfg.target_types ? JSON.stringify(cfg.target_types) : null,
+              cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null,
             ]
           );
         } else if (module_type === "spot_diff") {
           if (!cfg.image_a_url || !cfg.image_b_url) throw new Error("image_a_url and image_b_url are required for spot_diff");
           await client.query(
-            `UPDATE edu.spot_diff_configs SET image_a_url=$2, image_b_url=$3, hotspots=$4, timer_mode=$5, time_limit=$6 WHERE id=$1`,
-            [module_config_id, cfg.image_a_url, cfg.image_b_url, JSON.stringify(cfg.hotspots ?? []), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+            `UPDATE edu.spot_diff_configs SET image_a_url=$2, image_b_url=$3, hotspots=$4, timer_mode=$5, time_limit=$6, question_i18n=$7 WHERE id=$1`,
+            [module_config_id, cfg.image_a_url, cfg.image_b_url, JSON.stringify(cfg.hotspots ?? []), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
           );
         } else if (module_type === "focus_tap") {
           if (cfg.mode === "custom" && (!cfg.bg_image_url || !cfg.positions || (cfg.positions as unknown[]).length < 2)) {
             throw new Error("custom 模式的专注力点数字需要背景图和至少2个标记位置");
           }
           await client.query(
-            `UPDATE edu.focus_tap_configs SET mode=$2, grid_size=$3, bg_image_url=$4, positions=$5, timer_mode=$6, time_limit=$7 WHERE id=$1`,
+            `UPDATE edu.focus_tap_configs SET mode=$2, grid_size=$3, bg_image_url=$4, positions=$5, timer_mode=$6, time_limit=$7, question_i18n=$8 WHERE id=$1`,
             [module_config_id, cfg.mode ?? "grid", cfg.grid_size ?? 4, cfg.bg_image_url ?? null,
-             cfg.positions ? JSON.stringify(cfg.positions) : null, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+             cfg.positions ? JSON.stringify(cfg.positions) : null, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
+             cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
           );
         } else if (module_type === "memory") {
           if (cfg.theme === "custom" && (!(cfg.custom_icons as unknown[])?.length || (cfg.custom_icons as unknown[]).length < 2)) {
             throw new Error("custom 主题的Memory配对需要至少2张自定义图片");
           }
           await client.query(
-            `UPDATE edu.memory_configs SET theme=$2, custom_icons=$3, bg_image_url=$4, pairs_count=$5, preview_seconds=$6, timer_mode=$7, time_limit=$8 WHERE id=$1`,
+            `UPDATE edu.memory_configs SET theme=$2, custom_icons=$3, bg_image_url=$4, pairs_count=$5, preview_seconds=$6, timer_mode=$7, time_limit=$8, question_i18n=$9, layout=$10, positions=$11 WHERE id=$1`,
             [module_config_id, cfg.theme ?? "animal", cfg.custom_icons ? JSON.stringify(cfg.custom_icons) : null, cfg.bg_image_url ?? null,
-             cfg.pairs_count ?? 6, cfg.preview_seconds ?? 3, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+             cfg.pairs_count ?? 6, cfg.preview_seconds ?? 3, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
+             cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null,
+             cfg.layout ?? "grid", cfg.positions ? JSON.stringify(cfg.positions) : null]
           );
         } else if (module_type === "pattern") {
           await client.query(
-            `UPDATE edu.pattern_configs SET theme=$2, pattern_types=$3, seq_length=$4, num_choices=$5, total_questions=$6, timer_mode=$7, time_limit=$8 WHERE id=$1`,
+            `UPDATE edu.pattern_configs SET theme=$2, pattern_types=$3, seq_length=$4, num_choices=$5, total_questions=$6, timer_mode=$7, time_limit=$8, question_i18n=$9 WHERE id=$1`,
             [module_config_id, cfg.theme ?? "shape", JSON.stringify(cfg.pattern_types ?? ["AB","ABC","AAB","ABB","AABB"]),
-             cfg.seq_length ?? 7, cfg.num_choices ?? 3, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+             cfg.seq_length ?? 7, cfg.num_choices ?? 3, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
+             cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
           );
         } else if (module_type === "word_problem") {
           if (cfg.mode === "custom_scene") {
@@ -571,9 +697,11 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
         } else if (module_type === "maze") {
           if (!cfg.bg_image_url || !cfg.mask_image_url) throw new Error("bg_image_url and mask_image_url are required for maze");
           await client.query(
-            `UPDATE edu.maze_configs SET bg_image_url=$2, mask_image_url=$3, start_x=$4, start_y=$5, end_x=$6, end_y=$7, timer_mode=$8, time_limit=$9 WHERE id=$1`,
+            `UPDATE edu.maze_configs SET bg_image_url=$2, mask_image_url=$3, start_x=$4, start_y=$5, end_x=$6, end_y=$7, timer_mode=$8, time_limit=$9, question_i18n=$10, pairs=$11 WHERE id=$1`,
             [module_config_id, cfg.bg_image_url, cfg.mask_image_url,
-             cfg.start_x ?? 0.1, cfg.start_y ?? 0.5, cfg.end_x ?? 0.9, cfg.end_y ?? 0.5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+             cfg.start_x ?? 0.1, cfg.start_y ?? 0.5, cfg.end_x ?? 0.9, cfg.end_y ?? 0.5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
+             cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null,
+             cfg.pairs ? JSON.stringify(cfg.pairs) : null]
           );
         } else if (module_type === "coloring") {
           const regions = cfg.regions as Array<{ marker_color: string; rule: "specific" | "free"; target_color?: string; label?: string }> | undefined;
@@ -581,16 +709,16 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
           if (!regions?.length) throw new Error("至少要标记1个区块");
           if (regions.some((r) => r.rule === "specific" && !r.target_color)) throw new Error("选了「指定颜色」的区块，要填要求的颜色");
           await client.query(
-            `UPDATE edu.coloring_configs SET bg_image_url=$2, region_mask_url=$3, regions=$4, timer_mode=$5, time_limit=$6 WHERE id=$1`,
-            [module_config_id, cfg.bg_image_url, cfg.region_mask_url, JSON.stringify(regions), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+            `UPDATE edu.coloring_configs SET bg_image_url=$2, region_mask_url=$3, regions=$4, timer_mode=$5, time_limit=$6, question_i18n=$7 WHERE id=$1`,
+            [module_config_id, cfg.bg_image_url, cfg.region_mask_url, JSON.stringify(regions), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
           );
         } else if (module_type === "line_match") {
           const pairs = cfg.pairs as Array<{ left: { type: string; content: string }; right: { type: string; content: string } }> | undefined;
           if (!pairs?.length) throw new Error("至少要有1组配对");
           if (pairs.some((p) => !p.left?.content || !p.right?.content)) throw new Error("每一组配对，左右两边都要填内容");
           await client.query(
-            `UPDATE edu.line_match_configs SET pairs=$2, shuffle_right=$3, timer_mode=$4, time_limit=$5 WHERE id=$1`,
-            [module_config_id, JSON.stringify(pairs), cfg.shuffle_right ?? true, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+            `UPDATE edu.line_match_configs SET pairs=$2, shuffle_right=$3, timer_mode=$4, time_limit=$5, question_i18n=$6 WHERE id=$1`,
+            [module_config_id, JSON.stringify(pairs), cfg.shuffle_right ?? true, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
           );
         } else if (module_type === "ppt_lecture") {
           const slideUrls = cfg.slide_image_urls as string[] | undefined;
@@ -613,8 +741,8 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
             throw new Error("每个空格的答案必须是1到9的数字");
           }
           await client.query(
-            `UPDATE edu.sudoku_configs SET bg_image_url=$2, cells=$3, difficulty=$4, timer_mode=$5, time_limit=$6 WHERE id=$1`,
-            [module_config_id, cfg.bg_image_url, JSON.stringify(cells), cfg.difficulty ?? "medium", cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+            `UPDATE edu.sudoku_configs SET bg_image_url=$2, cells=$3, difficulty=$4, timer_mode=$5, time_limit=$6, question_i18n=$7 WHERE id=$1`,
+            [module_config_id, cfg.bg_image_url, JSON.stringify(cells), cfg.difficulty ?? "medium", cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
           );
         }
       }
@@ -630,20 +758,35 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
            duration_minutes = COALESCE($15, duration_minutes), learning_outcomes = COALESCE($16, learning_outcomes),
            language = COALESCE($17, language),
            teaching_modes = $18, skills_developed = $19, tags = $20,
-           exercise_number = COALESCE($21, exercise_number)
+           exercise_number = COALESCE($21, exercise_number),
+           parent_preview_enabled = COALESCE($22, parent_preview_enabled)
          WHERE id = $1`,
         [
           levelId, title_i18n ? JSON.stringify(title_i18n) : null,
           explanation_text ?? null, explanation_image_url ?? null, explanation_video_url ?? null,
-          category_id ?? null, group_id ?? null, curriculum_type_id ?? null,
+          primaryCategoryId, group_id ?? null, curriculum_type_id ?? null,
           hint_text ?? null, audio_url ?? null,
           activity_type ?? null, difficulty ?? null,
           age_group_min ?? null, age_group_max ?? null, duration_minutes ?? null, learning_outcomes ?? null,
           language ?? null,
           JSON.stringify(teaching_modes ?? []), JSON.stringify(normalizeSkillsList(skills_developed)), normalizeActivityTags(tags),
           newExerciseNumber,
+          typeof parent_preview_enabled === "boolean" ? parent_preview_enabled : null,
         ]
       );
+
+      // 只在这次请求确实带了 category_ids/category_id 时才替换关联——
+      // 没带的话（比如只是改个错字）保留原来挂的那些 Topic 不动。带了
+      // 就整个替换成新的集合（空数组=清空全部）。
+      if (categoryIdsProvided) {
+        await client.query(`DELETE FROM edu.activity_topic_links WHERE course_level_id = $1`, [levelId]);
+        for (const cid of categoryIds) {
+          await client.query(
+            `INSERT INTO edu.activity_topic_links (course_level_id, category_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+            [levelId, cid]
+          );
+        }
+      }
     });
 
     ok(res, { id: levelId }, "Updated");
@@ -687,10 +830,10 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
               cl.explanation_text, cl.explanation_image_url, cl.explanation_video_url, cl.exercise_number,
               cl.hint_text, cl.audio_url,
               cl.activity_type, cl.teaching_modes, cl.difficulty, cl.age_group_min, cl.age_group_max,
-              cl.duration_minutes, cl.learning_outcomes, cl.skills_developed, cl.language, cl.tags,
+              cl.duration_minutes, cl.learning_outcomes, cl.skills_developed, cl.language, cl.tags, cl.parent_preview_enabled,
               c.grade_tier_id AS course_grade_tier_id
        FROM edu.course_levels cl
-       JOIN edu.courses c ON c.id = cl.course_id
+       LEFT JOIN edu.courses c ON c.id = cl.course_id
        WHERE cl.id = $1`,
       [levelId]
     );
@@ -710,6 +853,16 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
       [req.user!.sub]
     );
     const isStudent = (roleRows as { code: string }[]).some((r) => r.code === "STUDENT");
+    const isParent = (roleRows as { code: string }[]).some((r) => r.code === "PARENT");
+
+    // ── 家长"试玩"门控 ──────────────────────────────────────────────────────
+    // 家长不是学生，不走订阅/年级那一套检查——但也不能因此就能玩任何一关。
+    // 只有 operator 明确标记 parent_preview_enabled=true 的关卡，家长才能
+    // 打开。这里直接 return，不落入下面 isStudent 的分支（家长本来就不是
+    // 学生，isStudent 恒为 false，不会重复判断）。
+    if (isParent && !level.parent_preview_enabled) {
+      forbidden(res, "这一关还没开放给家长试玩"); return;
+    }
 
     if (isStudent) {
       const { rows: subRows } = await query(
@@ -735,35 +888,36 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
     if (level.module_type === "counting") {
       const { rows: cfgRows } = await query(
         `SELECT theme, custom_icon_url, bg_image_url, min_val, max_val,
-                quiz_mode, num_choices, total_questions, timer_mode, time_limit, mode, positions, texts
+                quiz_mode, num_choices, total_questions, timer_mode, time_limit, mode, positions, texts,
+                target_types, question_i18n
          FROM edu.counting_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
     } else if (level.module_type === "spot_diff") {
       const { rows: cfgRows } = await query(
-        `SELECT image_a_url, image_b_url, hotspots, timer_mode, time_limit
+        `SELECT image_a_url, image_b_url, hotspots, timer_mode, time_limit, question_i18n
          FROM edu.spot_diff_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
     } else if (level.module_type === "focus_tap") {
       const { rows: cfgRows } = await query(
-        `SELECT mode, grid_size, bg_image_url, positions, timer_mode, time_limit
+        `SELECT mode, grid_size, bg_image_url, positions, timer_mode, time_limit, question_i18n
          FROM edu.focus_tap_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
     } else if (level.module_type === "memory") {
       const { rows: cfgRows } = await query(
-        `SELECT theme, custom_icons, bg_image_url, pairs_count, preview_seconds, timer_mode, time_limit
+        `SELECT theme, custom_icons, bg_image_url, pairs_count, preview_seconds, timer_mode, time_limit, question_i18n, layout, positions
          FROM edu.memory_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
     } else if (level.module_type === "pattern") {
       const { rows: cfgRows } = await query(
-        `SELECT theme, pattern_types, seq_length, num_choices, total_questions, timer_mode, time_limit
+        `SELECT theme, pattern_types, seq_length, num_choices, total_questions, timer_mode, time_limit, question_i18n
          FROM edu.pattern_configs WHERE id = $1`,
         [level.module_config_id]
       );
@@ -783,14 +937,14 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
       config = cfgRows[0] ?? null;
     } else if (level.module_type === "maze") {
       const { rows: cfgRows } = await query(
-        `SELECT bg_image_url, mask_image_url, start_x, start_y, end_x, end_y, timer_mode, time_limit
+        `SELECT bg_image_url, mask_image_url, start_x, start_y, end_x, end_y, timer_mode, time_limit, question_i18n, pairs
          FROM edu.maze_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
     } else if (level.module_type === "coloring") {
       const { rows: cfgRows } = await query(
-        `SELECT bg_image_url, region_mask_url, regions, timer_mode, time_limit FROM edu.coloring_configs WHERE id = $1`,
+        `SELECT bg_image_url, region_mask_url, regions, timer_mode, time_limit, question_i18n FROM edu.coloring_configs WHERE id = $1`,
         [level.module_config_id]
       );
       const row = cfgRows[0];
@@ -804,7 +958,7 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
         // not "what's the right answer".
         type Region = { marker_color: string; rule: "specific" | "free"; target_color?: string; label?: string };
         const regions = (row.regions as Region[]).map((r) => ({ marker_color: r.marker_color, rule: r.rule, label: r.label }));
-        config = { bg_image_url: row.bg_image_url, region_mask_url: row.region_mask_url, regions, timer_mode: row.timer_mode, time_limit: row.time_limit };
+        config = { bg_image_url: row.bg_image_url, region_mask_url: row.region_mask_url, regions, timer_mode: row.timer_mode, time_limit: row.time_limit, question_i18n: row.question_i18n };
       } else {
         config = null;
       }
@@ -824,7 +978,7 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
       config = cfgRows[0] ?? null;
     } else if (level.module_type === "line_match") {
       const { rows: cfgRows } = await query(
-        `SELECT pairs, shuffle_right, timer_mode, time_limit FROM edu.line_match_configs WHERE id = $1`,
+        `SELECT pairs, shuffle_right, timer_mode, time_limit, question_i18n FROM edu.line_match_configs WHERE id = $1`,
         [level.module_config_id]
       );
       const row = cfgRows[0];
@@ -850,13 +1004,13 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
           }
         }
         const rightItems = rightOrder.map((pairIdx, displayIdx) => ({ id: `r${displayIdx}`, type: pairs[pairIdx].right.type, content: pairs[pairIdx].right.content }));
-        config = { left_items: leftItems, right_items: rightItems, timer_mode: row.timer_mode, time_limit: row.time_limit };
+        config = { left_items: leftItems, right_items: rightItems, timer_mode: row.timer_mode, time_limit: row.time_limit, question_i18n: row.question_i18n };
       } else {
         config = null;
       }
     } else if (level.module_type === "sudoku") {
       const { rows: cfgRows } = await query(
-        `SELECT bg_image_url, cells, difficulty, timer_mode, time_limit FROM edu.sudoku_configs WHERE id = $1`,
+        `SELECT bg_image_url, cells, difficulty, timer_mode, time_limit, question_i18n FROM edu.sudoku_configs WHERE id = $1`,
         [level.module_config_id]
       );
       const row = cfgRows[0];
@@ -868,7 +1022,7 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
         // to anyone who opens devtools before even attempting the puzzle —
         // defeats "隐藏答案" entirely. Only position survives the trip.
         const cellsWithoutAnswers = (row.cells as Array<{ x: number; y: number }>).map((c) => ({ x: c.x, y: c.y }));
-        config = { bg_image_url: row.bg_image_url, cells: cellsWithoutAnswers, difficulty: row.difficulty, timer_mode: row.timer_mode, time_limit: row.time_limit };
+        config = { bg_image_url: row.bg_image_url, cells: cellsWithoutAnswers, difficulty: row.difficulty, timer_mode: row.timer_mode, time_limit: row.time_limit, question_i18n: row.question_i18n };
       }
     }
 
@@ -919,6 +1073,65 @@ export async function listMyProgress(req: AuthRequest, res: Response): Promise<v
       [req.user!.sub]
     );
     ok(res, rows);
+  } catch (err) { serverError(res, err); }
+}
+
+// operator 专用——全平台的学习记录总览，不像 listMyProgress(只能看自己)、
+// getChildProgress(家长只能看自己孩子)、getClassProgress(老师只能看自己
+// 班级) 那样受限于"是谁在查"，这里可以查任何学生、任何 Activity、任何
+// 时间段。按学生姓名/用户名/Activity标题/编号搜索，可以叠加按模块类型、
+// 完成状态、日期区间筛选。
+export async function listAllProgressRecords(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { page, limit, offset } = parsePagination(req, 30);
+    const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+    const studentId = typeof req.query.student_id === "string" ? req.query.student_id : "";
+    const moduleType = typeof req.query.module_type === "string" ? req.query.module_type : "";
+    const completedOnly = req.query.completed === "true";
+    const dateFrom = typeof req.query.date_from === "string" ? req.query.date_from : "";
+    const dateTo = typeof req.query.date_to === "string" ? req.query.date_to : "";
+
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (search) {
+      params.push(`%${search.toLowerCase()}%`);
+      conditions.push(`(lower(u.username) LIKE $${params.length} OR lower(p.full_name_zh) LIKE $${params.length} OR lower(p.full_name_en) LIKE $${params.length} OR lower(cl.title_i18n->>'zh') LIKE $${params.length} OR lower(cl.exercise_number) LIKE $${params.length})`);
+    }
+    if (studentId) { params.push(studentId); conditions.push(`pr.student_id = $${params.length}`); }
+    if (moduleType) { params.push(moduleType); conditions.push(`pr.module_type = $${params.length}`); }
+    if (completedOnly) conditions.push(`pr.completed = true`);
+    if (dateFrom) { params.push(dateFrom); conditions.push(`pr.played_at >= $${params.length}`); }
+    if (dateTo) { params.push(dateTo); conditions.push(`pr.played_at <= $${params.length}`); }
+    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const joins = `
+       FROM edu.progress_records pr
+       JOIN auth.users u ON u.id = pr.student_id
+       LEFT JOIN auth.user_profiles p ON p.user_id = u.id
+       LEFT JOIN edu.course_levels cl ON cl.id = pr.course_level_id`;
+
+    const { rows: countRows } = await query(`SELECT count(*)::int AS total ${joins} ${whereClause}`, params);
+    const total = countRows[0]?.total ?? 0;
+
+    params.push(limit, offset);
+    const { rows } = await query(
+      `SELECT pr.id, pr.played_at, pr.module_type, pr.score, pr.max_score, pr.time_spent_seconds, pr.mistakes, pr.completed, pr.attempt_number,
+              u.id AS student_id, u.username, p.full_name_zh, p.full_name_en,
+              COALESCE(roles.role_codes, ARRAY[]::text[]) AS role_codes,
+              cl.id AS course_level_id, cl.title_i18n AS level_title_i18n, cl.exercise_number
+       ${joins}
+       LEFT JOIN LATERAL (
+         SELECT array_agg(DISTINCT r.code) AS role_codes
+         FROM rbac.user_roles ur JOIN rbac.roles r ON r.id = ur.role_id
+         WHERE ur.user_id = u.id AND ur.is_active = true
+       ) roles ON true
+       ${whereClause}
+       ORDER BY pr.played_at DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+
+    res.status(200).json({ success: true, message: "Success", data: rows, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } });
   } catch (err) { serverError(res, err); }
 }
 
@@ -975,7 +1188,7 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
               cl.title_i18n, cl.explanation_text, cl.explanation_image_url, cl.explanation_video_url,
               cl.exercise_number, cl.hint_text, cl.audio_url, cl.category_id, cl.group_id, cl.curriculum_type_id,
               cl.activity_type, cl.teaching_modes, cl.difficulty, cl.age_group_min, cl.age_group_max,
-              cl.duration_minutes, cl.learning_outcomes, cl.skills_developed, cl.language, cl.tags
+              cl.duration_minutes, cl.learning_outcomes, cl.skills_developed, cl.language, cl.tags, cl.parent_preview_enabled
        FROM edu.course_levels cl
        WHERE cl.id = $1`,
       [levelId]
@@ -983,36 +1196,45 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
     if (!rows.length) { notFound(res, "Level not found"); return; }
     const level = rows[0];
 
+    // 一个 Activity 可能同时挂好几个 Topic——查出全部（不是只有旧栏位那
+    // 一个），给编辑表单的多选用。
+    const { rows: topicLinkRows } = await query(
+      `SELECT category_id FROM edu.activity_topic_links WHERE course_level_id = $1`,
+      [levelId]
+    );
+    level.category_ids = (topicLinkRows as { category_id: string }[]).map((r) => r.category_id);
+
     let config = null;
     if (level.module_type === "counting") {
       const { rows: cfgRows } = await query(
         `SELECT theme, custom_icon_url, bg_image_url, min_val, max_val,
-                quiz_mode, num_choices, total_questions, timer_mode, time_limit, mode, positions, texts
+                quiz_mode, num_choices, total_questions, timer_mode, time_limit, mode, positions, texts,
+                target_types, question_i18n
          FROM edu.counting_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
     } else if (level.module_type === "spot_diff") {
       const { rows: cfgRows } = await query(
-        `SELECT image_a_url, image_b_url, hotspots, timer_mode, time_limit FROM edu.spot_diff_configs WHERE id = $1`,
+        `SELECT image_a_url, image_b_url, hotspots, timer_mode, time_limit, question_i18n FROM edu.spot_diff_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
     } else if (level.module_type === "focus_tap") {
       const { rows: cfgRows } = await query(
-        `SELECT mode, grid_size, bg_image_url, positions, timer_mode, time_limit FROM edu.focus_tap_configs WHERE id = $1`,
+        `SELECT mode, grid_size, bg_image_url, positions, timer_mode, time_limit, question_i18n FROM edu.focus_tap_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
     } else if (level.module_type === "memory") {
       const { rows: cfgRows } = await query(
-        `SELECT theme, custom_icons, bg_image_url, pairs_count, preview_seconds, timer_mode, time_limit FROM edu.memory_configs WHERE id = $1`,
+        `SELECT theme, custom_icons, bg_image_url, pairs_count, preview_seconds, timer_mode, time_limit, question_i18n, layout, positions FROM edu.memory_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
     } else if (level.module_type === "pattern") {
       const { rows: cfgRows } = await query(
-        `SELECT theme, pattern_types, seq_length, num_choices, total_questions, timer_mode, time_limit FROM edu.pattern_configs WHERE id = $1`,
+        `SELECT theme, pattern_types, seq_length, num_choices, total_questions, timer_mode, time_limit, question_i18n FROM edu.pattern_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
@@ -1027,7 +1249,7 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
       config = cfgRows[0] ?? null;
     } else if (level.module_type === "maze") {
       const { rows: cfgRows } = await query(
-        `SELECT bg_image_url, mask_image_url, start_x, start_y, end_x, end_y, timer_mode, time_limit FROM edu.maze_configs WHERE id = $1`,
+        `SELECT bg_image_url, mask_image_url, start_x, start_y, end_x, end_y, timer_mode, time_limit, question_i18n, pairs FROM edu.maze_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
@@ -1036,7 +1258,7 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
       // 答案），跟 getLevel 那个学生视角刻意隐藏 target_color 的做法不
       // 一样——设计者本来就需要知道要求的颜色才能编辑。
       const { rows: cfgRows } = await query(
-        `SELECT bg_image_url, region_mask_url, regions, timer_mode, time_limit FROM edu.coloring_configs WHERE id = $1`,
+        `SELECT bg_image_url, region_mask_url, regions, timer_mode, time_limit, question_i18n FROM edu.coloring_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
@@ -1057,14 +1279,14 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
       // 没有shuffle、没有隐藏），跟 getLevel 那个学生视角刻意拆开的做法
       // 不一样——设计者本来就需要知道正确答案才能编辑。
       const { rows: cfgRows } = await query(
-        `SELECT pairs, shuffle_right, timer_mode, time_limit FROM edu.line_match_configs WHERE id = $1`,
+        `SELECT pairs, shuffle_right, timer_mode, time_limit, question_i18n FROM edu.line_match_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
     } else if (level.module_type === "sudoku") {
       // the ONLY branch that differs from getLevel: cells keep `answer`
       const { rows: cfgRows } = await query(
-        `SELECT bg_image_url, cells, difficulty, timer_mode, time_limit FROM edu.sudoku_configs WHERE id = $1`,
+        `SELECT bg_image_url, cells, difficulty, timer_mode, time_limit, question_i18n FROM edu.sudoku_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
@@ -1110,7 +1332,10 @@ export async function checkWordProblem(req: AuthRequest, res: Response): Promise
 // PRIMARY way to browse Activities now — courses are just the container
 // each one happens to live in, not the entry point for finding one.
 const ACTIVITY_SORT_COLUMNS: Record<string, string> = {
-  programme: "p.name_zh", subject: "s.name_zh", topic: "ec.name_zh",
+  // topic/subject/programme 排序取"随便一个挂着的"名字当代表——一个
+  // Activity 现在可能同时挂好几个 Topic，严格排序意义不大，这里只是
+  // 方便浏览时大致分组，不是权威排序。
+  programme: "sort_programme_name", subject: "sort_subject_name", topic: "sort_topic_name",
   activity: "cl.title_i18n->>'zh'", exercise_number: "cl.exercise_number", created_at: "cl.created_at",
 };
 
@@ -1130,17 +1355,26 @@ export async function listAllActivities(req: AuthRequest, res: Response): Promis
       params.push(`%${search.toLowerCase()}%`);
       conditions.push(`(lower(cl.title_i18n->>'zh') LIKE $${params.length} OR lower(cl.title_i18n->>'en') LIKE $${params.length} OR lower(cl.exercise_number) LIKE $${params.length})`);
     }
-    if (programmeId) { params.push(programmeId); conditions.push(`p.id = $${params.length}`); }
-    if (subjectId) { params.push(subjectId); conditions.push(`s.id = $${params.length}`); }
-    if (categoryId) { params.push(categoryId); conditions.push(`ec.id = $${params.length}`); }
+    // 一个 Activity 现在可以同时挂好几个 Topic，筛选改用 EXISTS 子查询——
+    // 只要"挂的其中一个符合条件"就算命中，不会因为多对多 JOIN 出现同一
+    // 个 Activity 重复好几行的问题。
+    if (categoryId) {
+      params.push(categoryId);
+      conditions.push(`EXISTS (SELECT 1 FROM edu.activity_topic_links atl WHERE atl.course_level_id = cl.id AND atl.category_id = $${params.length})`);
+    }
+    if (subjectId) {
+      params.push(subjectId);
+      conditions.push(`EXISTS (SELECT 1 FROM edu.activity_topic_links atl JOIN edu.exercise_categories ec ON ec.id = atl.category_id WHERE atl.course_level_id = cl.id AND ec.subject_id = $${params.length})`);
+    }
+    if (programmeId) {
+      params.push(programmeId);
+      conditions.push(`EXISTS (SELECT 1 FROM edu.activity_topic_links atl JOIN edu.exercise_categories ec ON ec.id = atl.category_id JOIN edu.subjects s ON s.id = ec.subject_id WHERE atl.course_level_id = cl.id AND s.programme_id = $${params.length})`);
+    }
     const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const joins = `
        FROM edu.course_levels cl
-       JOIN edu.courses c ON c.id = cl.course_id
-       LEFT JOIN edu.exercise_categories ec ON ec.id = cl.category_id
-       LEFT JOIN edu.subjects s ON s.id = ec.subject_id
-       LEFT JOIN edu.programmes p ON p.id = s.programme_id`;
+       LEFT JOIN edu.courses c ON c.id = cl.course_id`;
 
     const { rows: countRows } = await query(`SELECT count(*)::int AS total ${joins} ${whereClause}`, params);
     const total = countRows[0]?.total ?? 0;
@@ -1149,17 +1383,35 @@ export async function listAllActivities(req: AuthRequest, res: Response): Promis
     const { rows } = await query(
       `SELECT cl.id, cl.course_id, cl.module_type, cl.title_i18n, cl.exercise_number, cl.created_at,
               c.title_i18n AS course_title_i18n,
-              p.id AS programme_id, p.name_zh AS programme_name_zh,
-              s.id AS subject_id, s.name_zh AS subject_name_zh,
-              ec.id AS category_id, ec.name_zh AS topic_name_zh
+              COALESCE(topics.topics, '[]'::json) AS topics,
+              topics.sort_topic_name, topics.sort_subject_name, topics.sort_programme_name
        ${joins}
+       LEFT JOIN LATERAL (
+         SELECT
+           json_agg(json_build_object(
+             'category_id', ec.id, 'topic_name_zh', ec.name_zh,
+             'subject_id', s.id, 'subject_name_zh', s.name_zh,
+             'programme_id', p.id, 'programme_name_zh', p.name_zh
+           ) ORDER BY ec.name_zh) AS topics,
+           (array_agg(ec.name_zh ORDER BY ec.name_zh))[1] AS sort_topic_name,
+           (array_agg(s.name_zh ORDER BY s.name_zh))[1] AS sort_subject_name,
+           (array_agg(p.name_zh ORDER BY p.name_zh))[1] AS sort_programme_name
+         FROM edu.activity_topic_links atl
+         JOIN edu.exercise_categories ec ON ec.id = atl.category_id
+         JOIN edu.subjects s ON s.id = ec.subject_id
+         JOIN edu.programmes p ON p.id = s.programme_id
+         WHERE atl.course_level_id = cl.id
+       ) topics ON true
        ${whereClause}
        ORDER BY ${ACTIVITY_SORT_COLUMNS[sortKey]} ${order} NULLS LAST
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params
     );
 
-    res.status(200).json({ success: true, message: "Success", data: rows, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } });
+    // sort_* 那几个栏位只是排序用的内部辅助值，不用回传给前端
+    const cleaned = rows.map(({ sort_topic_name, sort_subject_name, sort_programme_name, ...rest }) => rest);
+
+    res.status(200).json({ success: true, message: "Success", data: cleaned, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } });
   } catch (err) { serverError(res, err); }
 }
 

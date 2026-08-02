@@ -37,7 +37,12 @@ export default {
         sm: "calc(var(--radius) - 4px)",
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
+        // var(--font-en) first so Latin glyphs use the English pick;
+        // CJK glyphs it doesn't cover fall through to var(--font-zh)
+        // automatically. Both are set (and swapped) via
+        // src/lib/fontPreferences.ts — see index.css :root for defaults.
+        sans: ["var(--font-en)", "var(--font-zh)", "system-ui", "sans-serif"],
+        heading: ["Space Grotesk", "var(--font-en)", "var(--font-zh)", "sans-serif"],
       },
       animation: {
         "fade-in":    "fadeIn 0.3s ease-in-out",

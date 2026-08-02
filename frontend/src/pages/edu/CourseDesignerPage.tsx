@@ -7,9 +7,10 @@
 // with a muted header row and hover states, and spacing follows the app's
 // existing scale instead of ad-hoc inline styles.
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, Grid3x3, Link2, Palette, Presentation, Film, Music2, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
-import { eduApi, lessonsApi, exerciseClassificationApi, taxonomyApi } from "@/api/index";
+import { eduApi, lessonsApi, exerciseClassificationApi, taxonomyApi } from "@/api";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
 import SceneEditor, { type StructuredSceneOutput } from "@/components/SceneEditor";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,39 @@ const MODULE_LABELS: Record<string, { emoji: string; label: string }> = {
   sudoku:       { emoji: "🔢", label: "数独" },
   line_match:   { emoji: "🔗", label: "连线配对" },
   coloring:     { emoji: "🎨", label: "填色游戏" },
+  ppt_lecture:  { emoji: "📊", label: "PPT讲义" },
+  video_lecture:{ emoji: "🎬", label: "视频讲义" },
+  play_along:   { emoji: "🎼", label: "跟弹练习" },
+};
+
+// 每个游戏类型一个专属色系——像玩具架上的游戏卡带，一眼就能从颜色分辨
+// 类型，不用逐个读文字。跟侧边栏原本就有的 teal-to-blue 渐变是同一个
+// 色系家族的延伸，不是另起炉灶。
+const MODULE_COLORS: Record<string, { bg: string; text: string; ring: string }> = {
+  counting:      { bg: "#FEF3C7", text: "#B45309", ring: "#F59E0B" },
+  spot_diff:     { bg: "#DBEAFE", text: "#1D4ED8", ring: "#2563EB" },
+  focus_tap:     { bg: "#FFE4E6", text: "#BE123C", ring: "#FB7185" },
+  memory:        { bg: "#EDE9FE", text: "#6D28D9", ring: "#8B5CF6" },
+  pattern:       { bg: "#CCFBF1", text: "#0F766E", ring: "#14B8A6" },
+  word_problem:  { bg: "#F1F5F9", text: "#334155", ring: "#64748B" },
+  maze:          { bg: "#D1FAE5", text: "#047857", ring: "#10B981" },
+  sudoku:        { bg: "#E0E7FF", text: "#4338CA", ring: "#6366F1" },
+  line_match:    { bg: "#FCE7F3", text: "#BE185D", ring: "#EC4899" },
+  coloring:      { bg: "#FFEDD5", text: "#C2410C", ring: "#F97316" },
+  ppt_lecture:   { bg: "#F3F4F6", text: "#4B5563", ring: "#9CA3AF" },
+  video_lecture: { bg: "#FEE2E2", text: "#B91C1C", ring: "#EF4444" },
+  play_along:    { bg: "#FDF4FF", text: "#A21CAF", ring: "#D946EF" },
+};
+const FALLBACK_COLOR = { bg: "#F1F5F9", text: "#334155", ring: "#94A3B8" };
+
+// 专业的线性图标取代表情符号——emoji在不同系统/浏览器渲染不一致，看
+// 起来业余，用 lucide-react 这个项目里本来就在用的图标库（AppLayout.tsx
+// 已经引入过），保持视觉统一、干净。
+const MODULE_ICONS: Record<string, LucideIcon> = {
+  counting: Hash, spot_diff: ScanSearch, focus_tap: Target, memory: Layers,
+  pattern: Puzzle, word_problem: FileText, maze: Route, sudoku: Grid3x3,
+  line_match: Link2, coloring: Palette, ppt_lecture: Presentation, video_lecture: Film,
+  play_along: Music2,
 };
 
 function readAsDataURL(file: File): Promise<string> {
@@ -56,78 +90,1343 @@ function readAsDataURL(file: File): Promise<string> {
 // ── Modal: add course ─────────────────────────────────────────────────────────
 // ── Modal: add level (module type picked first, fields swap accordingly) ─────
 const SD_W = GAME_CANVAS_W, SD_H = GAME_CANVAS_H, SD_BOX_W = 500, SD_BOX_H = 655, SD_LEFT_X = 30, SD_RIGHT_X = 570, SD_BOX_Y = 22;
+const SD_COLORS = ["#e8a33d", "#ff7a59", "#4fb06d", "#5b8def", "#8b7ae0", "#222222", "#ffffff"];
+// 跟 MazeGame.tsx 里的 BALL_COLORS 保持同一个顺序——这样设计器里第几个
+// 配对显示什么颜色，玩游戏时那个球就是同一个颜色，不会对不上。
+const MZ_BALL_COLORS = ["#ff7a59", "#5b8def", "#a855f7", "#f59e0b", "#14b8a6", "#ec4899", "#84cc16", "#06b6d4"];
 
-// ── Focus-tap custom mode: upload a scene, click to mark where numbers go ────
-// Same "click to add, click existing to remove" interaction as spot_diff's
-// hotspot marking — deliberately reused rather than inventing a new pattern,
-// since it's already a proven, tested marking UX in this codebase.
-const FT_W = GAME_CANVAS_W, FT_H = GAME_CANVAS_H;
+interface SpotDiffHotspotDraft { x: number; y: number; r: number }
+interface SdStrokeDraft { id: string; color: string; width: number; opacity: number; isEraser?: boolean; points: { x: number; y: number }[] }
 
-function FocusTapCustomDesigner({ bgUrl, setBgUrl, positions, setPositions }: {
-  bgUrl: string | null; setBgUrl: (u: string) => void;
-  positions: { x: number; y: number }[]; setPositions: (p: { x: number; y: number }[]) => void;
+// 三种图层类型统一放一个数组里管理（跟 SceneEditor 的 Layer 联合类型
+// 是同一个思路），这样选中/拖动/删除这些操作可以写一套逻辑，不用给
+// 物件、文字、形状各写一份。笔画（strokes）是单独一个数组，因为它的
+// 形状是一串点而不是矩形边界，选中判定和拖动方式不一样，但一样支持
+// 选中改属性/拖动/删除，跟其它图层用同一套右键属性面板。
+interface SdObjectLayer { id: string; kind: "object"; imageUrl: string; x: number; y: number; w: number; h: number; rotation: number; flipX?: boolean; flipY?: boolean; opacity?: number }
+interface SdTextLayer { id: string; kind: "text"; text: string; x: number; y: number; fontSize: number; color: string; fontFamily: string; rotation: number; opacity?: number }
+interface SdShapeLayer {
+  id: string; kind: "shape"; shape: "rect" | "ellipse" | "line";
+  x: number; y: number; w: number; h: number; rotation: number;
+  fillColor: string; fillEnabled: boolean; borderColor: string; borderWidth: number; opacity?: number;
+}
+type SdLayer = SdObjectLayer | SdTextLayer | SdShapeLayer;
+
+// updateSelectedLayer 要接受"不管选中的是物件/文字/形状里哪一种，改动
+// 里可能出现的任何字段"——写成 Partial<SdObjectLayer & SdTextLayer &
+// SdShapeLayer>（交叉类型）是错的：三种类型的 kind 字段互相矛盾（同时
+// 是"object"又是"text"又是"shape"是不可能的），TS 会把整个交叉类型判定
+// 成 never，所有字段跟着报错。改成"把三种类型各自的字段摊平合并、全部
+// 可选"这个写法才对。
+type SdLayerPatch = Partial<{
+  imageUrl: string; x: number; y: number; w: number; h: number; rotation: number; flipX: boolean; flipY: boolean;
+  text: string; fontSize: number; color: string; fontFamily: string;
+  shape: "rect" | "ellipse" | "line"; fillColor: string; fillEnabled: boolean; borderColor: string; borderWidth: number;
+  opacity: number;
+}>;
+
+// 选中的东西可能是图层（物件/文字/形状），也可能是一条笔画——两种数据
+// 结构完全不同，用这个联合类型统一表示"当前选中的是谁"。
+type SdSelection = { type: "layer"; id: string } | { type: "stroke"; id: string } | null;
+
+const SD_FONTS = [
+  { value: "system-ui, sans-serif", label: "系统默认" },
+  { value: "'Noto Sans SC', sans-serif", label: "思源黑体" },
+  { value: "'Noto Serif SC', serif", label: "思源宋体" },
+  { value: "cursive", label: "手写风格" },
+];
+
+function sdUid() { return Math.random().toString(36).slice(2, 10); }
+
+function sdHexToRgb(hex: string): [number, number, number] {
+  const m = hex.replace("#", "");
+  return [parseInt(m.slice(0, 2), 16) || 0, parseInt(m.slice(2, 4), 16) || 0, parseInt(m.slice(4, 6), 16) || 0];
+}
+
+// 跟 SceneEditor 用的是同一套泛洪填充算法，独立复制一份而不是跨文件共用——
+// 这里的填色桶只需要在"找不同图"这一个方框范围内运作，逻辑比 SceneEditor
+// 那个通用版本简单，没必要为了共用几十行代码去处理跨组件传参。
+function sdFloodFill(imageData: ImageData, startX: number, startY: number, fillRgb: [number, number, number], tolerance: number) {
+  const { width, height, data } = imageData;
+  if (startX < 0 || startX >= width || startY < 0 || startY >= height) return;
+  const startIdx = (startY * width + startX) * 4;
+  const sr = data[startIdx], sg = data[startIdx + 1], sb = data[startIdx + 2], sa = data[startIdx + 3];
+  const [fr, fg, fb] = fillRgb;
+  if (Math.abs(sr - fr) <= 2 && Math.abs(sg - fg) <= 2 && Math.abs(sb - fb) <= 2 && sa > 200) return;
+  const tol2 = tolerance * tolerance;
+  const matches = (idx: number) => {
+    const dr = data[idx] - sr, dg = data[idx + 1] - sg, db = data[idx + 2] - sb, da = data[idx + 3] - sa;
+    return dr * dr + dg * dg + db * db + da * da <= tol2;
+  };
+  const visited = new Uint8Array(width * height);
+  const stack: number[] = [startX, startY];
+  while (stack.length) {
+    const y = stack.pop()!, x = stack.pop()!;
+    if (x < 0 || x >= width || y < 0 || y >= height) continue;
+    const vIdx = y * width + x;
+    if (visited[vIdx]) continue;
+    const idx = vIdx * 4;
+    if (!matches(idx)) continue;
+    visited[vIdx] = 1;
+    data[idx] = fr; data[idx + 1] = fg; data[idx + 2] = fb; data[idx + 3] = 255;
+    stack.push(x + 1, y, x - 1, y, x, y + 1, x, y - 1);
+  }
+}
+
+function sdLayerBounds(l: SdObjectLayer | SdShapeLayer) { return { x: l.x - l.w / 2, y: l.y - l.h / 2, w: l.w, h: l.h }; }
+
+function sdStrokeBounds(s: SdStrokeDraft) {
+  const xs = s.points.map((p) => p.x), ys = s.points.map((p) => p.y);
+  const minX = Math.min(...xs) - s.width / 2, maxX = Math.max(...xs) + s.width / 2;
+  const minY = Math.min(...ys) - s.width / 2, maxY = Math.max(...ys) + s.width / 2;
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
+function sdDistToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const lenSq = dx * dx + dy * dy;
+  let t = lenSq === 0 ? 0 : ((px - x1) * dx + (py - y1) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  const cx = x1 + t * dx, cy = y1 + t * dy;
+  return Math.hypot(px - cx, py - cy);
+}
+
+function sdHitTestStroke(px: number, py: number, s: SdStrokeDraft): boolean {
+  const pad = s.width / 2 + 8; // 8px 容错，细笔画不容易精确点中
+  if (s.points.length === 1) return Math.hypot(px - s.points[0].x, py - s.points[0].y) <= pad;
+  for (let i = 1; i < s.points.length; i++) {
+    if (sdDistToSegment(px, py, s.points[i - 1].x, s.points[i - 1].y, s.points[i].x, s.points[i].y) <= pad) return true;
+  }
+  return false;
+}
+
+// 找不同之处的标记工具——两张图放回同一个画布省空间。默认是"标记模式"：
+// 点空白处直接加一个标记，点已有的标记可以拖动改位置，选中之后能调整
+// 判定范围大小或删除，这是最常用、最直觉的操作。
+//
+// 需要的时候可以切到"画笔模式"：只在"找不同图"(右边)那个框里操作——
+// 铅笔/毛笔/橡皮擦/填色桶画线；加物件（从素材库选图片，支持翻转）；
+// 加文字（可以调字体、字号、颜色）；加形状（方形/圆形/直线，支持填色）。
+// 画的笔画（铅笔/毛笔）也不是画完就定死了——切到"选择"工具，点笔画本身
+// 也能选中，一样可以拖动、改颜色/粗细/透明度、复制、删除，跟物件/文字/
+// 形状用同一套右键属性面板。做完点"✅ 应用到找不同图"，会把这些东西
+// 烤进一张新的找不同图里（通过 onImgBUpdated 传回去），然后自动切回
+// 标记模式，让你标记刚做出来的这处差异。
+function SpotDiffMarker({ imgAUrl, imgBUrl, hotspots, setHotspots, onImgBUpdated }: {
+  imgAUrl: string | null; imgBUrl: string | null;
+  hotspots: SpotDiffHotspotDraft[]; setHotspots: (h: SpotDiffHotspotDraft[]) => void;
+  onImgBUpdated: (dataUrl: string) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const bgImgRef = useRef<HTMLImageElement | null>(null);
+  const imgARef = useRef<HTMLImageElement | null>(null);
+  const imgBRef = useRef<HTMLImageElement | null>(null);
+  const layerImgCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+
+  const [subMode, setSubMode] = useState<"mark" | "draw">("mark");
+  const [drawTool, setDrawTool] = useState<"pencil" | "brush" | "eraser" | "bucket" | "select">("pencil");
+  const [drawColor, setDrawColor] = useState("#e8a33d");
+  const [drawWidth, setDrawWidth] = useState(6);
+  const [drawOpacity, setDrawOpacity] = useState(100);
+  const [strokes, setStrokes] = useState<SdStrokeDraft[]>([]);
+  const [layers, setLayers] = useState<SdLayer[]>([]);
+  const [selection, setSelection] = useState<SdSelection>(null);
+  const dragRef = useRef<{ startPx: number; startPy: number; origX: number; origY: number } | null>(null);
+  const currentStrokeRef = useRef<SdStrokeDraft | null>(null);
+  const [, forceTick] = useState(0);
+  // 右键弹出的属性面板——位置是屏幕坐标（fixed定位用），不是画布坐标
+  const [propPopup, setPropPopup] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!imgAUrl) { imgARef.current = null; return; }
+    const img = new Image(); img.onload = () => { imgARef.current = img; redraw(); }; img.src = imgAUrl;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imgAUrl]);
+  useEffect(() => {
+    if (!imgBUrl) { imgBRef.current = null; return; }
+    const img = new Image(); img.onload = () => { imgBRef.current = img; redraw(); }; img.src = imgBUrl;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imgBUrl]);
+
+  // 物件图层的图片要单独加载缓存——跟背景图是两码事
+  useEffect(() => {
+    layers.forEach((l) => {
+      if (l.kind !== "object") return;
+      if (layerImgCacheRef.current.has(l.imageUrl)) return;
+      const img = new Image();
+      img.onload = () => forceTick((n) => n + 1);
+      img.src = l.imageUrl;
+      layerImgCacheRef.current.set(l.imageUrl, img);
+    });
+  }, [layers]);
+
+  const selectedLayer = selection?.type === "layer" ? layers.find((l) => l.id === selection.id) ?? null : null;
+  const selectedStroke = selection?.type === "stroke" ? strokes.find((s) => s.id === selection.id) ?? null : null;
+
+  function drawLayer(ctx: CanvasRenderingContext2D, l: SdLayer, offsetX: number, offsetY: number) {
+    const lx = l.x - offsetX, ly = l.y - offsetY;
+    if (l.kind === "text") {
+      ctx.save();
+      ctx.globalAlpha = l.opacity ?? 1;
+      ctx.translate(lx, ly); ctx.rotate((l.rotation * Math.PI) / 180); ctx.translate(-lx, -ly);
+      ctx.font = `${l.fontSize}px ${l.fontFamily}`;
+      ctx.fillStyle = l.color; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(l.text, lx, ly);
+      ctx.restore();
+      return;
+    }
+    const b = { x: lx - l.w / 2, y: ly - l.h / 2, w: l.w, h: l.h };
+    ctx.save();
+    ctx.globalAlpha = l.opacity ?? 1;
+    ctx.translate(lx, ly); ctx.rotate((l.rotation * Math.PI) / 180); ctx.translate(-lx, -ly);
+    if (l.kind === "object") {
+      const img = layerImgCacheRef.current.get(l.imageUrl);
+      if (img?.complete) {
+        const fx = l.flipX ? -1 : 1, fy = l.flipY ? -1 : 1;
+        if (fx !== 1 || fy !== 1) {
+          ctx.save();
+          ctx.translate(lx, ly); ctx.scale(fx, fy); ctx.translate(-lx, -ly);
+          ctx.drawImage(img, b.x, b.y, b.w, b.h);
+          ctx.restore();
+        } else {
+          ctx.drawImage(img, b.x, b.y, b.w, b.h);
+        }
+      }
+    } else if (l.kind === "shape") {
+      if (l.shape === "line") {
+        ctx.beginPath(); ctx.moveTo(b.x, ly); ctx.lineTo(b.x + b.w, ly);
+        ctx.lineCap = "round"; ctx.strokeStyle = l.borderColor; ctx.lineWidth = Math.max(1, l.borderWidth); ctx.stroke();
+      } else {
+        ctx.beginPath();
+        if (l.shape === "ellipse") ctx.ellipse(lx, ly, b.w / 2, b.h / 2, 0, 0, Math.PI * 2);
+        else ctx.rect(b.x, b.y, b.w, b.h);
+        if (l.fillEnabled) { ctx.fillStyle = l.fillColor; ctx.fill(); }
+        if (l.borderWidth > 0) { ctx.strokeStyle = l.borderColor; ctx.lineWidth = l.borderWidth; ctx.stroke(); }
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawStroke(ctx: CanvasRenderingContext2D, s: SdStrokeDraft) {
+    ctx.save();
+    ctx.globalAlpha = s.opacity ?? 1;
+    ctx.globalCompositeOperation = s.isEraser ? "destination-out" : "source-over";
+    ctx.beginPath();
+    ctx.strokeStyle = s.color; ctx.lineWidth = s.width; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    s.points.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+    ctx.stroke();
+    ctx.restore();
+  }
 
   const redraw = useCallback(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, FT_W, FT_H);
-    ctx.fillStyle = "#f6faf7"; ctx.fillRect(0, 0, FT_W, FT_H);
-    if (bgImgRef.current) ctx.drawImage(bgImgRef.current, 0, 0, FT_W, FT_H);
-    positions.forEach((p, i) => {
-      const x = p.x * FT_W, y = p.y * FT_H;
-      ctx.beginPath(); ctx.arc(x, y, 22, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(232,163,61,0.9)"; ctx.fill();
-      ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
-      ctx.font = "bold 18px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#fff";
-      ctx.fillText(String(i + 1), x, y + 6);
+    ctx.clearRect(0, 0, SD_W, SD_H);
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(SD_LEFT_X, SD_BOX_Y, SD_BOX_W, SD_BOX_H);
+    ctx.fillRect(SD_RIGHT_X, SD_BOX_Y, SD_BOX_W, SD_BOX_H);
+    if (imgARef.current) ctx.drawImage(imgARef.current, SD_LEFT_X, SD_BOX_Y, SD_BOX_W, SD_BOX_H);
+    if (imgBRef.current) ctx.drawImage(imgBRef.current, SD_RIGHT_X, SD_BOX_Y, SD_BOX_W, SD_BOX_H);
+
+    // 画笔/物件/文字/形状——只画在右边"找不同图"这个框里，用 clip 夹住，不会画出界
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(SD_RIGHT_X, SD_BOX_Y, SD_BOX_W, SD_BOX_H);
+    ctx.clip();
+    strokes.forEach((s) => {
+      drawStroke(ctx, s);
+      if (selection?.type === "stroke" && selection.id === s.id) {
+        const b = sdStrokeBounds(s);
+        ctx.save();
+        ctx.strokeStyle = "#5b8def"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+        ctx.strokeRect(b.x - 4, b.y - 4, b.w + 8, b.h + 8);
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
     });
-  }, [positions]);
-
-  useEffect(redraw, [redraw, bgUrl]);
-
-  async function handleUpload(file: File) {
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const fr = new FileReader();
-      fr.onload = () => resolve(fr.result as string);
-      fr.onerror = reject;
-      fr.readAsDataURL(file);
+    layers.forEach((l) => {
+      drawLayer(ctx, l, 0, 0);
+      if (selection?.type === "layer" && selection.id === l.id) {
+        const b = l.kind === "text"
+          ? { x: l.x - 40, y: l.y - l.fontSize / 2, w: 80, h: l.fontSize }
+          : sdLayerBounds(l);
+        ctx.save();
+        ctx.strokeStyle = "#5b8def"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+        ctx.strokeRect(b.x - 4, b.y - 4, b.w + 8, b.h + 8);
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
     });
-    handleSelect(dataUrl);
-  }
+    ctx.restore();
 
-  function handleSelect(dataUrl: string) {
-    const img = new Image();
-    img.onload = () => { bgImgRef.current = img; redraw(); };
-    img.src = dataUrl;
-    setBgUrl(dataUrl);
-  }
+    ctx.strokeStyle = "#dbe9e0"; ctx.lineWidth = 2;
+    ctx.strokeRect(SD_LEFT_X, SD_BOX_Y, SD_BOX_W, SD_BOX_H);
+    ctx.strokeRect(SD_RIGHT_X, SD_BOX_Y, SD_BOX_W, SD_BOX_H);
 
-  function handleClick(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (subMode === "mark") {
+      hotspots.forEach((h, i) => {
+        [SD_LEFT_X, SD_RIGHT_X].forEach((ox) => {
+          ctx.beginPath();
+          ctx.arc(ox + h.x * SD_BOX_W, SD_BOX_Y + h.y * SD_BOX_H, h.r * SD_BOX_W, 0, Math.PI * 2);
+          ctx.setLineDash(i === selectedIdx ? [] : [6, 5]);
+          ctx.strokeStyle = i === selectedIdx ? "#5b8def" : "rgba(255,122,89,0.9)";
+          ctx.lineWidth = 3; ctx.stroke();
+          ctx.setLineDash([]);
+        });
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hotspots, selectedIdx, strokes, layers, selection, subMode]);
+
+  useEffect(redraw, [redraw]);
+
+  function toCanvasXY(e: React.PointerEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>): { px: number; py: number } {
     const rect = canvasRef.current!.getBoundingClientRect();
-    const scaleX = FT_W / rect.width, scaleY = FT_H / rect.height;
-    const px = (e.clientX - rect.left) * scaleX, py = (e.clientY - rect.top) * scaleY;
-    const lx = px / FT_W, ly = py / FT_H;
-    const hitIdx = positions.findIndex((p) => Math.hypot(p.x - lx, p.y - ly) * FT_W < 22);
-    if (hitIdx >= 0) setPositions(positions.filter((_, i) => i !== hitIdx));
-    else setPositions([...positions, { x: lx, y: ly }]);
+    const scaleX = SD_W / rect.width, scaleY = SD_H / rect.height;
+    return { px: (e.clientX - rect.left) * scaleX, py: (e.clientY - rect.top) * scaleY };
   }
+
+  function toBoxXY(e: React.PointerEvent<HTMLCanvasElement>): { lx: number; ly: number } | null {
+    const { px, py } = toCanvasXY(e);
+    if (px >= SD_LEFT_X && px <= SD_LEFT_X + SD_BOX_W && py >= SD_BOX_Y && py <= SD_BOX_Y + SD_BOX_H) {
+      return { lx: (px - SD_LEFT_X) / SD_BOX_W, ly: (py - SD_BOX_Y) / SD_BOX_H };
+    }
+    if (px >= SD_RIGHT_X && px <= SD_RIGHT_X + SD_BOX_W && py >= SD_BOX_Y && py <= SD_BOX_Y + SD_BOX_H) {
+      return { lx: (px - SD_RIGHT_X) / SD_BOX_W, ly: (py - SD_BOX_Y) / SD_BOX_H };
+    }
+    return null;
+  }
+
+  // ── 标记模式：点空白加标记、点已有的拖动、松手结束 ──────────────────────────
+  function handleMarkPointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    const pos = toBoxXY(e);
+    if (!pos) return;
+    const hitIdx = hotspots.findIndex((h) => Math.hypot(h.x - pos.lx, h.y - pos.ly) < h.r);
+    if (hitIdx >= 0) { setSelectedIdx(hitIdx); setDragIdx(hitIdx); }
+    else { const next = [...hotspots, { x: pos.lx, y: pos.ly, r: 0.06 }]; setHotspots(next); setSelectedIdx(next.length - 1); }
+  }
+  function handleMarkPointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (dragIdx === null) return;
+    const pos = toBoxXY(e);
+    if (!pos) return;
+    setHotspots(hotspots.map((h, i) => (i === dragIdx ? { ...h, x: pos.lx, y: pos.ly } : h)));
+  }
+  function removeSelected() {
+    if (selectedIdx === null) return;
+    setHotspots(hotspots.filter((_, i) => i !== selectedIdx));
+    setSelectedIdx(null);
+  }
+  function resizeSelected(delta: number) {
+    if (selectedIdx === null) return;
+    setHotspots(hotspots.map((h, i) => (i === selectedIdx ? { ...h, r: Math.max(0.02, Math.min(0.15, h.r + delta)) } : h)));
+  }
+
+  // ── 画笔模式：铅笔/毛笔/橡皮擦画线，填色桶灌颜色，物件/文字/形状/笔画都能选中拖动 ──
+  function bucketFillAt(px: number, py: number) {
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx || !imgBRef.current) return;
+    const off = document.createElement("canvas");
+    off.width = SD_BOX_W; off.height = SD_BOX_H;
+    const octx = off.getContext("2d");
+    if (!octx) return;
+    octx.drawImage(imgBRef.current, 0, 0, SD_BOX_W, SD_BOX_H);
+    const imageData = octx.getImageData(0, 0, SD_BOX_W, SD_BOX_H);
+    sdFloodFill(imageData, Math.round(px - SD_RIGHT_X), Math.round(py - SD_BOX_Y), sdHexToRgb(drawColor), 32);
+    octx.putImageData(imageData, 0, 0);
+    const newUrl = off.toDataURL("image/png");
+    const newImg = new Image();
+    newImg.onload = () => { imgBRef.current = newImg; redraw(); };
+    newImg.src = newUrl;
+    onImgBUpdated(newUrl);
+  }
+
+  // 统一命中测试——图层（物件/文字/形状）在上层，画笔笔画在下层，所以先
+  // 查图层再查笔画，符合"点哪个就选哪个可见的东西"的直觉。
+  function hitTestAny(px: number, py: number): SdSelection {
+    const pad = 10;
+    const layerHit = [...layers].reverse().find((l) => {
+      if (l.kind === "text") {
+        const ctx = canvasRef.current?.getContext("2d");
+        if (!ctx) return false;
+        ctx.font = `${l.fontSize}px ${l.fontFamily}`;
+        const w = ctx.measureText(l.text).width;
+        return px >= l.x - w / 2 - pad && px <= l.x + w / 2 + pad && py >= l.y - l.fontSize / 2 - pad && py <= l.y + l.fontSize / 2 + pad;
+      }
+      const b = sdLayerBounds(l);
+      return px >= b.x - pad && px <= b.x + b.w + pad && py >= b.y - pad && py <= b.y + b.h + pad;
+    });
+    if (layerHit) return { type: "layer", id: layerHit.id };
+    const strokeHit = [...strokes].reverse().find((s) => sdHitTestStroke(px, py, s));
+    if (strokeHit) return { type: "stroke", id: strokeHit.id };
+    return null;
+  }
+
+  function handleDrawPointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    setPropPopup(null);
+    const { px, py } = toCanvasXY(e);
+    const inRightBox = px >= SD_RIGHT_X && px <= SD_RIGHT_X + SD_BOX_W && py >= SD_BOX_Y && py <= SD_BOX_Y + SD_BOX_H;
+
+    if (drawTool === "select") {
+      if (!inRightBox) { setSelection(null); return; }
+      const hit = hitTestAny(px, py);
+      setSelection(hit);
+      if (hit) {
+        const origX = hit.type === "layer" ? (layers.find((l) => l.id === hit.id)?.x ?? px) : (strokes.find((s) => s.id === hit.id)?.points[0]?.x ?? px);
+        const origY = hit.type === "layer" ? (layers.find((l) => l.id === hit.id)?.y ?? py) : (strokes.find((s) => s.id === hit.id)?.points[0]?.y ?? py);
+        dragRef.current = { startPx: px, startPy: py, origX, origY };
+      }
+      return;
+    }
+    if (!inRightBox) return;
+    if (drawTool === "bucket") { bucketFillAt(px, py); return; }
+    const opacity = drawTool === "brush" ? drawOpacity / 100 : 1;
+    const stroke: SdStrokeDraft = { id: sdUid(), color: drawColor, width: drawWidth, opacity, isEraser: drawTool === "eraser", points: [{ x: px, y: py }] };
+    currentStrokeRef.current = stroke;
+    setStrokes((s) => [...s, stroke]);
+  }
+
+  function handleDrawPointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    const { px, py } = toCanvasXY(e);
+    if (drawTool === "select" && dragRef.current && selection) {
+      const d = dragRef.current;
+      const dx = px - d.startPx, dy = py - d.startPy;
+      if (selection.type === "layer") {
+        setLayers((ls) => ls.map((l) => (l.id === selection.id ? { ...l, x: d.origX + dx, y: d.origY + dy } : l)));
+      } else {
+        // 拖动整条笔画——所有点一起平移
+        setStrokes((ss) => ss.map((s) => {
+          if (s.id !== selection.id) return s;
+          if (!s.points.length) return s;
+          const baseX = s.points[0].x, baseY = s.points[0].y;
+          const shiftX = (d.origX + dx) - baseX, shiftY = (d.origY + dy) - baseY;
+          return { ...s, points: s.points.map((p) => ({ x: p.x + shiftX, y: p.y + shiftY })) };
+        }));
+        dragRef.current = { ...d, startPx: px, startPy: py, origX: d.origX + dx, origY: d.origY + dy };
+      }
+      return;
+    }
+    if (!currentStrokeRef.current) return;
+    currentStrokeRef.current.points.push({ x: px, y: py });
+    setStrokes((s) => [...s.slice(0, -1), { ...currentStrokeRef.current! }]);
+  }
+
+  function handlePointerUp() {
+    setDragIdx(null);
+    currentStrokeRef.current = null;
+    dragRef.current = null;
+  }
+
+  // 右键：选中被点到的东西（图层或笔画），在鼠标位置弹出属性面板；空白
+  // 处右键、或者已经有选中的东西时右键点偏了，也照样弹出（点太准太麻烦）。
+  function handleContextMenu(e: React.MouseEvent<HTMLCanvasElement>) {
+    e.preventDefault();
+    if (subMode !== "draw") return;
+    const { px, py } = toCanvasXY(e);
+    const hit = hitTestAny(px, py);
+    if (hit) {
+      setSelection(hit);
+      setPropPopup({ x: e.clientX, y: e.clientY });
+    } else if (selection) {
+      setPropPopup({ x: e.clientX, y: e.clientY });
+    } else {
+      setSelection(null);
+      setPropPopup(null);
+    }
+  }
+
+  function addShape(kind: "rect" | "ellipse" | "line") {
+    const w = kind === "line" ? 160 : 100, h = kind === "line" ? 4 : 100;
+    const newLayer: SdShapeLayer = {
+      id: sdUid(), kind: "shape", shape: kind,
+      x: SD_RIGHT_X + SD_BOX_W / 2, y: SD_BOX_Y + SD_BOX_H / 2, w, h, rotation: 0,
+      fillColor: drawColor, fillEnabled: kind !== "line",
+      borderColor: drawColor, borderWidth: 4,
+    };
+    setLayers((ls) => [...ls, newLayer]);
+    setSelection({ type: "layer", id: newLayer.id });
+    setDrawTool("select");
+  }
+
+  function addObjectFromAsset(dataUrl: string) {
+    const newLayer: SdObjectLayer = {
+      id: sdUid(), kind: "object", imageUrl: dataUrl,
+      x: SD_RIGHT_X + SD_BOX_W / 2, y: SD_BOX_Y + SD_BOX_H / 2, w: 100, h: 100, rotation: 0,
+    };
+    setLayers((ls) => [...ls, newLayer]);
+    setSelection({ type: "layer", id: newLayer.id });
+    setDrawTool("select");
+  }
+
+  function addText() {
+    const newLayer: SdTextLayer = {
+      id: sdUid(), kind: "text", text: "文字",
+      x: SD_RIGHT_X + SD_BOX_W / 2, y: SD_BOX_Y + SD_BOX_H / 2,
+      fontSize: 32, color: drawColor, fontFamily: SD_FONTS[0].value, rotation: 0,
+    };
+    setLayers((ls) => [...ls, newLayer]);
+    setSelection({ type: "layer", id: newLayer.id });
+    setDrawTool("select");
+  }
+
+  function updateSelectedLayer(patch: SdLayerPatch) {
+    if (selection?.type !== "layer") return;
+    setLayers((ls) => ls.map((l) => (l.id === selection.id ? ({ ...l, ...patch } as SdLayer) : l)));
+  }
+  function updateSelectedStroke(patch: Partial<SdStrokeDraft>) {
+    if (selection?.type !== "stroke") return;
+    setStrokes((ss) => ss.map((s) => (s.id === selection.id ? { ...s, ...patch } : s)));
+  }
+  function toggleFlipSelected(axis: "x" | "y") {
+    if (!selectedLayer || selectedLayer.kind !== "object") return;
+    updateSelectedLayer(axis === "x" ? { flipX: !selectedLayer.flipX } : { flipY: !selectedLayer.flipY });
+  }
+  function rotateSelectedLayer(delta: number) {
+    if (!selectedLayer) return;
+    updateSelectedLayer({ rotation: (selectedLayer.rotation + delta + 360) % 360 });
+  }
+  function duplicateSelected() {
+    if (selection?.type === "layer" && selectedLayer) {
+      const copy = { ...selectedLayer, id: sdUid(), x: selectedLayer.x + 20, y: selectedLayer.y + 20 } as SdLayer;
+      setLayers((ls) => [...ls, copy]);
+      setSelection({ type: "layer", id: copy.id });
+    } else if (selection?.type === "stroke" && selectedStroke) {
+      const copy: SdStrokeDraft = { ...selectedStroke, id: sdUid(), points: selectedStroke.points.map((p) => ({ x: p.x + 20, y: p.y + 20 })) };
+      setStrokes((ss) => [...ss, copy]);
+      setSelection({ type: "stroke", id: copy.id });
+    }
+  }
+  function deleteSelected() {
+    if (selection?.type === "layer") setLayers((ls) => ls.filter((l) => l.id !== selection.id));
+    else if (selection?.type === "stroke") setStrokes((ss) => ss.filter((s) => s.id !== selection.id));
+    setSelection(null);
+    setPropPopup(null);
+  }
+  // 图层顺序——数组里越后面的画在越上面，把选中的图层往前/往后移一位
+  // 就是把它跟相邻那个的位置互换。只对物件/文字/形状生效，笔画固定在
+  // 最底层。
+  function moveLayer(direction: "front" | "back") {
+    if (selection?.type !== "layer") return;
+    setLayers((ls) => {
+      const idx = ls.findIndex((l) => l.id === selection.id);
+      if (idx < 0) return ls;
+      const targetIdx = direction === "front" ? idx + 1 : idx - 1;
+      if (targetIdx < 0 || targetIdx >= ls.length) return ls;
+      const next = [...ls];
+      [next[idx], next[targetIdx]] = [next[targetIdx], next[idx]];
+      return next;
+    });
+  }
+  function clearDrawing() { setStrokes([]); setLayers([]); setSelection(null); setPropPopup(null); }
+
+  // 把笔画/物件/文字/形状烤进一张新的找不同图——只裁右边那个框的范围，
+  // 跟原本图片分辨率一致（用 SD_BOX_W/H 当画布尺寸），传回去更新 imgBUrl。
+  function applyDrawingToImgB() {
+    if (strokes.length === 0 && layers.length === 0) { clearDrawing(); setSubMode("mark"); return; }
+    const off = document.createElement("canvas");
+    off.width = SD_BOX_W; off.height = SD_BOX_H;
+    const octx = off.getContext("2d");
+    if (!octx) return;
+    if (imgBRef.current) octx.drawImage(imgBRef.current, 0, 0, SD_BOX_W, SD_BOX_H);
+    strokes.forEach((s) => {
+      const localStroke: SdStrokeDraft = { ...s, points: s.points.map((p) => ({ x: p.x - SD_RIGHT_X, y: p.y - SD_BOX_Y })) };
+      drawStroke(octx, localStroke);
+    });
+    layers.forEach((l) => drawLayer(octx, l, SD_RIGHT_X, SD_BOX_Y));
+    const newUrl = off.toDataURL("image/png");
+    const newImg = new Image();
+    newImg.onload = () => { imgBRef.current = newImg; redraw(); };
+    newImg.src = newUrl;
+    onImgBUpdated(newUrl);
+    clearDrawing();
+    setSubMode("mark");
+  }
+
+  const toolBtnCls = (active: boolean) =>
+    `px-2 py-1.5 rounded-md text-xs font-medium border transition-colors ${active ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground"}`;
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-3 flex-wrap text-sm">
-        <label className="flex items-center gap-1.5">场景图片 <input type="file" accept="image/*" className="text-xs" onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])} /></label>
-        <AssetPicker category="background" label="🗂️ 从素材库选" moduleType="focus_tap" onSelect={handleSelect} />
+    <div className="space-y-2 relative">
+      <div className="flex items-center gap-1.5">
+        <button type="button" onClick={() => setSubMode("mark")} className={toolBtnCls(subMode === "mark")}>🎯 标记模式</button>
+        <button type="button" onClick={() => setSubMode("draw")} className={toolBtnCls(subMode === "draw")}>🎨 画笔模式（在找不同图上做出差异）</button>
       </div>
-      <p className="text-xs text-muted-foreground">上传一张场景图后，点图上想放数字的位置（比如角色的头、手上的物件），点击顺序不影响玩法（每次玩数字会重新随机分配到这些位置）。点已有的标记可以移除。已标记 {positions.length} 个位置。</p>
+
+      {subMode === "draw" && (
+        <div className="rounded-lg border border-border bg-muted/40 p-2 flex flex-wrap items-center gap-2">
+          <div className="flex gap-1">
+            <button type="button" onClick={() => setDrawTool("select")} className={toolBtnCls(drawTool === "select")} title="选择/拖动（右键或点⚙️可以改属性，物件/文字/形状/笔画都行）">🖱️</button>
+            <button type="button" onClick={() => setDrawTool("pencil")} className={toolBtnCls(drawTool === "pencil")} title="铅笔">✏️</button>
+            <button type="button" onClick={() => setDrawTool("brush")} className={toolBtnCls(drawTool === "brush")} title="毛笔">🖌️</button>
+            <button type="button" onClick={() => setDrawTool("eraser")} className={toolBtnCls(drawTool === "eraser")} title="橡皮擦">🧽</button>
+            <button type="button" onClick={() => setDrawTool("bucket")} className={toolBtnCls(drawTool === "bucket")} title="填色桶">🪣</button>
+          </div>
+          <div className="flex gap-1 items-center">
+            <div title="加物件（从素材库选，或直接上传）"><AssetPicker category="object" label="🧸" onSelect={addObjectFromAsset} /></div>
+            <button type="button" onClick={addText} className="px-2 py-1.5 rounded-md text-xs border bg-card border-border text-muted-foreground" title="加文字">🔤</button>
+            <button type="button" onClick={() => addShape("rect")} className="px-2 py-1.5 rounded-md text-xs border bg-card border-border text-muted-foreground" title="加方形">⬜</button>
+            <button type="button" onClick={() => addShape("ellipse")} className="px-2 py-1.5 rounded-md text-xs border bg-card border-border text-muted-foreground" title="加圆形">⚫</button>
+            <button type="button" onClick={() => addShape("line")} className="px-2 py-1.5 rounded-md text-xs border bg-card border-border text-muted-foreground" title="加直线">／</button>
+          </div>
+          {drawTool !== "select" && drawTool !== "bucket" && (
+            <div className="flex items-center gap-1.5">
+              {SD_COLORS.map((c) => (
+                <button key={c} type="button" onClick={() => setDrawColor(c)} className={`w-5 h-5 rounded-full border-2 ${drawColor === c ? "border-primary" : "border-border"}`} style={{ background: c }} />
+              ))}
+              <input type="color" value={drawColor} onChange={(e) => setDrawColor(e.target.value)} className="w-6 h-6 rounded border border-border cursor-pointer p-0.5" />
+              <input type="range" min={2} max={40} value={drawWidth} onChange={(e) => setDrawWidth(+e.target.value)} className="w-16" />
+              {drawTool === "brush" && <input type="range" min={10} max={100} value={drawOpacity} onChange={(e) => setDrawOpacity(+e.target.value)} className="w-16" title="不透明度" />}
+            </div>
+          )}
+          {drawTool === "bucket" && (
+            <div className="flex items-center gap-1.5">
+              {SD_COLORS.map((c) => (
+                <button key={c} type="button" onClick={() => setDrawColor(c)} className={`w-5 h-5 rounded-full border-2 ${drawColor === c ? "border-primary" : "border-border"}`} style={{ background: c }} />
+              ))}
+              <input type="color" value={drawColor} onChange={(e) => setDrawColor(e.target.value)} className="w-6 h-6 rounded border border-border cursor-pointer p-0.5" />
+            </div>
+          )}
+          {drawTool === "select" && (
+            <span className="text-[11px] text-muted-foreground">拖动改位置；右键点一下（物件/文字/形状/笔画都行）可以改属性</span>
+          )}
+          {selection && (
+            <button
+              type="button"
+              onClick={() => setPropPopup({ x: 200, y: 200 })}
+              className="px-2 py-1.5 rounded-md text-xs border bg-card border-border text-muted-foreground hover:bg-muted"
+              title="如果右键没反应，点这个也能打开属性面板"
+            >
+              ⚙️ 编辑属性
+            </button>
+          )}
+
+          <div className="ml-auto flex items-center gap-1.5">
+            {(strokes.length > 0 || layers.length > 0) && (
+              <button type="button" onClick={clearDrawing} className="px-2 py-1.5 rounded-md text-xs border border-border text-muted-foreground hover:bg-muted">清空画的东西</button>
+            )}
+            <Button type="button" size="sm" onClick={applyDrawingToImgB}>✅ 应用到找不同图</Button>
+          </div>
+        </div>
+      )}
+
       <canvas
-        ref={canvasRef} width={FT_W} height={FT_H} onClick={handleClick}
+        ref={canvasRef} width={SD_W} height={SD_H}
+        onPointerDown={subMode === "mark" ? handleMarkPointerDown : handleDrawPointerDown}
+        onPointerMove={subMode === "mark" ? handleMarkPointerMove : handleDrawPointerMove}
+        onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
+        onContextMenu={handleContextMenu}
+        style={{ touchAction: "none" }}
         className="w-full h-auto rounded-lg bg-card cursor-crosshair border border-border"
       />
+      {subMode === "draw" && layers.length > 0 && (
+        <div className="rounded-lg border border-border bg-muted/30 p-2">
+          <p className="text-[11px] text-muted-foreground mb-1.5">图层（由上到下：最上面的盖在最下面上面，点一下可以选中）</p>
+          <div className="max-h-32 overflow-y-auto space-y-1">
+            {[...layers].reverse().map((l) => (
+              <div
+                key={l.id}
+                onClick={() => setSelection({ type: "layer", id: l.id })}
+                className={`flex items-center gap-2 px-2 py-1 rounded text-xs cursor-pointer ${selection?.type === "layer" && selection.id === l.id ? "bg-primary/10 border border-primary/40" : "hover:bg-muted"}`}
+              >
+                <span>{l.kind === "object" ? "🧸" : l.kind === "text" ? "🔤" : "▦"}</span>
+                <span className="flex-1 truncate">{l.kind === "text" ? l.text : l.kind === "shape" ? `${l.shape}形状` : "物件图片"}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {subMode === "mark" && (
+        <div className="flex items-center gap-2 text-xs flex-wrap">
+          <span className="text-muted-foreground">已标记 {hotspots.length} 处——点空白处新增标记，点已有标记可以拖动改位置</span>
+          {selectedIdx !== null && hotspots[selectedIdx] && (
+            <>
+              <button type="button" onClick={() => resizeSelected(-0.01)} className="px-2 py-1 rounded border border-border hover:bg-muted">－ 缩小判定范围</button>
+              <button type="button" onClick={() => resizeSelected(0.01)} className="px-2 py-1 rounded border border-border hover:bg-muted">＋ 放大判定范围</button>
+              <button type="button" onClick={removeSelected} className="px-2 py-1 rounded border border-border text-destructive hover:bg-destructive/10">删除这个标记</button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 右键属性面板——背后一层透明遮罩，点面板外面就关掉 */}
+      {propPopup && (selectedLayer || selectedStroke) && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setPropPopup(null)} onContextMenu={(e) => { e.preventDefault(); setPropPopup(null); }} />
+          <div
+            className="fixed z-50 bg-card border border-border rounded-xl shadow-xl p-3 space-y-2.5 text-xs w-64"
+            style={{ left: Math.min(propPopup.x, window.innerWidth - 270), top: Math.min(propPopup.y, window.innerHeight - 340) }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-sm">
+                {selectedLayer?.kind === "object" ? "🧸 物件属性" : selectedLayer?.kind === "text" ? "🔤 文字属性" : selectedLayer?.kind === "shape" ? "▦ 形状属性" : "✏️ 笔画属性"}
+              </span>
+              <button type="button" onClick={() => setPropPopup(null)} className="text-muted-foreground hover:text-foreground">✕</button>
+            </div>
+
+            {selectedLayer && selectedLayer.kind !== "text" && (
+              <div>
+                <Label>大小</Label>
+                <input
+                  type="range" min={20} max={SD_BOX_W} value={selectedLayer.w}
+                  onChange={(e) => {
+                    const w = +e.target.value;
+                    const ratio = selectedLayer.h / selectedLayer.w;
+                    updateSelectedLayer({ w, h: selectedLayer.kind === "shape" && selectedLayer.shape === "line" ? selectedLayer.h : Math.round(w * ratio) });
+                  }}
+                  className="w-full"
+                />
+              </div>
+            )}
+
+            {selectedLayer?.kind === "text" && (
+              <>
+                <div>
+                  <Label>文字内容</Label>
+                  <Input value={selectedLayer.text} onChange={(e) => updateSelectedLayer({ text: e.target.value })} className="h-8" />
+                </div>
+                <div>
+                  <Label>字体</Label>
+                  <select
+                    value={selectedLayer.fontFamily}
+                    onChange={(e) => updateSelectedLayer({ fontFamily: e.target.value })}
+                    className="w-full border rounded-md px-2 py-1.5 text-xs"
+                  >
+                    {SD_FONTS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <Label>字号：{selectedLayer.fontSize}px</Label>
+                  <input type="range" min={12} max={120} value={selectedLayer.fontSize} onChange={(e) => updateSelectedLayer({ fontSize: +e.target.value })} className="w-full" />
+                </div>
+              </>
+            )}
+
+            {(selectedLayer?.kind === "text" || selectedLayer?.kind === "shape") && (
+              <div>
+                <Label>{selectedLayer.kind === "shape" && selectedLayer.shape === "line" ? "线条颜色" : selectedLayer.kind === "shape" ? "填充颜色" : "颜色"}</Label>
+                <div className="flex items-center gap-1.5 mt-1">
+                  {SD_COLORS.map((c) => (
+                    <button
+                      key={c} type="button"
+                      onClick={() => updateSelectedLayer(selectedLayer.kind === "shape" && selectedLayer.shape === "line" ? { borderColor: c } : selectedLayer.kind === "shape" ? { fillColor: c, fillEnabled: true } : { color: c })}
+                      className="w-5 h-5 rounded-full border-2 border-border"
+                      style={{ background: c }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {selectedLayer?.kind === "shape" && (
+              <div>
+                <Label>边框粗细：{selectedLayer.borderWidth}px</Label>
+                <input type="range" min={0} max={20} value={selectedLayer.borderWidth} onChange={(e) => updateSelectedLayer({ borderWidth: +e.target.value })} className="w-full" />
+              </div>
+            )}
+
+            {selectedLayer && (
+              <div>
+                <Label>不透明度：{Math.round((selectedLayer.opacity ?? 1) * 100)}%</Label>
+                <input type="range" min={10} max={100} value={Math.round((selectedLayer.opacity ?? 1) * 100)} onChange={(e) => updateSelectedLayer({ opacity: +e.target.value / 100 })} className="w-full" />
+              </div>
+            )}
+
+            {selectedStroke && (
+              <>
+                <div>
+                  <Label>粗细：{selectedStroke.width}px</Label>
+                  <input type="range" min={2} max={40} value={selectedStroke.width} onChange={(e) => updateSelectedStroke({ width: +e.target.value })} className="w-full" />
+                </div>
+                {!selectedStroke.isEraser && (
+                  <>
+                    <div>
+                      <Label>颜色</Label>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        {SD_COLORS.map((c) => (
+                          <button key={c} type="button" onClick={() => updateSelectedStroke({ color: c })} className="w-5 h-5 rounded-full border-2 border-border" style={{ background: c }} />
+                        ))}
+                        <input type="color" value={selectedStroke.color} onChange={(e) => updateSelectedStroke({ color: e.target.value })} className="w-6 h-6 rounded border border-border cursor-pointer p-0.5" />
+                      </div>
+                    </div>
+                    <div>
+                      <Label>不透明度：{Math.round((selectedStroke.opacity ?? 1) * 100)}%</Label>
+                      <input type="range" min={10} max={100} value={Math.round((selectedStroke.opacity ?? 1) * 100)} onChange={(e) => updateSelectedStroke({ opacity: +e.target.value / 100 })} className="w-full" />
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            <div className="flex items-center gap-1 pt-2 border-t border-border">
+              {selectedLayer?.kind === "object" && (
+                <>
+                  <button type="button" onClick={() => toggleFlipSelected("x")} className={toolBtnCls(!!selectedLayer.flipX)} title="水平翻转">↔️</button>
+                  <button type="button" onClick={() => toggleFlipSelected("y")} className={toolBtnCls(!!selectedLayer.flipY)} title="垂直翻转">↕️</button>
+                </>
+              )}
+              {selectedLayer && (
+                <>
+                  <button type="button" onClick={() => rotateSelectedLayer(-90)} className="px-2 py-1 rounded border border-border hover:bg-muted" title="逆时针转90°">↺</button>
+                  <button type="button" onClick={() => rotateSelectedLayer(90)} className="px-2 py-1 rounded border border-border hover:bg-muted" title="顺时针转90°">↻</button>
+                </>
+              )}
+              {selectedLayer && (
+                <>
+                  <button type="button" onClick={() => moveLayer("front")} className="px-2 py-1 rounded border border-border hover:bg-muted text-xs" title="上移一层">⬆️层</button>
+                  <button type="button" onClick={() => moveLayer("back")} className="px-2 py-1 rounded border border-border hover:bg-muted text-xs" title="下移一层">⬇️层</button>
+                </>
+              )}
+              <button type="button" onClick={duplicateSelected} className="px-2 py-1 rounded border border-border hover:bg-muted" title="复制">📋</button>
+              <button type="button" onClick={deleteSelected} className="ml-auto px-2 py-1 rounded border border-border text-destructive hover:bg-destructive/10">删除</button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
+}
+
+
+// 迷宫的"装饰模式"——在迷宫背景图上加纯装饰性的文字/图案/画笔涂鸦，不
+// 影响能不能走（走不走得通只看画路径模式里那张蒙版，蒙版和这里的装饰
+// 完全是两张不同的东西）。工具跟找不同之处的"画笔模式"是同一套（复用
+// 同样的 SdLayer/SdStrokeDraft 类型和 sdXxx 辅助函数），差别只是这里画
+// 布是整张图，没有找不同之处那种"两个框"的限制。做完点"应用到背景图"，
+// 会把装饰烤进一张新的背景图里，通过 onBgUpdated 传回去。
+function MazeDecorator({ bgUrl, onBgUpdated }: { bgUrl: string; onBgUpdated: (dataUrl: string) => void }) {
+  const MD_W = GAME_CANVAS_W, MD_H = GAME_CANVAS_H;
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const bgImgRef = useRef<HTMLImageElement | null>(null);
+  const layerImgCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
+  const [, forceTick] = useState(0);
+
+  const [drawTool, setDrawTool] = useState<"pencil" | "brush" | "eraser" | "bucket" | "select">("pencil");
+  const [drawColor, setDrawColor] = useState("#e8a33d");
+  const [drawWidth, setDrawWidth] = useState(6);
+  const [drawOpacity, setDrawOpacity] = useState(100);
+  const [strokes, setStrokes] = useState<SdStrokeDraft[]>([]);
+  const [layers, setLayers] = useState<SdLayer[]>([]);
+  const [selection, setSelection] = useState<SdSelection>(null);
+  const dragRef = useRef<{ startPx: number; startPy: number; origX: number; origY: number } | null>(null);
+  const currentStrokeRef = useRef<SdStrokeDraft | null>(null);
+  const [propPopup, setPropPopup] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const img = new Image(); img.crossOrigin = "anonymous";
+    img.onload = () => { bgImgRef.current = img; redraw(); };
+    img.src = bgUrl;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bgUrl]);
+
+  useEffect(() => {
+    layers.forEach((l) => {
+      if (l.kind !== "object") return;
+      if (layerImgCacheRef.current.has(l.imageUrl)) return;
+      const img = new Image(); img.crossOrigin = "anonymous";
+      img.onload = () => forceTick((n) => n + 1);
+      img.src = l.imageUrl;
+      layerImgCacheRef.current.set(l.imageUrl, img);
+    });
+  }, [layers]);
+
+  const selectedLayer = selection?.type === "layer" ? layers.find((l) => l.id === selection.id) ?? null : null;
+  const selectedStroke = selection?.type === "stroke" ? strokes.find((s) => s.id === selection.id) ?? null : null;
+
+  function drawLayer(ctx: CanvasRenderingContext2D, l: SdLayer) {
+    if (l.kind === "text") {
+      ctx.save();
+      ctx.globalAlpha = l.opacity ?? 1;
+      ctx.translate(l.x, l.y); ctx.rotate((l.rotation * Math.PI) / 180); ctx.translate(-l.x, -l.y);
+      ctx.font = `${l.fontSize}px ${l.fontFamily}`;
+      ctx.fillStyle = l.color; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(l.text, l.x, l.y);
+      ctx.restore();
+      return;
+    }
+    const b = sdLayerBounds(l);
+    ctx.save();
+    ctx.globalAlpha = l.opacity ?? 1;
+    ctx.translate(l.x, l.y); ctx.rotate((l.rotation * Math.PI) / 180); ctx.translate(-l.x, -l.y);
+    if (l.kind === "object") {
+      const img = layerImgCacheRef.current.get(l.imageUrl);
+      if (img?.complete) {
+        const fx = l.flipX ? -1 : 1, fy = l.flipY ? -1 : 1;
+        if (fx !== 1 || fy !== 1) {
+          ctx.save();
+          ctx.translate(l.x, l.y); ctx.scale(fx, fy); ctx.translate(-l.x, -l.y);
+          ctx.drawImage(img, b.x, b.y, b.w, b.h);
+          ctx.restore();
+        } else {
+          ctx.drawImage(img, b.x, b.y, b.w, b.h);
+        }
+      }
+    } else if (l.kind === "shape") {
+      if (l.shape === "line") {
+        ctx.beginPath(); ctx.moveTo(b.x, l.y); ctx.lineTo(b.x + b.w, l.y);
+        ctx.lineCap = "round"; ctx.strokeStyle = l.borderColor; ctx.lineWidth = Math.max(1, l.borderWidth); ctx.stroke();
+      } else {
+        ctx.beginPath();
+        if (l.shape === "ellipse") ctx.ellipse(l.x, l.y, b.w / 2, b.h / 2, 0, 0, Math.PI * 2);
+        else ctx.rect(b.x, b.y, b.w, b.h);
+        if (l.fillEnabled) { ctx.fillStyle = l.fillColor; ctx.fill(); }
+        if (l.borderWidth > 0) { ctx.strokeStyle = l.borderColor; ctx.lineWidth = l.borderWidth; ctx.stroke(); }
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawStroke(ctx: CanvasRenderingContext2D, s: SdStrokeDraft) {
+    ctx.save();
+    ctx.globalAlpha = s.opacity ?? 1;
+    ctx.globalCompositeOperation = s.isEraser ? "destination-out" : "source-over";
+    ctx.beginPath();
+    ctx.strokeStyle = s.color; ctx.lineWidth = s.width; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    s.points.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  const redraw = useCallback(() => {
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, MD_W, MD_H);
+    if (bgImgRef.current) ctx.drawImage(bgImgRef.current, 0, 0, MD_W, MD_H);
+
+    strokes.forEach((s) => {
+      drawStroke(ctx, s);
+      if (selection?.type === "stroke" && selection.id === s.id) {
+        const b = sdStrokeBounds(s);
+        ctx.save(); ctx.strokeStyle = "#5b8def"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+        ctx.strokeRect(b.x - 4, b.y - 4, b.w + 8, b.h + 8); ctx.setLineDash([]); ctx.restore();
+      }
+    });
+    layers.forEach((l) => {
+      drawLayer(ctx, l);
+      if (selection?.type === "layer" && selection.id === l.id) {
+        const b = l.kind === "text" ? { x: l.x - 40, y: l.y - l.fontSize / 2, w: 80, h: l.fontSize } : sdLayerBounds(l);
+        ctx.save(); ctx.strokeStyle = "#5b8def"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+        ctx.strokeRect(b.x - 4, b.y - 4, b.w + 8, b.h + 8); ctx.setLineDash([]); ctx.restore();
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [strokes, layers, selection]);
+
+  useEffect(redraw, [redraw]);
+
+  function toCanvasXY(e: React.PointerEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>) {
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const scaleX = MD_W / rect.width, scaleY = MD_H / rect.height;
+    return { px: (e.clientX - rect.left) * scaleX, py: (e.clientY - rect.top) * scaleY };
+  }
+
+  function bucketFillAt(px: number, py: number) {
+    const octx = document.createElement("canvas").getContext("2d")!;
+    const off = octx.canvas; off.width = MD_W; off.height = MD_H;
+    if (bgImgRef.current) octx.drawImage(bgImgRef.current, 0, 0, MD_W, MD_H);
+    const imageData = octx.getImageData(0, 0, MD_W, MD_H);
+    sdFloodFill(imageData, Math.round(px), Math.round(py), sdHexToRgb(drawColor), 32);
+    octx.putImageData(imageData, 0, 0);
+    const newUrl = off.toDataURL("image/png");
+    const newImg = new Image(); newImg.crossOrigin = "anonymous";
+    newImg.onload = () => { bgImgRef.current = newImg; redraw(); };
+    newImg.src = newUrl;
+    onBgUpdated(newUrl);
+  }
+
+  function hitTestAny(px: number, py: number): SdSelection {
+    const pad = 10;
+    const layerHit = [...layers].reverse().find((l) => {
+      if (l.kind === "text") {
+        const ctx = canvasRef.current?.getContext("2d");
+        if (!ctx) return false;
+        ctx.font = `${l.fontSize}px ${l.fontFamily}`;
+        const w = ctx.measureText(l.text).width;
+        return px >= l.x - w / 2 - pad && px <= l.x + w / 2 + pad && py >= l.y - l.fontSize / 2 - pad && py <= l.y + l.fontSize / 2 + pad;
+      }
+      const b = sdLayerBounds(l);
+      return px >= b.x - pad && px <= b.x + b.w + pad && py >= b.y - pad && py <= b.y + b.h + pad;
+    });
+    if (layerHit) return { type: "layer", id: layerHit.id };
+    const strokeHit = [...strokes].reverse().find((s) => sdHitTestStroke(px, py, s));
+    if (strokeHit) return { type: "stroke", id: strokeHit.id };
+    return null;
+  }
+
+  function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    setPropPopup(null);
+    const { px, py } = toCanvasXY(e);
+    if (drawTool === "select") {
+      const hit = hitTestAny(px, py);
+      setSelection(hit);
+      if (hit) {
+        const origX = hit.type === "layer" ? (layers.find((l) => l.id === hit.id)?.x ?? px) : (strokes.find((s) => s.id === hit.id)?.points[0]?.x ?? px);
+        const origY = hit.type === "layer" ? (layers.find((l) => l.id === hit.id)?.y ?? py) : (strokes.find((s) => s.id === hit.id)?.points[0]?.y ?? py);
+        dragRef.current = { startPx: px, startPy: py, origX, origY };
+      }
+      return;
+    }
+    if (drawTool === "bucket") { bucketFillAt(px, py); return; }
+    const opacity = drawTool === "brush" ? drawOpacity / 100 : 1;
+    const stroke: SdStrokeDraft = { id: sdUid(), color: drawColor, width: drawWidth, opacity, isEraser: drawTool === "eraser", points: [{ x: px, y: py }] };
+    currentStrokeRef.current = stroke;
+    setStrokes((s) => [...s, stroke]);
+  }
+
+  function handlePointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    const { px, py } = toCanvasXY(e);
+    if (drawTool === "select" && dragRef.current && selection) {
+      const d = dragRef.current;
+      const dx = px - d.startPx, dy = py - d.startPy;
+      if (selection.type === "layer") {
+        setLayers((ls) => ls.map((l) => (l.id === selection.id ? { ...l, x: d.origX + dx, y: d.origY + dy } : l)));
+      } else {
+        setStrokes((ss) => ss.map((s) => {
+          if (s.id !== selection.id) return s;
+          if (!s.points.length) return s;
+          const baseX = s.points[0].x, baseY = s.points[0].y;
+          const shiftX = (d.origX + dx) - baseX, shiftY = (d.origY + dy) - baseY;
+          return { ...s, points: s.points.map((p) => ({ x: p.x + shiftX, y: p.y + shiftY })) };
+        }));
+        dragRef.current = { ...d, startPx: px, startPy: py, origX: d.origX + dx, origY: d.origY + dy };
+      }
+      return;
+    }
+    if (!currentStrokeRef.current) return;
+    currentStrokeRef.current.points.push({ x: px, y: py });
+    setStrokes((s) => [...s.slice(0, -1), { ...currentStrokeRef.current! }]);
+  }
+
+  function handlePointerUp() { currentStrokeRef.current = null; dragRef.current = null; }
+
+  function handleContextMenu(e: React.MouseEvent<HTMLCanvasElement>) {
+    e.preventDefault();
+    const { px, py } = toCanvasXY(e);
+    const hit = hitTestAny(px, py);
+    if (hit) { setSelection(hit); setPropPopup({ x: e.clientX, y: e.clientY }); }
+    else if (selection) { setPropPopup({ x: e.clientX, y: e.clientY }); }
+    else { setSelection(null); setPropPopup(null); }
+  }
+
+  function addShape(kind: "rect" | "ellipse" | "line") {
+    const w = kind === "line" ? 160 : 100, h = kind === "line" ? 4 : 100;
+    const newLayer: SdShapeLayer = {
+      id: sdUid(), kind: "shape", shape: kind,
+      x: MD_W / 2, y: MD_H / 2, w, h, rotation: 0,
+      fillColor: drawColor, fillEnabled: kind !== "line", borderColor: drawColor, borderWidth: 4,
+    };
+    setLayers((ls) => [...ls, newLayer]); setSelection({ type: "layer", id: newLayer.id }); setDrawTool("select");
+  }
+  function addObjectFromAsset(dataUrl: string) {
+    const newLayer: SdObjectLayer = { id: sdUid(), kind: "object", imageUrl: dataUrl, x: MD_W / 2, y: MD_H / 2, w: 100, h: 100, rotation: 0 };
+    setLayers((ls) => [...ls, newLayer]); setSelection({ type: "layer", id: newLayer.id }); setDrawTool("select");
+  }
+  function addText() {
+    const newLayer: SdTextLayer = { id: sdUid(), kind: "text", text: "文字", x: MD_W / 2, y: MD_H / 2, fontSize: 32, color: drawColor, fontFamily: SD_FONTS[0].value, rotation: 0 };
+    setLayers((ls) => [...ls, newLayer]); setSelection({ type: "layer", id: newLayer.id }); setDrawTool("select");
+  }
+  function updateSelectedLayer(patch: SdLayerPatch) {
+    if (selection?.type !== "layer") return;
+    setLayers((ls) => ls.map((l) => (l.id === selection.id ? ({ ...l, ...patch } as SdLayer) : l)));
+  }
+  function updateSelectedStroke(patch: Partial<SdStrokeDraft>) {
+    if (selection?.type !== "stroke") return;
+    setStrokes((ss) => ss.map((s) => (s.id === selection.id ? { ...s, ...patch } : s)));
+  }
+  function toggleFlipSelected(axis: "x" | "y") {
+    if (!selectedLayer || selectedLayer.kind !== "object") return;
+    updateSelectedLayer(axis === "x" ? { flipX: !selectedLayer.flipX } : { flipY: !selectedLayer.flipY });
+  }
+  function rotateSelectedLayer(delta: number) {
+    if (!selectedLayer) return;
+    updateSelectedLayer({ rotation: (selectedLayer.rotation + delta + 360) % 360 });
+  }
+  function duplicateSelected() {
+    if (selection?.type === "layer" && selectedLayer) {
+      const copy = { ...selectedLayer, id: sdUid(), x: selectedLayer.x + 20, y: selectedLayer.y + 20 } as SdLayer;
+      setLayers((ls) => [...ls, copy]); setSelection({ type: "layer", id: copy.id });
+    } else if (selection?.type === "stroke" && selectedStroke) {
+      const copy: SdStrokeDraft = { ...selectedStroke, id: sdUid(), points: selectedStroke.points.map((p) => ({ x: p.x + 20, y: p.y + 20 })) };
+      setStrokes((ss) => [...ss, copy]); setSelection({ type: "stroke", id: copy.id });
+    }
+  }
+  function deleteSelected() {
+    if (selection?.type === "layer") setLayers((ls) => ls.filter((l) => l.id !== selection.id));
+    else if (selection?.type === "stroke") setStrokes((ss) => ss.filter((s) => s.id !== selection.id));
+    setSelection(null); setPropPopup(null);
+  }
+  // 图层顺序——数组里越后面的画在越上面（跟画布"后画的盖住先画的"是
+  // 同一个道理），把选中的图层往前/往后移一位，就是把它跟数组里相邻那
+  // 个的位置互换。只对物件/文字/形状生效（strokes 笔画目前固定画在最
+  // 底层，不参与图层排序，这个简化跟 SceneEditor 那边不完全一样，但对
+  // "装饰"这种轻量场景够用）。
+  function moveLayer(direction: "front" | "back") {
+    if (selection?.type !== "layer") return;
+    setLayers((ls) => {
+      const idx = ls.findIndex((l) => l.id === selection.id);
+      if (idx < 0) return ls;
+      const targetIdx = direction === "front" ? idx + 1 : idx - 1;
+      if (targetIdx < 0 || targetIdx >= ls.length) return ls;
+      const next = [...ls];
+      [next[idx], next[targetIdx]] = [next[targetIdx], next[idx]];
+      return next;
+    });
+  }
+  function clearDrawing() { setStrokes([]); setLayers([]); setSelection(null); setPropPopup(null); }
+
+  function applyDecorations() {
+    if (strokes.length === 0 && layers.length === 0) return;
+    const off = document.createElement("canvas");
+    off.width = MD_W; off.height = MD_H;
+    const octx = off.getContext("2d")!;
+    if (bgImgRef.current) octx.drawImage(bgImgRef.current, 0, 0, MD_W, MD_H);
+    strokes.forEach((s) => drawStroke(octx, s));
+    layers.forEach((l) => drawLayer(octx, l));
+    const newUrl = off.toDataURL("image/png");
+    const newImg = new Image(); newImg.crossOrigin = "anonymous";
+    newImg.onload = () => { bgImgRef.current = newImg; redraw(); };
+    newImg.src = newUrl;
+    onBgUpdated(newUrl);
+    clearDrawing();
+  }
+
+  const toolBtnCls = (active: boolean) =>
+    `px-2 py-1.5 rounded-md text-xs font-medium border transition-colors ${active ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground"}`;
+
+  return (
+    <div className="space-y-2 relative">
+      <div className="rounded-lg border border-border bg-muted/40 p-2 flex flex-wrap items-center gap-2">
+        <div className="flex gap-1">
+          <button type="button" onClick={() => setDrawTool("select")} className={toolBtnCls(drawTool === "select")} title="选择/拖动（右键可以改属性）">🖱️</button>
+          <button type="button" onClick={() => setDrawTool("pencil")} className={toolBtnCls(drawTool === "pencil")} title="铅笔">✏️</button>
+          <button type="button" onClick={() => setDrawTool("brush")} className={toolBtnCls(drawTool === "brush")} title="毛笔">🖌️</button>
+          <button type="button" onClick={() => setDrawTool("eraser")} className={toolBtnCls(drawTool === "eraser")} title="橡皮擦">🧽</button>
+          <button type="button" onClick={() => setDrawTool("bucket")} className={toolBtnCls(drawTool === "bucket")} title="填色桶">🪣</button>
+        </div>
+        <div className="flex gap-1 items-center">
+          <div title="加物件"><AssetPicker category="object" label="🧸" onSelect={addObjectFromAsset} /></div>
+          <button type="button" onClick={addText} className="px-2 py-1.5 rounded-md text-xs border bg-card border-border text-muted-foreground" title="加文字">🔤</button>
+          <button type="button" onClick={() => addShape("rect")} className="px-2 py-1.5 rounded-md text-xs border bg-card border-border text-muted-foreground" title="加方形">⬜</button>
+          <button type="button" onClick={() => addShape("ellipse")} className="px-2 py-1.5 rounded-md text-xs border bg-card border-border text-muted-foreground" title="加圆形">⚫</button>
+          <button type="button" onClick={() => addShape("line")} className="px-2 py-1.5 rounded-md text-xs border bg-card border-border text-muted-foreground" title="加直线">／</button>
+        </div>
+        {drawTool !== "select" && drawTool !== "bucket" && (
+          <div className="flex items-center gap-1.5">
+            {SD_COLORS.map((c) => (
+              <button key={c} type="button" onClick={() => setDrawColor(c)} className={`w-5 h-5 rounded-full border-2 ${drawColor === c ? "border-primary" : "border-border"}`} style={{ background: c }} />
+            ))}
+            <input type="color" value={drawColor} onChange={(e) => setDrawColor(e.target.value)} className="w-6 h-6 rounded border border-border cursor-pointer p-0.5" />
+            <input type="range" min={2} max={40} value={drawWidth} onChange={(e) => setDrawWidth(+e.target.value)} className="w-16" />
+            {drawTool === "brush" && <input type="range" min={10} max={100} value={drawOpacity} onChange={(e) => setDrawOpacity(+e.target.value)} className="w-16" title="不透明度" />}
+          </div>
+        )}
+        {drawTool === "bucket" && (
+          <div className="flex items-center gap-1.5">
+            {SD_COLORS.map((c) => (
+              <button key={c} type="button" onClick={() => setDrawColor(c)} className={`w-5 h-5 rounded-full border-2 ${drawColor === c ? "border-primary" : "border-border"}`} style={{ background: c }} />
+            ))}
+            <input type="color" value={drawColor} onChange={(e) => setDrawColor(e.target.value)} className="w-6 h-6 rounded border border-border cursor-pointer p-0.5" />
+          </div>
+        )}
+        {selection && (
+          <button type="button" onClick={() => setPropPopup({ x: 200, y: 200 })} className="px-2 py-1.5 rounded-md text-xs border bg-card border-border text-muted-foreground hover:bg-muted" title="右键没反应时点这个">⚙️ 编辑属性</button>
+        )}
+        <div className="ml-auto flex items-center gap-1.5">
+          {(strokes.length > 0 || layers.length > 0) && (
+            <>
+              <button type="button" onClick={clearDrawing} className="px-2 py-1.5 rounded-md text-xs border border-border text-muted-foreground hover:bg-muted">清空</button>
+              <Button type="button" size="sm" onClick={applyDecorations}>✅ 应用到背景图</Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      <canvas
+        ref={canvasRef} width={MD_W} height={MD_H}
+        onPointerDown={handlePointerDown} onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
+        onContextMenu={handleContextMenu}
+        style={{ touchAction: "none" }}
+        className="w-full h-auto rounded-lg bg-card cursor-crosshair border border-border"
+      />
+      {layers.length > 0 && (
+        <div className="rounded-lg border border-border bg-muted/30 p-2">
+          <p className="text-[11px] text-muted-foreground mb-1.5">图层（由上到下：最上面的盖在最下面上面，点一下可以选中）</p>
+          <div className="max-h-32 overflow-y-auto space-y-1">
+            {[...layers].reverse().map((l) => (
+              <div
+                key={l.id}
+                onClick={() => setSelection({ type: "layer", id: l.id })}
+                className={`flex items-center gap-2 px-2 py-1 rounded text-xs cursor-pointer ${selection?.type === "layer" && selection.id === l.id ? "bg-primary/10 border border-primary/40" : "hover:bg-muted"}`}
+              >
+                <span>{l.kind === "object" ? "🧸" : l.kind === "text" ? "🔤" : "▦"}</span>
+                <span className="flex-1 truncate">{l.kind === "text" ? l.text : l.kind === "shape" ? `${l.shape}形状` : "物件图片"}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">这里加的东西纯装饰，不影响走不走得通；走不走得通只看"画路径模式"那张蒙版。画完记得点"✅ 应用到背景图"才会真的存进去。</p>
+
+      {propPopup && (selectedLayer || selectedStroke) && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setPropPopup(null)} onContextMenu={(e) => { e.preventDefault(); setPropPopup(null); }} />
+          <div
+            className="fixed z-50 bg-card border border-border rounded-xl shadow-xl p-3 space-y-2.5 text-xs w-64"
+            style={{ left: Math.min(propPopup.x, window.innerWidth - 270), top: Math.min(propPopup.y, window.innerHeight - 340) }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-sm">
+                {selectedLayer?.kind === "object" ? "🧸 物件属性" : selectedLayer?.kind === "text" ? "🔤 文字属性" : selectedLayer?.kind === "shape" ? "▦ 形状属性" : "✏️ 笔画属性"}
+              </span>
+              <button type="button" onClick={() => setPropPopup(null)} className="text-muted-foreground hover:text-foreground">✕</button>
+            </div>
+
+            {selectedLayer && selectedLayer.kind !== "text" && (
+              <div>
+                <Label>大小</Label>
+                <input
+                  type="range" min={20} max={MD_W} value={selectedLayer.w}
+                  onChange={(e) => {
+                    const w = +e.target.value;
+                    const ratio = selectedLayer.h / selectedLayer.w;
+                    updateSelectedLayer({ w, h: selectedLayer.kind === "shape" && selectedLayer.shape === "line" ? selectedLayer.h : Math.round(w * ratio) });
+                  }}
+                  className="w-full"
+                />
+              </div>
+            )}
+
+            {selectedLayer?.kind === "text" && (
+              <>
+                <div><Label>文字内容</Label><Input value={selectedLayer.text} onChange={(e) => updateSelectedLayer({ text: e.target.value })} className="h-8" /></div>
+                <div>
+                  <Label>字体</Label>
+                  <select value={selectedLayer.fontFamily} onChange={(e) => updateSelectedLayer({ fontFamily: e.target.value })} className="w-full border rounded-md px-2 py-1.5 text-xs">
+                    {SD_FONTS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <Label>字号：{selectedLayer.fontSize}px</Label>
+                  <input type="range" min={12} max={120} value={selectedLayer.fontSize} onChange={(e) => updateSelectedLayer({ fontSize: +e.target.value })} className="w-full" />
+                </div>
+              </>
+            )}
+
+            {(selectedLayer?.kind === "text" || selectedLayer?.kind === "shape") && (
+              <div>
+                <Label>{selectedLayer.kind === "shape" && selectedLayer.shape === "line" ? "线条颜色" : selectedLayer.kind === "shape" ? "填充颜色" : "颜色"}</Label>
+                <div className="flex items-center gap-1.5 mt-1">
+                  {SD_COLORS.map((c) => (
+                    <button
+                      key={c} type="button"
+                      onClick={() => updateSelectedLayer(selectedLayer.kind === "shape" && selectedLayer.shape === "line" ? { borderColor: c } : selectedLayer.kind === "shape" ? { fillColor: c, fillEnabled: true } : { color: c })}
+                      className="w-5 h-5 rounded-full border-2 border-border" style={{ background: c }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {selectedLayer?.kind === "shape" && (
+              <div>
+                <Label>边框粗细：{selectedLayer.borderWidth}px</Label>
+                <input type="range" min={0} max={20} value={selectedLayer.borderWidth} onChange={(e) => updateSelectedLayer({ borderWidth: +e.target.value })} className="w-full" />
+              </div>
+            )}
+
+            {selectedLayer && (
+              <div>
+                <Label>不透明度：{Math.round((selectedLayer.opacity ?? 1) * 100)}%</Label>
+                <input type="range" min={10} max={100} value={Math.round((selectedLayer.opacity ?? 1) * 100)} onChange={(e) => updateSelectedLayer({ opacity: +e.target.value / 100 })} className="w-full" />
+              </div>
+            )}
+
+            {selectedStroke && (
+              <>
+                <div>
+                  <Label>粗细：{selectedStroke.width}px</Label>
+                  <input type="range" min={2} max={40} value={selectedStroke.width} onChange={(e) => updateSelectedStroke({ width: +e.target.value })} className="w-full" />
+                </div>
+                {!selectedStroke.isEraser && (
+                  <>
+                    <div>
+                      <Label>颜色</Label>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        {SD_COLORS.map((c) => (
+                          <button key={c} type="button" onClick={() => updateSelectedStroke({ color: c })} className="w-5 h-5 rounded-full border-2 border-border" style={{ background: c }} />
+                        ))}
+                        <input type="color" value={selectedStroke.color} onChange={(e) => updateSelectedStroke({ color: e.target.value })} className="w-6 h-6 rounded border border-border cursor-pointer p-0.5" />
+                      </div>
+                    </div>
+                    <div>
+                      <Label>不透明度：{Math.round((selectedStroke.opacity ?? 1) * 100)}%</Label>
+                      <input type="range" min={10} max={100} value={Math.round((selectedStroke.opacity ?? 1) * 100)} onChange={(e) => updateSelectedStroke({ opacity: +e.target.value / 100 })} className="w-full" />
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            <div className="flex items-center gap-1 pt-2 border-t border-border">
+              {selectedLayer?.kind === "object" && (
+                <>
+                  <button type="button" onClick={() => toggleFlipSelected("x")} className={toolBtnCls(!!selectedLayer.flipX)} title="水平翻转">↔️</button>
+                  <button type="button" onClick={() => toggleFlipSelected("y")} className={toolBtnCls(!!selectedLayer.flipY)} title="垂直翻转">↕️</button>
+                </>
+              )}
+              {selectedLayer && (
+                <>
+                  <button type="button" onClick={() => rotateSelectedLayer(-90)} className="px-2 py-1 rounded border border-border hover:bg-muted" title="逆时针转90°">↺</button>
+                  <button type="button" onClick={() => rotateSelectedLayer(90)} className="px-2 py-1 rounded border border-border hover:bg-muted" title="顺时针转90°">↻</button>
+                </>
+              )}
+              {selectedLayer && (
+                <>
+                  <button type="button" onClick={() => moveLayer("front")} className="px-2 py-1 rounded border border-border hover:bg-muted text-xs" title="上移一层">⬆️层</button>
+                  <button type="button" onClick={() => moveLayer("back")} className="px-2 py-1 rounded border border-border hover:bg-muted text-xs" title="下移一层">⬇️层</button>
+                </>
+              )}
+              <button type="button" onClick={duplicateSelected} className="px-2 py-1 rounded border border-border hover:bg-muted" title="复制">📋</button>
+              <button type="button" onClick={deleteSelected} className="ml-auto px-2 py-1 rounded border border-border text-destructive hover:bg-destructive/10">删除</button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+
+// focus_tap 自定义场景现在跟 counting 用同一套 SceneEditor structuredMode
+// 编辑体验（拖物件、缩放、旋转、复制、图层排序，全部都有），不再是原本
+// 那个只能点一下加一个点、没法拖动调整的简易画布。旧资料（只有 x,y，
+// 没有 image_url）加载进编辑器时，用这个占位图标当每个位置的可视标记——
+// 玩游戏的时候学生看到的是数字按钮，不是这个图标，这个纯粹是设计时方便
+// 看清楚"数字会出现在哪"用的。
+const FT_MARKER_ICON = "data:image/svg+xml," + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="#e8a33d" stroke="#ffffff" stroke-width="8"/></svg>'
+);
+
+// Memory配对"自由摆放"第一次打开时，把已经加好的配对图片（每张各出现
+// 两次）自动排成一排整整齐齐摆进画布——用的是设计师自己选的真实图片，
+// 不是占位符，这样一进去就能直接拖动调整位置，不用再重新一个个从素材
+// 库加。之后如果重新编辑已经摆好的场景，就不会再用这个函数（用回存好
+// 的实际位置）。
+function buildInitialMemoryPositions(icons: string[]): StructuredSceneOutput["objects"] {
+  const deck = [...icons, ...icons];
+  if (deck.length === 0) return [];
+  const margin = 90;
+  const cols = Math.ceil(Math.sqrt(deck.length));
+  const rows = Math.ceil(deck.length / cols);
+  const usableW = GAME_CANVAS_W - margin * 2, usableH = GAME_CANVAS_H - margin * 2;
+  return deck.map((url, i) => {
+    const col = i % cols, row = Math.floor(i / cols);
+    const x = margin + (col + 0.5) * (usableW / cols);
+    const y = margin + (row + 0.5) * (usableH / rows);
+    return { imageUrl: url, x, y, w: 80, h: 80, rotation: 0 };
+  });
 }
 
 
@@ -305,11 +1604,11 @@ function SudokuCellDesigner({ bgUrl, setBgUrl, cells, setCells }: {
   const redraw = useCallback(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, FT_W, FT_H);
-    ctx.fillStyle = "#f6faf7"; ctx.fillRect(0, 0, FT_W, FT_H);
-    if (bgImgRef.current) ctx.drawImage(bgImgRef.current, 0, 0, FT_W, FT_H);
+    ctx.clearRect(0, 0, GAME_CANVAS_W, GAME_CANVAS_H);
+    ctx.fillStyle = "#f6faf7"; ctx.fillRect(0, 0, GAME_CANVAS_W, GAME_CANVAS_H);
+    if (bgImgRef.current) ctx.drawImage(bgImgRef.current, 0, 0, GAME_CANVAS_W, GAME_CANVAS_H);
     cells.forEach((c, i) => {
-      const x = c.x * FT_W, y = c.y * FT_H;
+      const x = c.x * GAME_CANVAS_W, y = c.y * GAME_CANVAS_H;
       ctx.strokeStyle = c.answer ? "#4fb06d" : "#e8a33d"; ctx.lineWidth = 3;
       ctx.strokeRect(x - 20, y - 20, 40, 40);
       ctx.font = "bold 16px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = c.answer ? "#4fb06d" : "#e8a33d";
@@ -338,10 +1637,10 @@ function SudokuCellDesigner({ bgUrl, setBgUrl, cells, setCells }: {
 
   function handleClick(e: React.MouseEvent<HTMLCanvasElement>) {
     const rect = canvasRef.current!.getBoundingClientRect();
-    const scaleX = FT_W / rect.width, scaleY = FT_H / rect.height;
+    const scaleX = GAME_CANVAS_W / rect.width, scaleY = GAME_CANVAS_H / rect.height;
     const px = (e.clientX - rect.left) * scaleX, py = (e.clientY - rect.top) * scaleY;
-    const lx = px / FT_W, ly = py / FT_H;
-    const hitIdx = cells.findIndex((c) => Math.hypot(c.x - lx, c.y - ly) * FT_W < 22);
+    const lx = px / GAME_CANVAS_W, ly = py / GAME_CANVAS_H;
+    const hitIdx = cells.findIndex((c) => Math.hypot(c.x - lx, c.y - ly) * GAME_CANVAS_W < 22);
     if (hitIdx >= 0) setCells(cells.filter((_, i) => i !== hitIdx));
     else setCells([...cells, { x: lx, y: ly, answer: "" }]);
   }
@@ -359,7 +1658,7 @@ function SudokuCellDesigner({ bgUrl, setBgUrl, cells, setCells }: {
       </div>
       <p className="text-xs text-muted-foreground">上传一张数独图片后，点图上每一个空格的位置来标记（橙色框=还没填答案，绿色框=已经填了）。点已有的标记可以移除。已标记 {cells.length} 个空格。</p>
       <canvas
-        ref={canvasRef} width={FT_W} height={FT_H} onClick={handleClick}
+        ref={canvasRef} width={GAME_CANVAS_W} height={GAME_CANVAS_H} onClick={handleClick}
         className="w-full h-auto rounded-lg bg-card cursor-crosshair border border-border"
       />
       {cells.length > 0 && (
@@ -383,12 +1682,203 @@ function SudokuCellDesigner({ bgUrl, setBgUrl, cells, setCells }: {
   );
 }
 
-function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
-  open: boolean; onClose: () => void; courseId: string | null; editingLevelId?: string | null; onSaved: () => void;
+// 跟弹练习的时间标记编辑器——设计师放音频、点乐谱上对应位置，记一个
+// {time, page, y} 标记。播放时（PlayAlongGame.tsx，运行时组件）在同页
+// 相邻两个标记之间线性插值出高亮线的位置，跨页就翻页。至少要2个标记
+// 才能插值，这个最低限制在 AddLevelModal 保存时挡。
+interface PlayAlongMarker { time: number; page: number; x: number; y: number }
+function PlayAlongMarkerEditor({ pages, audioUrl, markers, setMarkers, currentPage, setCurrentPage }: {
+  pages: string[]; audioUrl: string;
+  markers: PlayAlongMarker[]; setMarkers: React.Dispatch<React.SetStateAction<PlayAlongMarker[]>>;
+  currentPage: number; setCurrentPage: (n: number) => void;
+}) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [editSpeed, setEditSpeed] = useState(0.5); // 打标记默认放慢到一半速度，不用跟真实节奏抢时间
+  const [autoPauseOnMark, setAutoPauseOnMark] = useState(true);
+  const [editLoop, setEditLoop] = useState<{ start: number; end: number } | null>(null);
+
+  // 带上原始数组下标，才能准确删对那一个（不能靠 time/x/y 相等去比对——
+  // 万一两个标记凑巧同一个坐标或者同一秒，比对会删错）。按时间排序而
+  // 不是按坐标排序——弹奏顺序才是这些标记真正的先后关系，同一行左右
+  // 移动、跨行都靠 time 串起来，不是靠 y 由上到下这种假设。
+  const pageMarkers = markers
+    .map((m, idx) => ({ ...m, idx }))
+    .filter((m) => m.page === currentPage)
+    .sort((a, b) => a.time - b.time);
+
+  function handleImageClick(e: React.MouseEvent<HTMLImageElement>) {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    setMarkers((ms) => [...ms, { time: audio.currentTime, page: currentPage, x, y }]);
+    // 点下去的瞬间自动定格——打标记这件事不该要求手速跟上音乐，暂停下来
+    // 看清楚点得准不准、要不要用下面的步进按钮微调，比"必须实时点准"
+    // 从容得多。
+    if (autoPauseOnMark) audio.pause();
+  }
+
+  function seekTo(time: number) {
+    if (audioRef.current) audioRef.current.currentTime = Math.max(0, Math.min(duration, time));
+  }
+
+  function nudge(delta: number) {
+    seekTo((audioRef.current?.currentTime ?? 0) + delta);
+  }
+
+  function togglePlay() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) audio.play(); else audio.pause();
+  }
+
+  function setSpeed(rate: number) {
+    const clamped = Math.max(0.1, Math.min(1.5, rate));
+    if (audioRef.current) audioRef.current.playbackRate = clamped;
+    setEditSpeed(clamped);
+  }
+
+  function markLoopStart() {
+    const t = audioRef.current?.currentTime ?? 0;
+    setEditLoop((r) => (r && t < r.end ? { start: t, end: r.end } : { start: t, end: Math.min(duration, t + 4) }));
+  }
+  function markLoopEnd() {
+    const t = audioRef.current?.currentTime ?? 0;
+    setEditLoop((r) => (r && t > r.start ? { start: r.start, end: t } : { start: Math.max(0, t - 4), end: t }));
+  }
+
+  function handleTimeUpdate() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    setCurrentTime(audio.currentTime);
+    if (editLoop && audio.currentTime >= editLoop.end) audio.currentTime = editLoop.start;
+  }
+
+  return (
+    <div className="pt-3 border-t border-border/60 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-medium text-muted-foreground">时间标记编辑器</p>
+        <div className="flex items-center gap-2">
+          <button type="button" disabled={currentPage === 0} onClick={() => setCurrentPage(currentPage - 1)} className="text-xs px-2 py-1 rounded border border-border disabled:opacity-30 hover:bg-muted">← 上一页</button>
+          <span className="text-xs text-muted-foreground tabular-nums">第 {currentPage + 1} / {pages.length} 页</span>
+          <button type="button" disabled={currentPage === pages.length - 1} onClick={() => setCurrentPage(currentPage + 1)} className="text-xs px-2 py-1 rounded border border-border disabled:opacity-30 hover:bg-muted">下一页 →</button>
+        </div>
+      </div>
+
+      <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+        放慢速度、圈一小段反复听，点到乐谱上对应音符的位置——不用跟着真实节奏抢时间点，点下去会自动暂停，看清楚了再用下面的步进按钮微调、或者直接放下一段接着点。点之间用虚线按弹奏顺序连起来，方便检查路径对不对。
+      </p>
+
+      <div className="relative border border-border rounded-lg overflow-hidden bg-muted/20 select-none">
+        <img
+          src={pages[currentPage]} alt={`第${currentPage + 1}页`}
+          onClick={handleImageClick}
+          className="w-full h-auto cursor-crosshair block"
+        />
+        {pageMarkers.length > 1 && (
+          <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <polyline
+              points={pageMarkers.map((m) => `${m.x * 100},${m.y * 100}`).join(" ")}
+              fill="none" stroke="var(--primary)" strokeWidth={0.4} strokeDasharray="1.2,1.2" opacity={0.6}
+            />
+          </svg>
+        )}
+        {pageMarkers.map((m, seq) => (
+          <div key={m.idx} style={{ left: `${m.x * 100}%`, top: `${m.y * 100}%` }} className="absolute -translate-x-1/2 -translate-y-1/2 group">
+            <button
+              type="button" onClick={(e) => { e.stopPropagation(); seekTo(m.time); }}
+              className="w-3.5 h-3.5 rounded-full bg-primary border-2 border-white shadow flex items-center justify-center text-[8px] text-primary-foreground font-bold"
+              title={`第${seq + 1}个标记 · ${m.time.toFixed(1)}s`}
+            >
+              {seq + 1}
+            </button>
+            <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+              <span className="text-[10px] bg-black/70 text-white rounded px-1 py-0.5 tabular-nums">{m.time.toFixed(1)}s</span>
+              <button
+                type="button" onClick={(e) => { e.stopPropagation(); setMarkers((ms) => ms.filter((_, i) => i !== m.idx)); }}
+                className="text-[10px] text-white bg-red-500 rounded px-1 hover:bg-red-600"
+              >✕</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 自定义播放条——不用浏览器原生 <audio controls>，原生控件没有慢放
+          /步进/圈段这些打标记专用的辅助功能，得自己做一套。 */}
+      <div className="rounded-lg border border-border bg-card p-3 space-y-2.5">
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={togglePlay} className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center shrink-0 hover:opacity-90">
+            {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 ml-0.5" />}
+          </button>
+          <span className="text-xs tabular-nums text-muted-foreground shrink-0 w-24">{currentTime.toFixed(1)}s / {duration.toFixed(1)}s</span>
+          <input
+            type="range" min={0} max={duration || 1} step={0.01} value={currentTime}
+            onChange={(e) => seekTo(+e.target.value)}
+            className="flex-1 accent-primary"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-muted-foreground shrink-0">步进</span>
+          <button type="button" onClick={() => nudge(-1)} className="text-xs px-2 py-1 rounded border border-border hover:bg-muted">−1s</button>
+          <button type="button" onClick={() => nudge(-0.1)} className="text-xs px-2 py-1 rounded border border-border hover:bg-muted">−0.1s</button>
+          <button type="button" onClick={() => nudge(0.1)} className="text-xs px-2 py-1 rounded border border-border hover:bg-muted">+0.1s</button>
+          <button type="button" onClick={() => nudge(1)} className="text-xs px-2 py-1 rounded border border-border hover:bg-muted">+1s</button>
+
+          <span className="text-xs text-muted-foreground shrink-0 ml-2">速度</span>
+          <input
+            type="range" min={0.1} max={1.5} step={0.05} value={editSpeed}
+            onChange={(e) => setSpeed(+e.target.value)}
+            className="w-24 accent-primary"
+          />
+          <span className="text-xs text-muted-foreground tabular-nums w-10">{Math.round(editSpeed * 100)}%</span>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-border/60">
+          <Repeat className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+          <button type="button" onClick={markLoopStart} className="text-xs px-2 py-1 rounded border border-border hover:bg-muted">设起点</button>
+          <button type="button" onClick={markLoopEnd} className="text-xs px-2 py-1 rounded border border-border hover:bg-muted">设终点</button>
+          {editLoop ? (
+            <>
+              <span className="text-xs text-muted-foreground tabular-nums">循环 {editLoop.start.toFixed(1)}s–{editLoop.end.toFixed(1)}s</span>
+              <button type="button" onClick={() => setEditLoop(null)} className="text-xs px-2 py-1 rounded border border-border text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30">清除</button>
+            </>
+          ) : (
+            <span className="text-xs text-muted-foreground/70">先播到起点按"设起点"，播到终点按"设终点"，会自动反复播放这一段</span>
+          )}
+
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground ml-auto shrink-0">
+            <input type="checkbox" checked={autoPauseOnMark} onChange={(e) => setAutoPauseOnMark(e.target.checked)} />
+            点乐谱自动暂停
+          </label>
+        </div>
+      </div>
+
+      <audio
+        ref={audioRef} src={audioUrl} className="hidden"
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+      />
+
+      <p className="text-xs text-muted-foreground">
+        已打 {markers.length} 个标记（这一页 {pageMarkers.length} 个）
+      </p>
+    </div>
+  );
+}
+
+function AddLevelModal({ open, onClose, editingLevelId, onSaved }: {
+  open: boolean; onClose: () => void; editingLevelId?: string | null; onSaved: () => void;
 }) {
 
 
-  const [moduleType, setModuleType] = useState<"counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "sudoku" | "line_match" | "coloring">("counting");
+  const [moduleType, setModuleType] = useState<"counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along">("counting");
   const [levelTitle, setLevelTitle] = useState("");
   const [explanationText, setExplanationText] = useState("");
   const [hintText, setHintText] = useState("");
@@ -397,35 +1887,27 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
   const [explanationImageUrl, setExplanationImageUrl] = useState<string | null>(null);
   const [explanationVideoUrl, setExplanationVideoUrl] = useState("");
 
-  // 这个 Activity 归到哪门课——之前这个信息是"父层已经选好了课程，直接当
-  // prop 传进来"，现在 Activity 管理页面本身不再是"先选课程"这种浏览方式
-  // 了（改成全平台Activity平铺列表），所以这个弹窗自己要有一个课程选择
-  // 器。如果外部真的传了 courseId（比如以后从"某门课底下加一个Activity"
-  // 这种情境呼叫这个弹窗），就用外部传的；没传的话，靠这里自己选。
-  const [courses, setCourses] = useState<Array<{ id: string; title_i18n?: Record<string,string> }>>([]);
-  const [selectedCourseId, setSelectedCourseId] = useState("");
+  // Activity 不需要绑 Course——这个字段已经完全拿掉了，建 Activity 用
+  // 独立的 eduApi.createActivity（不带 courseId），跟点点数数、迷宫这些
+  // 一样，先建好内容，之后要不要透过 Lesson 引用它，是 Lesson 那边的事，
+  // 跟这里无关。
 
   // 弹窗改成分页籤显示，不是全部塞在一个页面里一路往下滚——内容太长
   // （光是模块专属的设定就有八种模块各自一大块，加上分类、属性、提示栏），
   // 硬塞成一条长表单不好操作。保存按钮固定在分页籤外面，不管停在哪个
   // 分页籤都能直接保存，不用先切到"最后一个分页籤"才能存。
-  type TabKey = "basic" | "classification" | "content" | "properties";
+  type TabKey = "basic" | "classification" | "content" | "properties" | "hints";
   const [activeTab, setActiveTab] = useState<TabKey>("basic");
-  const effectiveCourseId = courseId ?? (selectedCourseId || null);
-  useEffect(() => {
-    if (open && !courseId) eduApi.listCourses({ limit: 200 }).then((r) => setCourses(r.data));
-  }, [open, courseId]);
 
   // 习题分类 (exercise classification) — all optional; leaving these unset
   // just means the exercise has no auto-generated number yet, not an error.
   const [categories, setCategories] = useState<Array<{ id: string; code: string; name_zh: string; prefix: string; subject_id?: string }>>([]);
   const [groups, setGroups] = useState<Array<{ id: string; category_id: string; code: string; name_zh: string }>>([]);
   const [curriculumTypes, setCurriculumTypes] = useState<Array<{ id: string; code: string; name_zh: string }>>([]);
-  const [programmes, setProgrammes] = useState<Array<{ id: string; code: string; name_zh: string }>>([]);
-  const [subjects, setSubjects] = useState<Array<{ id: string; programme_id: string; code: string; name_zh: string }>>([]);
-  const [programmeId, setProgrammeId] = useState("");
+  const [subjects, setSubjects] = useState<Array<{ id: string; programme_id?: string; code: string; name_zh: string }>>([]);
   const [subjectId, setSubjectId] = useState("");
-  const [categoryId, setCategoryId] = useState("");
+  const [categoryId, setCategoryId] = useState(""); // 级联选择器里"正在挑的那一个"，挑完点"加入"才会进下面的数组
+  const [categoryIds, setCategoryIds] = useState<string[]>([]); // 这个 Activity 实际挂的全部 Topic（多对多）
   const [groupId, setGroupId] = useState("");
   const [curriculumTypeId, setCurriculumTypeId] = useState("");
 
@@ -448,19 +1930,23 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
 
   useEffect(() => {
     if (!open) return;
-    taxonomyApi.listProgrammes().then(setProgrammes);
-    exerciseClassificationApi.listCategories().then(setCategories); // unfiltered — needed for the module_type→Topic auto-match below regardless of what Programme/Subject is currently picked
+    exerciseClassificationApi.listCategories().then(setCategories); // unfiltered — needed for the module_type→Topic auto-match below regardless of what Subject is currently picked
     exerciseClassificationApi.listCurriculumTypes().then(setCurriculumTypes);
+    taxonomyApi.listSubjects().then(setSubjects); // 直接加载全部 Subject，不再需要先选 Programme
   }, [open]);
   useEffect(() => {
-    if (programmeId) taxonomyApi.listSubjects(programmeId).then(setSubjects);
-    else setSubjects([]);
-  }, [programmeId]);
-  useEffect(() => {
-    if (categoryId) exerciseClassificationApi.listGroups(categoryId).then(setGroups);
-    else setGroups([]);
-    setGroupId("");
-  }, [categoryId]);
+    // "分类"(Group)现在跟着下面已经加入的全部 Topic 走，不是只跟着级联
+    // 选择器里"当前选中"的那一个——挂了好几个 Topic，这里就把每个 Topic
+    // 底下的分类选项都拉出来合并、按 id 去重。原本选的分类如果在新列表
+    // 里还找得到就保留，找不到（比如把那个 Topic 从标签里删掉了）才清空。
+    if (categoryIds.length === 0) { setGroups([]); setGroupId(""); return; }
+    Promise.all(categoryIds.map((cid) => exerciseClassificationApi.listGroups(cid))).then((results) => {
+      const merged = results.flat();
+      const deduped = Array.from(new Map(merged.map((g) => [g.id, g])).values());
+      setGroups(deduped);
+      setGroupId((prev) => (deduped.some((g) => g.id === prev) ? prev : ""));
+    });
+  }, [categoryIds]);
   // convenience: picking a module type auto-selects the matching Topic
   // (they're 1:1 in practice — 迷宫 module → 迷宫 Topic) so the designer
   // doesn't have to pick it twice; still freely changeable if they want.
@@ -488,21 +1974,6 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
     if (!topic?.subject_id) return;
     setSubjectId((prev) => (prev === topic.subject_id ? prev : topic.subject_id!));
   }, [categoryId, categories]);
-  useEffect(() => {
-    if (!subjectId) return;
-    const subject = subjects.find((s) => s.id === subjectId);
-    if (subject) setProgrammeId((prev) => (prev === subject.programme_id ? prev : subject.programme_id));
-    else {
-      // subjectId points somewhere not in the currently-loaded `subjects`
-      // list (e.g. it belongs to a different Programme than whatever
-      // programmeId is currently set to) — look it up directly instead of
-      // silently leaving Programme unset.
-      taxonomyApi.listSubjects().then((all) => {
-        const found = all.find((s) => s.id === subjectId);
-        if (found) setProgrammeId(found.programme_id);
-      });
-    }
-  }, [subjectId, subjects]);
 
   // counting fields
   const [theme, setTheme] = useState("apple");
@@ -512,12 +1983,24 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
   const [totalQuestions, setTotalQuestions] = useState(5);
   const [countingMode, setCountingMode] = useState<"random" | "custom_scene">("random");
   const [countingScene, setCountingScene] = useState<StructuredSceneOutput | null>(null);
+  // 这一题要问哪几种物件类型的和——从 countingScene.objects 里已经打过的
+  // 类型标签中勾选，不设的话（比如设计师没给物件打类型）退回"数全部"。
+  const [countingTargetTypes, setCountingTargetTypes] = useState<string[]>([]);
+  // 自定义题目句子（选填）——不填的话游戏画面按 target_types 自动生成
+  // 一句话；这个只改"怎么问"，答案还是由 target_types 决定，不受这个影响。
+  const [countingQuestionText, setCountingQuestionText] = useState("");
+
+  // 其它8个模块（找不同/专注力点数字/Memory配对/找规律/迷宫/填色/连线配对/
+  // 数独）共用同一个"自定义题目句子"栏位——一次只编辑一个 Activity，共用
+  // 一个 state 就够了，不用给每个模块各开一个。counting 自己已经有独立的
+  // 一套（上面那个 countingQuestionText），这里不重复。
+  const CUSTOM_QUESTION_MODULES = ["spot_diff", "focus_tap", "memory", "pattern", "maze", "coloring", "line_match", "sudoku"];
+  const [customQuestionText, setCustomQuestionText] = useState("");
 
   // focus_tap fields (grid mode only for now)
   const [gridSize, setGridSize] = useState(4);
   const [ftMode, setFtMode] = useState<"grid" | "custom">("grid");
-  const [ftBgUrl, setFtBgUrl] = useState<string | null>(null);
-  const [ftPositions, setFtPositions] = useState<{ x: number; y: number }[]>([]);
+  const [ftScene, setFtScene] = useState<StructuredSceneOutput | null>(null);
 
   // memory fields
   const [memoryTheme, setMemoryTheme] = useState("animal");
@@ -526,6 +2009,10 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
   const [memoryMode, setMemoryMode] = useState<"preset" | "custom">("preset");
   const [memoryCustomIcons, setMemoryCustomIcons] = useState<string[]>([]);
   const [memoryBgUrl, setMemoryBgUrl] = useState<string | null>(null);
+  // 自由摆放——牌的位置槽（数量要等于 memoryCustomIcons.length × 2）；
+  // 不设(null)或者 memoryLayout==="grid" 时用原本的系统自动排格子。
+  const [memoryLayout, setMemoryLayout] = useState<"grid" | "free">("grid");
+  const [memoryScene, setMemoryScene] = useState<StructuredSceneOutput | null>(null);
 
   // pattern fields
   const [patternTheme, setPatternTheme] = useState("shape");
@@ -545,13 +2032,47 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
   const [sudokuCells, setSudokuCells] = useState<SudokuCellDraft[]>([]);
   const [sudokuDifficulty, setSudokuDifficulty] = useState<"easy" | "medium" | "hard" | "custom">("medium");
 
-  // line_match fields — each pair is authored directly, same "designer
-  // writes the answer" shape as sudoku's cells. type/content per side lets
-  // a pair mix text-to-image (e.g. 动物图片 → "汪汪" 文字), not just
-  // text-to-text.
-  interface LineMatchPairDraft { left: { type: "text" | "image"; content: string }; right: { type: "text" | "image"; content: string } }
-  const [lineMatchPairs, setLineMatchPairs] = useState<LineMatchPairDraft[]>([{ left: { type: "text", content: "" }, right: { type: "text", content: "" } }]);
+  // line_match fields — authored directly. 从"左右一一对应"换成"左右各
+  // 自一份物件清单 + 一份明确的连线清单(edges)"，才能支持多对多——一个
+  // 物件可以被好几条线连到（一对多/多对一），不再限制左右数量要相等。
+  // 旧数据（config.pairs，左右各一个、隐含1对1）在读取时会自动转成这个
+  // 新形状（每对pair拆成一个左物件+一个右物件+一条edge），运行时
+  // LineMatchGame.tsx 也保留了同样的向后兼容转换，旧 Activity 不用重新编辑就能继续玩。
+  interface LineMatchItem { id: string; type: "text" | "image"; content: string }
+  interface LineMatchEdge { leftId: string; rightId: string }
+  const [lineMatchLeftItems, setLineMatchLeftItems] = useState<LineMatchItem[]>([{ id: crypto.randomUUID(), type: "text", content: "" }]);
+  const [lineMatchRightItems, setLineMatchRightItems] = useState<LineMatchItem[]>([{ id: crypto.randomUUID(), type: "text", content: "" }]);
+  const [lineMatchEdges, setLineMatchEdges] = useState<LineMatchEdge[]>([]);
+  const [lineMatchConnectFrom, setLineMatchConnectFrom] = useState<string | null>(null); // 连线时先点的那个item的id，等第二下点击完成一条线
   const [lineMatchShuffleRight, setLineMatchShuffleRight] = useState(true);
+  // "列表配对"（左右两栏，上面这几个state）vs "自定义画面"（背景图+自由
+  // 摆放物件，复用 SceneEditor structuredMode）。自由摆放那边的"配对"靠
+  // 物件的 objectType 字段当分组标记——同一个标记的所有物件必须互相连
+  // 成一团（不再像最早版本那样限制正好2个，3个、4个共用一个标记也行，
+  // 对应"一组可以超过两个成员"这个需求）。
+  const [lineMatchLayout, setLineMatchLayout] = useState<"list" | "scene">("list");
+  const [lineMatchScene, setLineMatchScene] = useState<StructuredSceneOutput | null>(null);
+
+  // ppt_lecture / video_lecture fields — 讲义类，不是游戏，没有对错判断。
+  // 字段名直接对齐 courses.controller.ts 实际存的 config 形状：
+  // ppt_lecture 存 slide_image_urls（已转换好的幻灯片图片阵列）+
+  // original_filename；video_lecture 存 video_url + poster_image_url。
+  const [pptSlideUrls, setPptSlideUrls] = useState<string[]>([]);
+  const [pptOriginalFilename, setPptOriginalFilename] = useState("");
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoPosterUrl, setVideoPosterUrl] = useState<string | null>(null);
+
+  // play_along fields — 跟弹练习：乐谱(多页图片) + 音频 + 一串"这个时间点
+  // 对应乐谱第几页哪个高度"的标记。markers 是设计师在编辑器里边放音频
+  // 边点乐谱边打出来的，字段名对齐 0XZ_play_along_module.sql 那张表。
+  // PlayAlongMarker 类型定义在文件上面（PlayAlongMarkerEditor 旁边），
+  // 两处共用同一个，不用各自重复定义。
+  const [paSheetUrls, setPaSheetUrls] = useState<string[]>([]);
+  const [paOriginalFilename, setPaOriginalFilename] = useState("");
+  const [paAudioUrl, setPaAudioUrl] = useState<string | null>(null);
+  const [paMarkers, setPaMarkers] = useState<PlayAlongMarker[]>([]);
+  const [paEditorPage, setPaEditorPage] = useState(0); // 编辑器当前显示第几页，不存进config，纯UI状态
+  const [paOriginalBpm, setPaOriginalBpm] = useState(120); // 这首曲子的原速，播放器那边按BPM调速度要拿这个换算倍率
 
   // coloring fields
   const [coloringBgUrl, setColoringBgUrl] = useState<string | null>(null);
@@ -560,13 +2081,24 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
 
   // maze fields — authored, not generated: bg image + a hand-painted mask
   const [mazeBgUrl, setMazeBgUrl] = useState<string | null>(null);
-  const [mazeTool, setMazeTool] = useState<"paint" | "erase" | "fill" | "fillErase" | "start" | "end">("paint");
+  const [mazeTool, setMazeTool] = useState<"paint" | "erase" | "fill" | "fillErase" | "barrier" | "start" | "end">("paint");
   const [mazeBrushWidth, setMazeBrushWidth] = useState(22);
-  const [mazeStart, setMazeStart] = useState<{ x: number; y: number } | null>(null);
-  const [mazeEnd, setMazeEnd] = useState<{ x: number; y: number } | null>(null);
+  const [mazePaintColor, setMazePaintColor] = useState("#4fb06d"); // 画笔/填充共用这个颜色，只是给设计师看清楚画了哪里用的，蒙版真正判定"能不能走"只看透明度，颜色本身不影响判定逻辑
+  // 多组起点/终点配对——同时有好几个球，每个球各自要走到自己配对的终点。
+  // mazeActivePairIdx 决定"设起点"/"设终点"这两个工具现在改的是哪一对。
+  interface MazePairDraft { start: { x: number; y: number } | null; end: { x: number; y: number } | null }
+  const [mazePairs, setMazePairs] = useState<MazePairDraft[]>([{ start: null, end: null }]);
+  const [mazeActivePairIdx, setMazeActivePairIdx] = useState(0);
+  const [mazeEditMode, setMazeEditMode] = useState<"path" | "decorate">("path");
   const [mazeHistoryCount, setMazeHistoryCount] = useState(0); // just for enabling/disabling the undo button
   const mazeCanvasRef = useRef<HTMLCanvasElement>(null);
   const mazeMaskCanvasRef = useRef<HTMLCanvasElement | null>(null); // offscreen: accumulates the painted mask
+  // 分隔线——纯粹是设计时用来"框住"填充范围的辅助线，不算进蒙版本身，
+  // 也不会存进最终的关卡数据。背景图上如果是一整条连在一起的路（比如
+  // 螺旋迷宫那种从头到尾没有分岔的画法），"填充"认颜色的话会整条路一
+  // 起填满；先在中间画几道分隔线当"墙"，填充遇到这些线就不会继续漫过
+  // 去，才能只填其中一段。
+  const mazeBarrierCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const mazeBgImgRef = useRef<HTMLImageElement | null>(null);
   const mazePaintingRef = useRef(false);
   // Undo history for the mask only — a fill click on an unbounded area covers
@@ -580,34 +2112,7 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
   // spot_diff fields
   const [imgAUrl, setImgAUrl] = useState<string | null>(null);
   const [imgBUrl, setImgBUrl] = useState<string | null>(null);
-  const [hotspots, setHotspots] = useState<{ x: number; y: number; r: number }[]>([]);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const imgARef = useRef<HTMLImageElement | null>(null);
-  const imgBRef = useRef<HTMLImageElement | null>(null);
-
-  const redraw = useCallback(() => {
-    const ctx = canvasRef.current?.getContext("2d");
-    if (!ctx) return;
-    ctx.clearRect(0, 0, SD_W, SD_H);
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(SD_LEFT_X, SD_BOX_Y, SD_BOX_W, SD_BOX_H);
-    ctx.fillRect(SD_RIGHT_X, SD_BOX_Y, SD_BOX_W, SD_BOX_H);
-    if (imgARef.current) ctx.drawImage(imgARef.current, SD_LEFT_X, SD_BOX_Y, SD_BOX_W, SD_BOX_H);
-    if (imgBRef.current) ctx.drawImage(imgBRef.current, SD_RIGHT_X, SD_BOX_Y, SD_BOX_W, SD_BOX_H);
-    ctx.strokeStyle = "#dbe9e0"; ctx.lineWidth = 2;
-    ctx.strokeRect(SD_LEFT_X, SD_BOX_Y, SD_BOX_W, SD_BOX_H);
-    ctx.strokeRect(SD_RIGHT_X, SD_BOX_Y, SD_BOX_W, SD_BOX_H);
-    hotspots.forEach((h) => {
-      [SD_LEFT_X, SD_RIGHT_X].forEach((ox) => {
-        ctx.beginPath();
-        ctx.arc(ox + h.x * SD_BOX_W, SD_BOX_Y + h.y * SD_BOX_H, h.r * SD_BOX_W, 0, Math.PI * 2);
-        ctx.setLineDash([6, 5]); ctx.strokeStyle = "rgba(255,122,89,0.9)"; ctx.lineWidth = 3; ctx.stroke();
-        ctx.setLineDash([]);
-      });
-    });
-  }, [hotspots]);
-
-  useEffect(() => { if (open && moduleType === "spot_diff") redraw(); }, [open, moduleType, redraw, imgAUrl, imgBUrl]);
+  const [hotspots, setHotspots] = useState<SpotDiffHotspotDraft[]>([]);
 
   // ── Maze: paint the mask + render background/markers ─────────────────────
   const MZ_W = GAME_CANVAS_W, MZ_H = GAME_CANVAS_H;
@@ -621,17 +2126,33 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
       ctx.drawImage(mazeMaskCanvasRef.current, 0, 0);
       ctx.restore();
     }
-    if (mazeStart) {
-      ctx.beginPath(); ctx.arc(mazeStart.x * MZ_W, mazeStart.y * MZ_H, 16, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(255,122,89,0.9)"; ctx.fill(); ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+    if (mazeBarrierCanvasRef.current) {
+      ctx.save(); ctx.globalAlpha = 0.85;
+      ctx.drawImage(mazeBarrierCanvasRef.current, 0, 0);
+      ctx.restore();
     }
-    if (mazeEnd) {
-      ctx.beginPath(); ctx.arc(mazeEnd.x * MZ_W, mazeEnd.y * MZ_H, 16, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(46,158,91,0.9)"; ctx.fill(); ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
-    }
-  }, [mazeStart, mazeEnd]);
+    mazePairs.forEach((p, i) => {
+      const color = MZ_BALL_COLORS[i % MZ_BALL_COLORS.length];
+      const active = i === mazeActivePairIdx;
+      if (p.start) {
+        ctx.beginPath(); ctx.arc(p.start.x * MZ_W, p.start.y * MZ_H, 16, 0, Math.PI * 2);
+        ctx.fillStyle = color; ctx.fill();
+        ctx.strokeStyle = active ? "#222" : "#fff"; ctx.lineWidth = active ? 4 : 3; ctx.stroke();
+      }
+      if (p.end) {
+        ctx.beginPath(); ctx.arc(p.end.x * MZ_W, p.end.y * MZ_H, 16, 0, Math.PI * 2);
+        ctx.fillStyle = color; ctx.globalAlpha = 0.55; ctx.fill(); ctx.globalAlpha = 1;
+        ctx.strokeStyle = active ? "#222" : "#fff"; ctx.lineWidth = active ? 4 : 3; ctx.stroke();
+        ctx.font = "14px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#fff";
+        ctx.fillText("🏁", p.end.x * MZ_W, p.end.y * MZ_H + 5);
+      }
+    });
+  }, [mazePairs, mazeActivePairIdx]);
 
-  useEffect(() => { if (open && moduleType === "maze") mazeRedraw(); }, [open, moduleType, mazeRedraw, mazeBgUrl]);
+  // mazeEditMode 也要放进依赖——切"装饰模式"再切回"画路径模式"的时候，
+  // 画路径那个 <canvas> 是全新挂载的（切走的时候整个卸载掉了），画布本身
+  // 是空白的，不会自动记得之前画过什么，必须重新触发一次画上去的动作。
+  useEffect(() => { if (open && moduleType === "maze" && mazeEditMode === "path") mazeRedraw(); }, [open, moduleType, mazeRedraw, mazeBgUrl, mazeEditMode]);
 
   async function handleMazeBgUpload(file: File) {
     const dataUrl = await readAsDataURL(file);
@@ -640,14 +2161,30 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
 
   function handleMazeBgSelect(dataUrl: string) {
     const img = new Image();
+    img.crossOrigin = "anonymous"; // 图片可能来自不同源，不设这个的话"填充"读取背景图颜色时会因为"跨域画布污染"报错
     img.onload = () => {
       mazeBgImgRef.current = img;
       const mask = document.createElement("canvas");
       mask.width = MZ_W; mask.height = MZ_H;
       mazeMaskCanvasRef.current = mask;
+      const barrier = document.createElement("canvas");
+      barrier.width = MZ_W; barrier.height = MZ_H;
+      mazeBarrierCanvasRef.current = barrier;
       mazeHistoryRef.current = []; setMazeHistoryCount(0);
       mazeRedraw();
     };
+    img.src = dataUrl;
+    setMazeBgUrl(dataUrl);
+  }
+
+  // 装饰模式改完背景图之后回调这个——只换图片本身，蒙版（已经画好的能
+  // 走的路）完全不动。跟上面 handleMazeBgSelect 的差别就在这里：那个是
+  // "换一张全新的图"，理所当然要清空蒙版重新画；这个是"同一张图上加了
+  // 点装饰"，路径不该被清掉。
+  function handleMazeDecorationUpdate(dataUrl: string) {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => { mazeBgImgRef.current = img; mazeRedraw(); };
     img.src = dataUrl;
     setMazeBgUrl(dataUrl);
   }
@@ -670,18 +2207,35 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
   }
 
   function mazeToolAt(px: number, py: number) {
+    if (mazeTool === "barrier") {
+      const bc = mazeBarrierCanvasRef.current;
+      if (!bc) return;
+      const bctx = bc.getContext("2d")!;
+      bctx.globalCompositeOperation = "source-over";
+      bctx.fillStyle = "#ff3b30";
+      bctx.beginPath(); bctx.arc(px, py, Math.max(3, mazeBrushWidth / 3), 0, Math.PI * 2); bctx.fill();
+      mazeRedraw();
+      return;
+    }
     const mc = mazeMaskCanvasRef.current;
     if (!mc) return;
     const ctx = mc.getContext("2d")!;
     if (mazeTool === "paint") {
       ctx.globalCompositeOperation = "source-over";
-      ctx.fillStyle = "#4fb06d";
+      ctx.fillStyle = mazePaintColor;
       ctx.beginPath(); ctx.arc(px, py, mazeBrushWidth, 0, Math.PI * 2); ctx.fill();
     } else if (mazeTool === "erase") {
       ctx.globalCompositeOperation = "destination-out";
       ctx.beginPath(); ctx.arc(px, py, mazeBrushWidth, 0, Math.PI * 2); ctx.fill();
       ctx.globalCompositeOperation = "source-over";
     }
+    mazeRedraw();
+  }
+
+  function clearMazeBarriers() {
+    const bc = mazeBarrierCanvasRef.current;
+    if (!bc) return;
+    bc.getContext("2d")!.clearRect(0, 0, MZ_W, MZ_H);
     mazeRedraw();
   }
 
@@ -699,27 +2253,64 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
     const startX = Math.floor(px), startY = Math.floor(py);
     if (startX < 0 || startX >= w || startY < 0 || startY >= h) return;
 
-    const imgData = ctx.getImageData(0, 0, w, h);
-    const data = imgData.data;
+    const maskData = ctx.getImageData(0, 0, w, h);
     const idx = (x: number, y: number) => (y * w + x) * 4;
-    const targetIsEmpty = data[idx(startX, startY) + 3] < 10;
-
     const visited = new Uint8Array(w * h);
     const stack: [number, number][] = [[startX, startY]];
-    while (stack.length) {
-      const [x, y] = stack.pop()!;
-      if (x < 0 || x >= w || y < 0 || y >= h) continue;
-      const vIdx = y * w + x;
-      if (visited[vIdx]) continue;
-      const i = idx(x, y);
-      const matches = targetIsEmpty ? data[i + 3] < 10 : data[i + 3] >= 10;
-      if (!matches) continue;
-      visited[vIdx] = 1;
-      if (erase) { data[i + 3] = 0; } // transparent → "not walkable" again
-      else { data[i] = 79; data[i + 1] = 176; data[i + 2] = 109; data[i + 3] = 255; } // #4fb06d, matches the paint brush color
-      stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+
+    if (!erase) {
+      // "填充"——认背景图片本身画好的路径颜色，不是认蒙版上还没画过什么
+      // （之前那版只看蒙版，蒙版一开始整片都是空的，路径线只要有一丁点
+      // 没封住，颜色就会顺着缺口漏出去、把整张图填满）。这张图本来就已
+      // 经画好一条边界清楚的路，直接照着这条路自己的颜色、封闭边界去
+      // 判断范围，才是真正"聪明"的填充，不用逼着用画笔重新描一次轮廓。
+      const off = document.createElement("canvas");
+      off.width = w; off.height = h;
+      const octx = off.getContext("2d")!;
+      if (mazeBgImgRef.current) octx.drawImage(mazeBgImgRef.current, 0, 0, w, h);
+      const bgData = octx.getImageData(0, 0, w, h).data;
+      const startI = idx(startX, startY);
+      const sr = bgData[startI], sg = bgData[startI + 1], sb = bgData[startI + 2];
+      const tol = 40; // 颜色容错——线稿边缘有一点点抗锯齿的渐变色也不会漏出去
+      const [pr, pg, pb] = sdHexToRgb(mazePaintColor);
+      // 分隔线——设计师自己画的"墙"，填充碰到这里就当成边界，不管背景图
+      // 颜色是不是还连着，都不会继续漫过去。这样一条从头到尾没有分岔的
+      // 路，也能靠画几道分隔线切成好几段，分开填。
+      const barrierCanvas = mazeBarrierCanvasRef.current;
+      const barrierData = barrierCanvas ? barrierCanvas.getContext("2d")!.getImageData(0, 0, w, h).data : null;
+      while (stack.length) {
+        const [x, y] = stack.pop()!;
+        if (x < 0 || x >= w || y < 0 || y >= h) continue;
+        const vIdx = y * w + x;
+        if (visited[vIdx]) continue;
+        const i = idx(x, y);
+        if (barrierData && barrierData[i + 3] >= 10) continue; // 撞到分隔线，这条路走不通
+        const dr = bgData[i] - sr, dg = bgData[i + 1] - sg, db = bgData[i + 2] - sb;
+        if (dr * dr + dg * dg + db * db > tol * tol) continue;
+        visited[vIdx] = 1;
+        maskData.data[i] = pr; maskData.data[i + 1] = pg; maskData.data[i + 2] = pb; maskData.data[i + 3] = 255;
+        stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+      }
+    } else {
+      // "删除颜色"——填充的反向操作，清掉蒙版上"已经连在一起的一整块"
+      // 已填色区域，这个本来就该认蒙版自己画了什么，跟背景图颜色无关。
+      const data = maskData.data;
+      const targetIsEmpty = data[idx(startX, startY) + 3] < 10;
+      while (stack.length) {
+        const [x, y] = stack.pop()!;
+        if (x < 0 || x >= w || y < 0 || y >= h) continue;
+        const vIdx = y * w + x;
+        if (visited[vIdx]) continue;
+        const i = idx(x, y);
+        const matches = targetIsEmpty ? data[i + 3] < 10 : data[i + 3] >= 10;
+        if (!matches) continue;
+        visited[vIdx] = 1;
+        data[i + 3] = 0; // transparent → "not walkable" again
+        stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+      }
     }
-    ctx.putImageData(imgData, 0, 0);
+
+    ctx.putImageData(maskData, 0, 0);
     mazeRedraw();
   }
 
@@ -732,8 +2323,14 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
   function handleMazePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
     if (!mazeBgUrl) return;
     const { x, y } = mazeCanvasXY(e);
-    if (mazeTool === "start") { setMazeStart({ x: x / MZ_W, y: y / MZ_H }); return; }
-    if (mazeTool === "end") { setMazeEnd({ x: x / MZ_W, y: y / MZ_H }); return; }
+    if (mazeTool === "start") {
+      setMazePairs((ps) => ps.map((p, i) => (i === mazeActivePairIdx ? { ...p, start: { x: x / MZ_W, y: y / MZ_H } } : p)));
+      return;
+    }
+    if (mazeTool === "end") {
+      setMazePairs((ps) => ps.map((p, i) => (i === mazeActivePairIdx ? { ...p, end: { x: x / MZ_W, y: y / MZ_H } } : p)));
+      return;
+    }
     if (mazeTool === "fill") { pushMazeHistory(); bucketFillAt(x, y, false); return; } // single click, not a drag
     if (mazeTool === "fillErase") { pushMazeHistory(); bucketFillAt(x, y, true); return; }
     pushMazeHistory();
@@ -753,28 +2350,31 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
       setLevelTitle(""); setModuleType("counting");
       setExplanationText(""); setExplanationImageUrl(null); setExplanationVideoUrl("");
       setHintText(""); setAudioUrl(null); setAudioFileName("");
-      setProgrammeId(""); setSubjectId(""); setCategoryId(""); setGroupId(""); setCurriculumTypeId("");
+      setSubjectId(""); setCategoryId(""); setCategoryIds([]); setGroupId(""); setCurriculumTypeId("");
       setActiveTab("basic");
-      setSelectedCourseId("");
       setActivityType("game"); setTeachingModes([]); setDifficulty("");
       setAgeGroupMin(""); setAgeGroupMax(""); setDurationMinutes("");
       setLearningOutcomes(""); setSkillsInput(""); setActivityLanguage("universal"); setActivityTagsInput("");
       setTheme("apple"); setMinVal(1); setMaxVal(10); setNumChoices(3); setTotalQuestions(5);
-      setCountingMode("random"); setCountingScene(null);
+      setCountingMode("random"); setCountingScene(null); setCountingTargetTypes([]); setCountingQuestionText(""); setCustomQuestionText("");
       setGridSize(4);
-      setFtMode("grid"); setFtBgUrl(null); setFtPositions([]);
+      setFtMode("grid"); setFtScene(null);
       setMemoryTheme("animal"); setPairsCount(6); setPreviewSeconds(3);
-      setMemoryMode("preset"); setMemoryCustomIcons([]); setMemoryBgUrl(null);
+      setMemoryMode("preset"); setMemoryCustomIcons([]); setMemoryBgUrl(null); setMemoryLayout("grid"); setMemoryScene(null);
       setPatternTheme("shape"); setPatternTypes(["AB","ABC","AAB","ABB","AABB"]); setSeqLength(7);
       setWpCategories(["chicken_rabbit"]); setWpAnswerMode("select");
-      setMazeBgUrl(null); setMazeTool("paint"); setMazeBrushWidth(22); setMazeStart(null); setMazeEnd(null);
+      setMazeBgUrl(null); setMazeTool("paint"); setMazeBrushWidth(22); setMazePairs([{ start: null, end: null }]); setMazeActivePairIdx(0);
       mazeHistoryRef.current = []; setMazeHistoryCount(0);
-      mazeMaskCanvasRef.current = null; mazeBgImgRef.current = null;
+      mazeMaskCanvasRef.current = null; mazeBgImgRef.current = null; mazeBarrierCanvasRef.current = null;
       setSudokuBgUrl(null); setSudokuCells([]); setSudokuDifficulty("medium");
-      setLineMatchPairs([{ left: { type: "text", content: "" }, right: { type: "text", content: "" } }]); setLineMatchShuffleRight(true);
+      setLineMatchLeftItems([{ id: crypto.randomUUID(), type: "text", content: "" }]);
+      setLineMatchRightItems([{ id: crypto.randomUUID(), type: "text", content: "" }]);
+      setLineMatchEdges([]); setLineMatchConnectFrom(null); setLineMatchShuffleRight(true);
+      setLineMatchLayout("list"); setLineMatchScene(null);
+      setPptSlideUrls([]); setPptOriginalFilename(""); setVideoUrl(null); setVideoPosterUrl(null);
+      setPaSheetUrls([]); setPaOriginalFilename(""); setPaAudioUrl(null); setPaMarkers([]); setPaEditorPage(0); setPaOriginalBpm(120);
       setColoringBgUrl(null); setColoringRegions([]); setColoringMaskDataUrl(null);
       setImgAUrl(null); setImgBUrl(null); setHotspots([]);
-      imgARef.current = null; imgBRef.current = null;
     }
   }, [open]);
 
@@ -793,7 +2393,9 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
       setHintText(level.hint_text ?? "");
       setAudioUrl(level.audio_url ?? null);
       if (level.audio_url) setAudioFileName("已有音频");
-      setCategoryId(level.category_id ?? ""); setGroupId(level.group_id ?? ""); setCurriculumTypeId(level.curriculum_type_id ?? "");
+      setCategoryIds(level.category_ids ?? []);
+      setCategoryId(level.category_ids?.[0] ?? level.category_id ?? "");
+      setGroupId(level.group_id ?? ""); setCurriculumTypeId(level.curriculum_type_id ?? "");
       setActivityType(level.activity_type ?? "game");
       setTeachingModes(level.teaching_modes ?? []);
       setDifficulty(level.difficulty ?? "");
@@ -806,19 +2408,28 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
       setActivityTagsInput((level.tags ?? []).join("、"));
 
       const cfg = level.config as Record<string, unknown>;
+      // 通用读取——8个模块共用同一个栏位，这里统一处理一次，不用在每个
+      // module_type 分支里各写一遍。counting自己有独立的一套，不受影响。
+      const sharedQi18n = cfg.question_i18n as Record<string, string> | undefined;
+      setCustomQuestionText(sharedQi18n?.zh ?? sharedQi18n?.en ?? "");
       if (level.module_type === "counting") {
         if (cfg.mode === "custom_scene") {
           setCountingMode("custom_scene");
-          const positions = (cfg.positions as Array<{ x: number; y: number; image_url?: string; w?: number; h?: number; rotation?: number }>) ?? [];
+          const positions = (cfg.positions as Array<{ x: number; y: number; image_url?: string; w?: number; h?: number; rotation?: number; type?: string; flip_x?: boolean; flip_y?: boolean }>) ?? [];
           setCountingScene({
             bgUrl: (cfg.bg_image_url as string) ?? null,
             objects: positions.map((p) => ({
               imageUrl: p.image_url ?? (cfg.custom_icon_url as string) ?? "",
               x: p.x * GAME_CANVAS_W, y: p.y * GAME_CANVAS_H,
               w: p.w ?? 80, h: p.h ?? 80, rotation: p.rotation ?? 0,
+              objectType: p.type ?? "",
+              flipX: p.flip_x ?? false, flipY: p.flip_y ?? false,
             })),
             texts: ((cfg.texts as StructuredSceneOutput["texts"]) ?? []).map((t) => ({ ...t, x: t.x * GAME_CANVAS_W, y: t.y * GAME_CANVAS_H })),
           });
+          setCountingTargetTypes((cfg.target_types as string[]) ?? []);
+          const qi18n = cfg.question_i18n as Record<string, string> | undefined;
+          setCountingQuestionText(qi18n?.zh ?? qi18n?.en ?? "");
         } else {
           setCountingMode("random");
           setTheme((cfg.theme as string) ?? "apple");
@@ -826,20 +2437,40 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
           setNumChoices((cfg.num_choices as number) ?? 3); setTotalQuestions((cfg.total_questions as number) ?? 5);
         }
       } else if (level.module_type === "spot_diff") {
-        setImgAUrl((cfg.image_a_url as string) ?? null); setImgBUrl((cfg.image_b_url as string) ?? null);
-        setHotspots((cfg.hotspots as { x: number; y: number; r: number }[]) ?? []);
-        if (cfg.image_a_url) { const img = new Image(); img.onload = () => { imgARef.current = img; redraw(); }; img.src = cfg.image_a_url as string; }
-        if (cfg.image_b_url) { const img = new Image(); img.onload = () => { imgBRef.current = img; redraw(); }; img.src = cfg.image_b_url as string; }
+        setImgAUrl((cfg.image_a_url as string) ?? null);
+        setImgBUrl((cfg.image_b_url as string) ?? null);
+        setHotspots((cfg.hotspots as SpotDiffHotspotDraft[]) ?? []);
       } else if (level.module_type === "focus_tap") {
         setFtMode(((cfg.mode as string) ?? "grid") as "grid" | "custom");
         setGridSize((cfg.grid_size as number) ?? 4);
-        setFtBgUrl((cfg.bg_image_url as string) ?? null);
-        setFtPositions((cfg.positions as { x: number; y: number }[]) ?? []);
+        const ftPositionsRaw = (cfg.positions as Array<{ x: number; y: number; image_url?: string; w?: number; h?: number; rotation?: number }>) ?? [];
+        const ftBg = (cfg.bg_image_url as string) ?? null;
+        setFtScene(ftBg || ftPositionsRaw.length > 0 ? {
+          bgUrl: ftBg,
+          objects: ftPositionsRaw.map((p) => ({
+            imageUrl: p.image_url ?? FT_MARKER_ICON,
+            x: p.x * GAME_CANVAS_W, y: p.y * GAME_CANVAS_H,
+            w: p.w ?? 60, h: p.h ?? 60, rotation: p.rotation ?? 0,
+          })),
+          texts: [],
+        } : null);
       } else if (level.module_type === "memory") {
         if (cfg.theme === "custom") {
           setMemoryMode("custom");
           setMemoryCustomIcons((cfg.custom_icons as string[]) ?? []);
           setMemoryBgUrl((cfg.bg_image_url as string) ?? null);
+          const mLayout = ((cfg.layout as string) ?? "grid") as "grid" | "free";
+          setMemoryLayout(mLayout);
+          const mPositions = (cfg.positions as Array<{ x: number; y: number }>) ?? [];
+          setMemoryScene(mLayout === "free" && cfg.bg_image_url ? {
+            bgUrl: cfg.bg_image_url as string,
+            objects: mPositions.map((p) => ({
+              imageUrl: FT_MARKER_ICON,
+              x: p.x * GAME_CANVAS_W, y: p.y * GAME_CANVAS_H,
+              w: 60, h: 60, rotation: 0,
+            })),
+            texts: [],
+          } : null);
         } else {
           setMemoryMode("preset");
           setMemoryTheme((cfg.theme as string) ?? "animal");
@@ -868,24 +2499,83 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
         const cells = (cfg.cells as Array<{ x: number; y: number; answer?: number }>) ?? [];
         setSudokuCells(cells.map((c) => ({ x: c.x, y: c.y, answer: c.answer ? String(c.answer) : "" })));
       } else if (level.module_type === "line_match") {
-        const pairs = (cfg.pairs as Array<{ left: { type: "text" | "image"; content: string }; right: { type: "text" | "image"; content: string } }>) ?? [];
-        setLineMatchPairs(pairs.length ? pairs : [{ left: { type: "text", content: "" }, right: { type: "text", content: "" } }]);
+        const layout = (cfg.layout as "list" | "scene") ?? "list";
+        setLineMatchLayout(layout);
+        if (layout === "scene") {
+          const objs = (cfg.objects as Array<{ image_url: string; x: number; y: number; w: number; h: number; rotation: number; pair_key?: string; flip_x?: boolean; flip_y?: boolean; opacity?: number }>) ?? [];
+          setLineMatchScene({
+            bgUrl: (cfg.bg_image_url as string) ?? null,
+            objects: objs.map((o) => ({
+              imageUrl: o.image_url,
+              x: o.x * GAME_CANVAS_W, y: o.y * GAME_CANVAS_H,
+              w: o.w * GAME_CANVAS_W, h: o.h * GAME_CANVAS_H,
+              rotation: o.rotation, objectType: o.pair_key ?? "",
+              flipX: o.flip_x, flipY: o.flip_y, opacity: o.opacity,
+            })),
+            texts: [],
+          });
+        } else if (cfg.left_items && cfg.right_items) {
+          // 新形状——直接读
+          setLineMatchLeftItems(cfg.left_items as LineMatchItem[]);
+          setLineMatchRightItems(cfg.right_items as LineMatchItem[]);
+          setLineMatchEdges((cfg.edges as LineMatchEdge[]) ?? []);
+        } else {
+          // 旧形状兼容——config.pairs 是 [{left:{type,content}, right:{type,content}}]，
+          // 隐含1对1，拆成新的 左物件+右物件+一条edge，设计师打开旧
+          // Activity 编辑时会自动升级，不用手动重建
+          const oldPairs = (cfg.pairs as Array<{ left: { type: "text" | "image"; content: string }; right: { type: "text" | "image"; content: string } }>) ?? [];
+          if (oldPairs.length > 0) {
+            const lefts = oldPairs.map((p) => ({ id: crypto.randomUUID(), ...p.left }));
+            const rights = oldPairs.map((p) => ({ id: crypto.randomUUID(), ...p.right }));
+            setLineMatchLeftItems(lefts);
+            setLineMatchRightItems(rights);
+            setLineMatchEdges(lefts.map((l, i) => ({ leftId: l.id, rightId: rights[i].id })));
+          } else {
+            setLineMatchLeftItems([{ id: crypto.randomUUID(), type: "text", content: "" }]);
+            setLineMatchRightItems([{ id: crypto.randomUUID(), type: "text", content: "" }]);
+            setLineMatchEdges([]);
+          }
+        }
         setLineMatchShuffleRight((cfg.shuffle_right as boolean) ?? true);
+      } else if (level.module_type === "ppt_lecture") {
+        setPptSlideUrls((cfg.slide_image_urls as string[]) ?? []);
+        setPptOriginalFilename((cfg.original_filename as string) ?? "");
+      } else if (level.module_type === "video_lecture") {
+        setVideoUrl((cfg.video_url as string) ?? null);
+        setVideoPosterUrl((cfg.poster_image_url as string) ?? null);
+      } else if (level.module_type === "play_along") {
+        setPaSheetUrls((cfg.sheet_image_urls as string[]) ?? []);
+        setPaOriginalFilename((cfg.original_filename as string) ?? "");
+        setPaAudioUrl((cfg.audio_url as string) ?? null);
+        setPaMarkers((cfg.markers as PlayAlongMarker[]) ?? []);
+        setPaEditorPage(0);
+        setPaOriginalBpm((cfg.original_bpm as number) ?? 120);
       } else if (level.module_type === "coloring") {
         setColoringBgUrl((cfg.bg_image_url as string) ?? null);
         setColoringMaskDataUrl((cfg.region_mask_url as string) ?? null);
         setColoringRegions((cfg.regions as ColoringRegionDraft[]) ?? []);
       } else if (level.module_type === "maze") {
         setMazeBgUrl((cfg.bg_image_url as string) ?? null);
-        setMazeStart(cfg.start_x != null ? { x: cfg.start_x as number, y: cfg.start_y as number } : null);
-        setMazeEnd(cfg.end_x != null ? { x: cfg.end_x as number, y: cfg.end_y as number } : null);
+        const cfgPairs = cfg.pairs as Array<{ start: { x: number; y: number }; end: { x: number; y: number } }> | undefined;
+        if (cfgPairs && cfgPairs.length > 0) {
+          setMazePairs(cfgPairs.map((p) => ({ start: p.start, end: p.end })));
+        } else if (cfg.start_x != null) {
+          setMazePairs([{ start: { x: cfg.start_x as number, y: cfg.start_y as number }, end: { x: cfg.end_x as number, y: cfg.end_y as number } }]);
+        } else {
+          setMazePairs([{ start: null, end: null }]);
+        }
+        setMazeActivePairIdx(0);
         if (cfg.bg_image_url) {
           const bgImg = new Image();
+          bgImg.crossOrigin = "anonymous";
           bgImg.onload = () => {
             mazeBgImgRef.current = bgImg;
             const mask = document.createElement("canvas");
             mask.width = MZ_W; mask.height = MZ_H;
             mazeMaskCanvasRef.current = mask;
+            const barrier = document.createElement("canvas");
+            barrier.width = MZ_W; barrier.height = MZ_H;
+            mazeBarrierCanvasRef.current = barrier;
             if (cfg.mask_image_url) {
               const maskImg = new Image();
               maskImg.onload = () => { mask.getContext("2d")!.drawImage(maskImg, 0, 0, MZ_W, MZ_H); mazeRedraw(); };
@@ -905,26 +2595,7 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
   }
 
   function handleSelect(side: "a" | "b", dataUrl: string) {
-    const img = new Image();
-    img.onload = () => { if (side === "a") imgARef.current = img; else imgBRef.current = img; redraw(); };
-    img.src = dataUrl;
     if (side === "a") setImgAUrl(dataUrl); else setImgBUrl(dataUrl);
-  }
-
-  function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
-    const rect = canvasRef.current!.getBoundingClientRect();
-    const scaleX = SD_W / rect.width, scaleY = SD_H / rect.height;
-    const px = (e.clientX - rect.left) * scaleX, py = (e.clientY - rect.top) * scaleY;
-    let lx: number | null = null, ly: number | null = null;
-    if (px >= SD_LEFT_X && px <= SD_LEFT_X + SD_BOX_W && py >= SD_BOX_Y && py <= SD_BOX_Y + SD_BOX_H) {
-      lx = (px - SD_LEFT_X) / SD_BOX_W; ly = (py - SD_BOX_Y) / SD_BOX_H;
-    } else if (px >= SD_RIGHT_X && px <= SD_RIGHT_X + SD_BOX_W && py >= SD_BOX_Y && py <= SD_BOX_Y + SD_BOX_H) {
-      lx = (px - SD_RIGHT_X) / SD_BOX_W; ly = (py - SD_BOX_Y) / SD_BOX_H;
-    }
-    if (lx === null || ly === null) return;
-    const hitIdx = hotspots.findIndex((h) => Math.hypot(h.x - lx!, h.y - ly!) < h.r);
-    if (hitIdx >= 0) setHotspots(hotspots.filter((_, i) => i !== hitIdx));
-    else setHotspots([...hotspots, { x: lx, y: ly, r: 0.06 }]);
   }
 
   // Dispatches to create or update depending on whether this modal is
@@ -946,17 +2617,16 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
     };
     const fullPayload = { ...payload, ...activityMeta };
     if (editingLevelId) await eduApi.updateLevel(editingLevelId, fullPayload);
-    else if (effectiveCourseId) await eduApi.createLevel(effectiveCourseId, fullPayload);
+    else await eduApi.createActivity(fullPayload);
   }
 
   async function handleSave() {
-    if (!effectiveCourseId && !editingLevelId) { toast.error("请先选这个 Activity 归到哪门课"); return; }
     // Topic 现在新建、编辑都是选填——可以当下就分类，也可以先建立
     // Activity（先专心把游戏内容做好），之后再回来「编辑」补上
     // Programme/Subject/Topic，不会因为还没想好归到哪个分类就卡住整个
     // 保存流程。
     try {
-      if (moduleType === "counting") {
+     if (moduleType === "counting") {
         if (countingMode === "custom_scene") {
           if (!countingScene?.bgUrl) { toast.error("请选背景图片"); return; }
           if (countingScene.objects.length < 1) { toast.error("请至少加1个要数的物件"); return; }
@@ -966,14 +2636,17 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
-
             hint_text: hintText || undefined, audio_url: audioUrl || undefined,
-            category_id: categoryId || undefined, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+            category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
             config: {
               mode: "custom_scene", bg_image_url: countingScene.bgUrl,
-              positions: countingScene.objects.map((o) => ({ x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H, w: o.w, h: o.h, rotation: o.rotation, image_url: o.imageUrl })),
+              positions: countingScene.objects.map((o) => ({ x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H, w: o.w, h: o.h, rotation: o.rotation, image_url: o.imageUrl, type: o.objectType || undefined, flip_x: o.flipX || undefined, flip_y: o.flipY || undefined })),
               texts: countingScene.texts.map((t) => ({ ...t, x: t.x / GAME_CANVAS_W, y: t.y / GAME_CANVAS_H })),
               num_choices: numChoices, timer_mode: "stopwatch",
+              target_types: countingTargetTypes.length > 0 ? countingTargetTypes : undefined,
+              question_i18n: countingQuestionText.trim()
+                ? { zh: countingQuestionText.trim(), en: countingQuestionText.trim() }
+                : undefined,
             },
           });
         } else {
@@ -985,7 +2658,7 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
             explanation_video_url: explanationVideoUrl || undefined,
 
             hint_text: hintText || undefined, audio_url: audioUrl || undefined,
-            category_id: categoryId || undefined, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+            category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
             config: { mode: "random", theme, min_val: minVal, max_val: maxVal, quiz_mode: "select", num_choices: numChoices, total_questions: totalQuestions, timer_mode: "stopwatch" },
           });
         }
@@ -1001,13 +2674,13 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
 
           hint_text: hintText || undefined, audio_url: audioUrl || undefined,
 
-          category_id: categoryId || undefined, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-          config: { image_a_url: imgAUrl, image_b_url: imgBUrl, hotspots, timer_mode: "stopwatch" },
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: { image_a_url: imgAUrl, image_b_url: imgBUrl, hotspots, timer_mode: "stopwatch", question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined },
         });
       } else if (moduleType === "focus_tap") {
         if (ftMode === "custom") {
-          if (!ftBgUrl) { toast.error("请上传背景图片"); return; }
-          if (ftPositions.length < 2) { toast.error("请至少标记2个数字位置"); return; }
+          if (!ftScene?.bgUrl) { toast.error("请选背景图片"); return; }
+          if (ftScene.objects.length < 2) { toast.error("请至少加2个数字位置标记"); return; }
           await saveLevel({
             module_type: "focus_tap",
             title_i18n: { zh: levelTitle || "专注力点数字", en: levelTitle || "Focus Tap" },
@@ -1017,8 +2690,12 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
 
             hint_text: hintText || undefined, audio_url: audioUrl || undefined,
 
-            category_id: categoryId || undefined, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-            config: { mode: "custom", bg_image_url: ftBgUrl, positions: ftPositions, timer_mode: "stopwatch" },
+            category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+            config: {
+              mode: "custom", bg_image_url: ftScene.bgUrl,
+              positions: ftScene.objects.map((o) => ({ x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H, w: o.w, h: o.h, rotation: o.rotation })),
+              timer_mode: "stopwatch", question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+            },
           });
         } else {
           await saveLevel({
@@ -1030,13 +2707,21 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
 
             hint_text: hintText || undefined, audio_url: audioUrl || undefined,
 
-            category_id: categoryId || undefined, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-            config: { mode: "grid", grid_size: gridSize, timer_mode: "stopwatch" },
+            category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+            config: { mode: "grid", grid_size: gridSize, timer_mode: "stopwatch", question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined },
           });
         }
       } else if (moduleType === "memory") {
         if (memoryMode === "custom") {
           if (memoryCustomIcons.length < 2) { toast.error("请至少加2张配对图片"); return; }
+          const needed = memoryCustomIcons.length * 2;
+          if (memoryLayout === "free") {
+            if (!memoryBgUrl) { toast.error("自由摆放模式请先选背景图"); return; }
+            if (!memoryScene || memoryScene.objects.length !== needed) {
+              toast.error(`自由摆放需要摆 ${needed} 个位置（配对图片数×2），现在有 ${memoryScene?.objects.length ?? 0} 个——记得在编辑器里点"完成"确认`);
+              return;
+            }
+          }
           await saveLevel({
             module_type: "memory",
             title_i18n: { zh: levelTitle || "Memory配对", en: levelTitle || "Memory Match" },
@@ -1045,8 +2730,16 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
             explanation_video_url: explanationVideoUrl || undefined,
 
             hint_text: hintText || undefined, audio_url: audioUrl || undefined,
-            category_id: categoryId || undefined, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-            config: { theme: "custom", custom_icons: memoryCustomIcons, bg_image_url: memoryBgUrl || undefined, pairs_count: memoryCustomIcons.length, preview_seconds: previewSeconds, timer_mode: "stopwatch" },
+            category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+            config: {
+              theme: "custom", custom_icons: memoryCustomIcons, bg_image_url: memoryBgUrl || undefined,
+              pairs_count: memoryCustomIcons.length, preview_seconds: previewSeconds, timer_mode: "stopwatch",
+              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+              layout: memoryLayout,
+              positions: memoryLayout === "free" && memoryScene
+                ? memoryScene.objects.map((o) => ({ x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H }))
+                : undefined,
+            },
           });
         } else {
           await saveLevel({
@@ -1057,8 +2750,8 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
             explanation_video_url: explanationVideoUrl || undefined,
 
             hint_text: hintText || undefined, audio_url: audioUrl || undefined,
-            category_id: categoryId || undefined, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-            config: { theme: memoryTheme, pairs_count: pairsCount, preview_seconds: previewSeconds, timer_mode: "stopwatch" },
+            category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+            config: { theme: memoryTheme, pairs_count: pairsCount, preview_seconds: previewSeconds, timer_mode: "stopwatch", question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined },
           });
         }
       } else if (moduleType === "pattern") {
@@ -1072,8 +2765,8 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
 
           hint_text: hintText || undefined, audio_url: audioUrl || undefined,
 
-          category_id: categoryId || undefined, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-          config: { theme: patternTheme, pattern_types: patternTypes, seq_length: seqLength, num_choices: 3, total_questions: totalQuestions, timer_mode: "stopwatch" },
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: { theme: patternTheme, pattern_types: patternTypes, seq_length: seqLength, num_choices: 3, total_questions: totalQuestions, timer_mode: "stopwatch", question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined },
         });
       } else if (moduleType === "word_problem") {
         if (wpCategories.length === 0) { toast.error("请至少选一种题型"); return; }
@@ -1086,14 +2779,17 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
 
           hint_text: hintText || undefined, audio_url: audioUrl || undefined,
 
-          category_id: categoryId || undefined, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
           config: { categories: wpCategories, answer_mode: wpAnswerMode, num_choices: 3, total_questions: totalQuestions, timer_mode: "stopwatch" },
         });
-      } else if (moduleType === "maze") { // authored: what gets saved IS the puzzle (bg + painted mask + start/end), not generation params
+      } else if (moduleType === "maze") { // authored: what gets saved IS the puzzle (bg + painted mask + start/end pairs), not generation params
         if (!mazeBgUrl) { toast.error("请先上传背景图片"); return; }
-        if (!mazeStart || !mazeEnd) { toast.error("请设定起点和终点"); return; }
+        if (mazePairs.length === 0) { toast.error("至少要有1对起点/终点"); return; }
+        const incompleteIdx = mazePairs.findIndex((p) => !p.start || !p.end);
+        if (incompleteIdx >= 0) { toast.error(`第 ${incompleteIdx + 1} 对起点/终点还没设完，选中它、用"设起点"/"设终点"点一下`); return; }
         if (!mazeMaskCanvasRef.current) { toast.error("请先画出可以走的路径"); return; }
         const maskDataUrl = mazeMaskCanvasRef.current.toDataURL("image/png");
+        const completePairs = mazePairs as { start: { x: number; y: number }; end: { x: number; y: number } }[];
         await saveLevel({
           module_type: "maze",
           title_i18n: { zh: levelTitle || "迷宫", en: levelTitle || "Maze" },
@@ -1103,30 +2799,136 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
 
           hint_text: hintText || undefined, audio_url: audioUrl || undefined,
 
-          category_id: categoryId || undefined, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
           config: {
             bg_image_url: mazeBgUrl, mask_image_url: maskDataUrl,
-            start_x: mazeStart.x, start_y: mazeStart.y, end_x: mazeEnd.x, end_y: mazeEnd.y,
+            // 旧栏位也顺手填上第一对的值，保持向后兼容（万一有别的地方还在读这四个栏位）
+            start_x: completePairs[0].start.x, start_y: completePairs[0].start.y,
+            end_x: completePairs[0].end.x, end_y: completePairs[0].end.y,
+            pairs: completePairs,
             timer_mode: "stopwatch",
+            question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
           },
         });
-      } else if (moduleType === "line_match") { // authored: every pair IS the puzzle, same shape as maze/sudoku
-        const cleanPairs = lineMatchPairs.filter((p) => p.left.content.trim() && p.right.content.trim());
-        if (cleanPairs.length === 0) { toast.error("至少要有1组配对，左右两边都要填内容"); return; }
+      } else if (moduleType === "line_match") { // authored: every pair/edge IS the puzzle, same shape as maze/sudoku
+        if (lineMatchLayout === "scene") {
+          if (!lineMatchScene || lineMatchScene.objects.length === 0) { toast.error("自定义画面模式请先在编辑器里摆好物件"); return; }
+          const byKey = new Map<string, number>();
+          lineMatchScene.objects.forEach((o) => {
+            const key = (o.objectType ?? "").trim();
+            byKey.set(key, (byKey.get(key) ?? 0) + 1);
+          });
+          if (byKey.has("")) { toast.error("每个物件都要填「配对标记」，不能留空"); return; }
+          // 一组允许2个以上（不再限制正好2个）——同一个标记的所有物件最后
+          // 会互相连成一团，但至少要2个才叫"连线"，落单1个的标记没意义
+          const soloKeys = [...byKey.entries()].filter(([, count]) => count < 2).map(([k]) => k);
+          if (soloKeys.length > 0) { toast.error(`配对标记「${soloKeys.join("、")}」只有1个物件，至少要2个才能连线`); return; }
+          await saveLevel({
+            module_type: "line_match",
+            title_i18n: { zh: levelTitle || "连线配对", en: levelTitle || "Line Match" },
+            explanation_text: explanationText || undefined,
+            explanation_image_url: explanationImageUrl || undefined,
+            explanation_video_url: explanationVideoUrl || undefined,
+
+            hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+
+            category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+            config: {
+              layout: "scene",
+              bg_image_url: lineMatchScene.bgUrl,
+              objects: lineMatchScene.objects.map((o) => ({
+                image_url: o.imageUrl,
+                x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H,
+                w: o.w / GAME_CANVAS_W, h: o.h / GAME_CANVAS_H,
+                rotation: o.rotation, pair_key: o.objectType,
+                flip_x: o.flipX || undefined, flip_y: o.flipY || undefined,
+                opacity: o.opacity,
+              })),
+              timer_mode: "stopwatch",
+              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+            },
+          });
+        } else {
+          const cleanLeft = lineMatchLeftItems.filter((it) => it.content.trim());
+          const cleanRight = lineMatchRightItems.filter((it) => it.content.trim());
+          if (cleanLeft.length === 0 || cleanRight.length === 0) { toast.error("左右两边至少各要有1个物件，内容不能空着"); return; }
+          const validIds = new Set([...cleanLeft.map((i) => i.id), ...cleanRight.map((i) => i.id)]);
+          const cleanEdges = lineMatchEdges.filter((e) => validIds.has(e.leftId) && validIds.has(e.rightId));
+          if (cleanEdges.length === 0) { toast.error("至少要连1条线——点左边一项、再点右边一项来连线"); return; }
+          await saveLevel({
+            module_type: "line_match",
+            title_i18n: { zh: levelTitle || "连线配对", en: levelTitle || "Line Match" },
+            explanation_text: explanationText || undefined,
+            explanation_image_url: explanationImageUrl || undefined,
+            explanation_video_url: explanationVideoUrl || undefined,
+
+            hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+
+            category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+            config: {
+              layout: "list",
+              left_items: cleanLeft, right_items: cleanRight, edges: cleanEdges,
+              shuffle_right: lineMatchShuffleRight,
+              timer_mode: "stopwatch",
+              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+            },
+          });
+        }
+      } else if (moduleType === "ppt_lecture") { // 讲义类，不是游戏：一份转好的幻灯片图片清单，没有对错判断
+        if (pptSlideUrls.length === 0) { toast.error("请先上传并转换 PPT，至少要有1页幻灯片"); return; }
         await saveLevel({
-          module_type: "line_match",
-          title_i18n: { zh: levelTitle || "连线配对", en: levelTitle || "Line Match" },
+          module_type: "ppt_lecture",
+          title_i18n: { zh: levelTitle || "PPT讲义", en: levelTitle || "PPT Lecture" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
 
           hint_text: hintText || undefined, audio_url: audioUrl || undefined,
 
-          category_id: categoryId || undefined, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
           config: {
-            pairs: cleanPairs,
-            shuffle_right: lineMatchShuffleRight,
-            timer_mode: "stopwatch",
+            slide_image_urls: pptSlideUrls,
+            original_filename: pptOriginalFilename || undefined,
+          },
+        });
+      } else if (moduleType === "video_lecture") { // 讲义类，不是游戏：一个视频链接，没有对错判断
+        if (!videoUrl) { toast.error("请填视频链接或上传视频"); return; }
+        await saveLevel({
+          module_type: "video_lecture",
+          title_i18n: { zh: levelTitle || "视频讲义", en: levelTitle || "Video Lecture" },
+          explanation_text: explanationText || undefined,
+          explanation_image_url: explanationImageUrl || undefined,
+          explanation_video_url: explanationVideoUrl || undefined,
+
+          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: {
+            video_url: videoUrl,
+            poster_image_url: videoPosterUrl || undefined,
+          },
+        });
+      } else if (moduleType === "play_along") { // 讲义类，不是游戏：乐谱+音频+同步标记，没有对错判断
+        if (paSheetUrls.length === 0) { toast.error("请先上传乐谱图片"); return; }
+        if (!paAudioUrl) { toast.error("请上传或选择音频"); return; }
+        if (paMarkers.length < 2) { toast.error("至少要打2个时间标记，播放时才能算出光标该移到哪"); return; }
+        if (!paOriginalBpm || paOriginalBpm < 1) { toast.error("请填这首曲子的原速 BPM"); return; }
+        await saveLevel({
+          module_type: "play_along",
+          title_i18n: { zh: levelTitle || "跟弹练习", en: levelTitle || "Play Along" },
+          explanation_text: explanationText || undefined,
+          explanation_image_url: explanationImageUrl || undefined,
+          explanation_video_url: explanationVideoUrl || undefined,
+
+          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: {
+            sheet_image_urls: paSheetUrls,
+            original_filename: paOriginalFilename || undefined,
+            audio_url: paAudioUrl,
+            markers: [...paMarkers].sort((a, b) => a.time - b.time),
+            original_bpm: paOriginalBpm,
           },
         });
       } else if (moduleType === "coloring") { // authored: outline + region mask + per-region color rules, no generation
@@ -1143,12 +2945,13 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
 
           hint_text: hintText || undefined, audio_url: audioUrl || undefined,
 
-          category_id: categoryId || undefined, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
           config: {
             bg_image_url: coloringBgUrl,
             region_mask_url: coloringMaskDataUrl,
             regions: coloringRegions,
             timer_mode: "stopwatch",
+            question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
           },
         });
       } else { // sudoku — authored: a puzzle image + which cells are blank + each one's correct digit
@@ -1164,12 +2967,13 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
 
           hint_text: hintText || undefined, audio_url: audioUrl || undefined,
 
-          category_id: categoryId || undefined, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
           config: {
             bg_image_url: sudokuBgUrl,
             cells: sudokuCells.map((c) => ({ x: c.x, y: c.y, answer: parseInt(c.answer, 10) })),
             difficulty: sudokuDifficulty,
             timer_mode: "stopwatch",
+            question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
           },
         });
       }
@@ -1182,20 +2986,23 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
 
   return (
     <Modal open={open} onClose={onClose} title={editingLevelId ? "编辑 Activity" : "加 Activity"} size="full">
-      <div className="space-y-4">
-        <div className="flex gap-1 border-b border-border -mx-1 px-1">
+      <div className="space-y-5">
+        <div className="flex gap-1.5 bg-muted/50 p-1 rounded-xl">
           {([
-            ["basic", "基本信息"],
-            ["classification", "分类 (Programme/Subject/Topic)"],
-            ["content", "内容设置"],
-            ["properties", "属性与提示"],
-          ] as [TabKey, string][]).map(([key, label]) => (
+            ["basic", Info, "基本信息"],
+            ["classification", Tags, "分类"],
+            ["content", SlidersHorizontal, "内容设置"],
+            ["properties", Sparkles, "属性"],
+            ["hints", MessageSquareText, "提示与讲解"],
+          ] as [TabKey, LucideIcon, string][]).map(([key, Icon, label]) => (
             <button
               key={key} type="button" onClick={() => setActiveTab(key)}
-              className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                activeTab === key ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-all ${
+                activeTab === key ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
+              style={activeTab === key ? { boxShadow: "0 1px 3px rgba(0,0,0,0.08)" } : undefined}
             >
+              <Icon size={15} strokeWidth={2} className={activeTab === key ? "text-primary" : ""} />
               {label}
             </button>
           ))}
@@ -1208,20 +3015,14 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
             选上；反过来，如果先选了模块类型，Topic也会自动对齐——两个
             方向都支持。 */}
         <div className={activeTab === "classification" ? "block" : "hidden"}>
-        <div className="rounded-lg border-2 border-primary/30 bg-primary/5 p-3 space-y-2">
-          <Label>这个 Activity 属于哪里？（选填）</Label>
-          <p className="text-xs text-muted-foreground -mt-1">先选 Programme，再选 Subject，最后选 Topic——例如：学前幼教 → 数学 → 点点数数。这三层是一条链路，选错上一层，下一层的选项会跟着变。</p>
-          <div className="flex flex-wrap gap-2">
+        <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <Tags size={16} className="text-primary" /> 这个 Activity 属于哪里？
+            <span className="text-xs font-normal text-muted-foreground">（选填，可挂多个 Topic）</span>
+          </div>
+          <div className="flex flex-wrap gap-2 items-center">
             <select
               className="border rounded-md p-2 text-sm"
-              value={programmeId}
-              onChange={(e) => { setProgrammeId(e.target.value); setSubjectId(""); setCategoryId(""); }}
-            >
-              <option value="">Programme...</option>
-              {programmes.map((p) => <option key={p.id} value={p.id}>{p.name_zh}</option>)}
-            </select>
-            <select
-              className="border rounded-md p-2 text-sm" disabled={!programmeId}
               value={subjectId}
               onChange={(e) => { setSubjectId(e.target.value); setCategoryId(""); }}
             >
@@ -1235,62 +3036,99 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
               <option value="">Topic...</option>
               {categories.filter((c) => c.subject_id === subjectId).map((c) => <option key={c.id} value={c.id}>{c.name_zh}</option>)}
             </select>
+            <Button
+              size="sm" type="button" disabled={!categoryId || categoryIds.includes(categoryId)}
+              onClick={() => setCategoryIds((ids) => Array.from(new Set([...ids, categoryId])))}
+            >
+              ➕ 加入
+            </Button>
           </div>
-          {!categoryId && (
-            <p className="text-xs text-muted-foreground">还没选 Topic 也能保存——选了的话，编号前缀（如 MK、CT）就是从这里的 Topic 决定的；没选可以先建好 Activity，之后再回来这个分页籤补上。</p>
+
+          {categoryIds.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {categoryIds.map((cid) => {
+                const c = categories.find((x) => x.id === cid);
+                return (
+                  <span key={cid} className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-primary/10 border border-primary/30">
+                    {c?.name_zh ?? cid}
+                    <button
+                      type="button" onClick={() => setCategoryIds((ids) => ids.filter((x) => x !== cid))}
+                      className="text-muted-foreground hover:text-destructive"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground/70">未挂 Topic 也能先保存，之后再回来补。</p>
           )}
 
-          <div className="flex flex-wrap gap-2 pt-1 border-t border-border/50 mt-1">
-            <select className="border rounded-md p-2 text-sm" value={groupId} onChange={(e) => setGroupId(e.target.value)} disabled={!categoryId}>
+          <div className="flex flex-wrap gap-2 pt-2 border-t border-border/50">
+            <select className="border rounded-md p-2 text-sm" value={groupId} onChange={(e) => setGroupId(e.target.value)} disabled={categoryIds.length === 0}>
               <option value="">分类（选填）...</option>
               {groups.map((g) => <option key={g.id} value={g.id}>{g.name_zh}</option>)}
             </select>
             <select className="border rounded-md p-2 text-sm" value={curriculumTypeId} onChange={(e) => setCurriculumTypeId(e.target.value)}>
-              <option value="">小分类（校内/奥数/其它，选填）...</option>
+              <option value="">小分类（选填）...</option>
               {curriculumTypes.map((t) => <option key={t.id} value={t.id}>{t.name_zh}</option>)}
             </select>
           </div>
-          <p className="text-xs text-muted-foreground">
-            选了 Topic 之后保存时会自动生成编号（如 MK-NUM-10001）；分类、小分类是选填的进一步细分。
-            要新增 Topic 或分类，去「学习主题管理」页面——这里只负责选，不负责建。
-          </p>
         </div>
         </div>
 
         <div className={activeTab === "basic" ? "block space-y-4" : "hidden"}>
-        <div className="space-y-1.5">
-          <Label>模块类型</Label>
-          <select disabled={!!editingLevelId} className={SELECT_CLASS} value={moduleType} onChange={(e) => setModuleType(e.target.value as "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "sudoku" | "line_match" | "coloring")}>
-            {Object.entries(MODULE_LABELS).map(([key, { emoji, label }]) => (
-              <option key={key} value={key}>{emoji} {label}</option>
-            ))}
-          </select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Activity 名称</Label>
-          <Input placeholder="Activity 名称" value={levelTitle} onChange={(e) => setLevelTitle(e.target.value)} />
-        </div>
-        {!courseId && !editingLevelId && (
+        <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4">
           <div className="space-y-1.5">
-            <Label>归到哪门课</Label>
-            <select className={SELECT_CLASS} value={selectedCourseId} onChange={(e) => setSelectedCourseId(e.target.value)}>
-              <option value="">选一门课...</option>
-              {courses.map((c) => <option key={c.id} value={c.id}>{c.title_i18n?.zh ?? c.title_i18n?.en}</option>)}
-            </select>
-            <p className="text-xs text-muted-foreground">课程是组织 Activity 的容器，跟这个 Activity 属于哪个 Programme/Subject/Topic 是两件独立的事——没有想要放的课程，去「Activity 设计管理」旁边的课程管理页面先建一个。</p>
+            <Label>模块类型</Label>
+            <div className="flex items-center gap-3">
+              {(() => {
+                const c = MODULE_COLORS[moduleType] ?? FALLBACK_COLOR;
+                const Icon = MODULE_ICONS[moduleType];
+                return (
+                  <div className="w-14 h-14 rounded-xl border border-border shadow-sm flex items-center justify-center shrink-0" style={{ background: c.bg }}>
+                    {Icon ? <Icon size={26} strokeWidth={2} style={{ color: c.text }} /> : null}
+                  </div>
+                );
+              })()}
+              <select disabled={!!editingLevelId} className={`${SELECT_CLASS} flex-1`} value={moduleType} onChange={(e) => setModuleType(e.target.value as "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along")}>
+                {Object.entries(MODULE_LABELS).map(([key, { emoji, label }]) => (
+                  <option key={key} value={key}>{emoji} {label}</option>
+                ))}
+              </select>
+            </div>
           </div>
-        )}
+          <div className="space-y-1.5">
+            <Label>Activity 名称</Label>
+            <Input placeholder="Activity 名称" value={levelTitle} onChange={(e) => setLevelTitle(e.target.value)} />
+          </div>
+          {CUSTOM_QUESTION_MODULES.includes(moduleType) && (
+            <div className="space-y-1.5">
+              <Label>自定义题目句子（选填）</Label>
+              <Input
+                placeholder="不填的话游戏画面用默认提示文字"
+                value={customQuestionText}
+                onChange={(e) => setCustomQuestionText(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground/80">只改"怎么问"，不影响判分逻辑本身。</p>
+            </div>
+          )}
+        </div>
         </div>
 
         <div className={activeTab === "content" ? "block space-y-4" : "hidden"}>
         {moduleType === "counting" && (
-          <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3 text-sm">
-            <div className="flex gap-1.5">
+          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Hash size={16} className="text-primary" /> 点点数数 · 内容设置
+            </div>
+            <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
               {(["random", "custom_scene"] as const).map((m) => (
                 <button
                   key={m} type="button" onClick={() => setCountingMode(m)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                    countingMode === m ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground"
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    countingMode === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   {m === "random" ? "🎲 随机生成" : "🖼️ 自定义画面"}
@@ -1299,23 +3137,34 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
             </div>
 
             {countingMode === "random" ? (
-              <div className="flex gap-3 flex-wrap items-center">
-                <label className="flex items-center gap-1.5">主题
-                  <select value={theme} onChange={(e) => setTheme(e.target.value)} className={MINI_SELECT_CLASS}>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">主题</Label>
+                  <select value={theme} onChange={(e) => setTheme(e.target.value)} className={`${MINI_SELECT_CLASS} w-full`}>
                     <option value="apple">🍎 苹果</option><option value="star">⭐ 星星</option>
                     <option value="fish">🐟 鱼</option><option value="balloon">🎈 气球</option><option value="candy">🍬 糖果</option>
                   </select>
-                </label>
-                <label className="flex items-center gap-1.5">范围
-                  <input type="number" value={minVal} onChange={(e) => setMinVal(+e.target.value)} className={MINI_INPUT_CLASS} /> ~
-                  <input type="number" value={maxVal} onChange={(e) => setMaxVal(+e.target.value)} className={MINI_INPUT_CLASS} />
-                </label>
-                <label className="flex items-center gap-1.5">选项 <input type="number" value={numChoices} onChange={(e) => setNumChoices(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
-                <label className="flex items-center gap-1.5">题数 <input type="number" value={totalQuestions} onChange={(e) => setTotalQuestions(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">范围</Label>
+                  <div className="flex items-center gap-1">
+                    <input type="number" value={minVal} onChange={(e) => setMinVal(+e.target.value)} className={`${MINI_INPUT_CLASS} w-full`} />
+                    <span className="text-muted-foreground text-xs">~</span>
+                    <input type="number" value={maxVal} onChange={(e) => setMaxVal(+e.target.value)} className={`${MINI_INPUT_CLASS} w-full`} />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">选项数</Label>
+                  <input type="number" value={numChoices} onChange={(e) => setNumChoices(+e.target.value)} className={`${MINI_INPUT_CLASS} w-full`} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">题数</Label>
+                  <input type="number" value={totalQuestions} onChange={(e) => setTotalQuestions(+e.target.value)} className={`${MINI_INPUT_CLASS} w-full`} />
+                </div>
               </div>
             ) : (
               <>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
                   选背景图、加物件（可以从素材库选，也可以直接上传——每次加的物件图片可以都不一样，数量不限），拖到想要的位置，还能旋转、缩放。加了几个物件，答案就是几个；文字是装饰用的，不算进答案里。
                 </p>
                 <SceneEditor
@@ -1323,37 +3172,101 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
                   onSaveStructured={setCountingScene} initial={countingScene ?? undefined}
                 />
                 {countingScene && (
-                  <p className="text-xs text-emerald-600 dark:text-emerald-400">✓ 场景已确认（{countingScene.objects.length} 个物件），可以点上面"完成"重新调整</p>
-                )}
+  <>
+    <p className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1">✓ 场景已确认（{countingScene.objects.length} 个物件），可以点上面"完成"重新调整</p>
+
+    <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
+      <Label className="text-xs">自定义题目句子（选填）</Label>
+      <Input
+        value={countingQuestionText}
+        onChange={(e) => setCountingQuestionText(e.target.value)}
+        placeholder="例如：苹果和西瓜一共有几个？（不填的话系统会按下面勾选的类型自动生成一句）"
+      />
+      <p className="text-xs text-muted-foreground/80">
+        这里只是改"怎么问"——正确答案还是由下面"这一题要问哪几种"决定，跟画面里实际摆的物件数量对应，不会因为这句话改变。
+      </p>
+    </div>
+
+    {(() => {
+      const objectTypes = Array.from(new Set(countingScene.objects.map((o) => o.objectType).filter((t): t is string => !!t)));
+      if (objectTypes.length === 0) return null;
+      return (
+        <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">这一题要问哪几种？（不选默认数全部物件）</p>
+          <div className="flex flex-wrap gap-2">
+            {objectTypes.map((t) => {
+              const checked = countingTargetTypes.includes(t);
+              return (
+                <button
+                  key={t} type="button"
+                  onClick={() => setCountingTargetTypes((prev) => checked ? prev.filter((x) => x !== t) : [...prev, t])}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                    checked ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground"
+                  }`}
+                >
+                  {t}
+                </button>
+              );
+            })}
+          </div>
+          {countingTargetTypes.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              答案 = {countingTargetTypes.join(" + ")} 的数量总和
+            </p>
+          )}
+        </div>
+      );
+    })()}
+  </>
+)}
               </>
             )}
           </div>
         )}
 
         {moduleType === "spot_diff" && (
-          <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3">
-            <div className="flex gap-4 text-sm flex-wrap items-center">
-              <label className="flex items-center gap-1.5">原图 <input type="file" accept="image/*" className="text-xs" onChange={(e) => e.target.files?.[0] && handleUpload("a", e.target.files[0])} /></label>
-              <AssetPicker category="background" label="🗂️ 选原图" moduleType="spot_diff" onSelect={(url) => handleSelect("a", url)} />
-              <label className="flex items-center gap-1.5">找不同图 <input type="file" accept="image/*" className="text-xs" onChange={(e) => e.target.files?.[0] && handleUpload("b", e.target.files[0])} /></label>
-              <AssetPicker category="background" label="🗂️ 选找不同图" moduleType="spot_diff" onSelect={(url) => handleSelect("b", url)} />
+          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <ScanSearch size={16} className="text-primary" /> 找不同 · 内容设置
             </div>
-            <p className="text-xs text-muted-foreground">上传两张图后，在下面画布上点一下就标记一个差异点，点已有的标记可以移除。已标记 {hotspots.length} 个。</p>
-            <canvas
-              ref={canvasRef} width={SD_W} height={SD_H} onClick={handleCanvasClick}
-              className="w-full h-auto rounded-lg bg-card cursor-crosshair border border-border"
-            />
+            <div className="flex gap-4 flex-wrap">
+              {([["a", "原图", imgAUrl, "选原图"], ["b", "找不同图", imgBUrl, "选找不同图"]] as const).map(([side, label, url, pickerLabel]) => (
+                <div key={side} className="space-y-1.5">
+                  <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                  <div className="flex items-center gap-2">
+                    {url ? (
+                      <div className="w-20 h-20 rounded-lg border border-border shadow-sm overflow-hidden bg-muted/30 shrink-0">
+                        <img src={url} alt={label} className="w-full h-full object-cover" />
+                      </div>
+                    ) : (
+                      <div className="w-20 h-20 rounded-lg border border-dashed border-border flex items-center justify-center text-muted-foreground/50 shrink-0">
+                        <ImagePlus size={20} />
+                      </div>
+                    )}
+                    <div className="flex flex-col gap-1.5">
+                      <input type="file" accept="image/*" className="text-xs w-32" onChange={(e) => e.target.files?.[0] && handleUpload(side, e.target.files[0])} />
+                      <AssetPicker category="background" label={url ? "换一张" : `🗂️ ${pickerLabel}`} moduleType="spot_diff" onSelect={(u) => handleSelect(side, u)} seedFromUrl={side === "b" ? imgAUrl ?? undefined : undefined} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">在下面画布上点一下标记一个差异点（左右两图点哪张都行，会同步显示）；已有标记可拖动、调整判定范围或删除。已标记 {hotspots.length} 个。</p>
+            <SpotDiffMarker imgAUrl={imgAUrl} imgBUrl={imgBUrl} hotspots={hotspots} setHotspots={setHotspots} onImgBUpdated={setImgBUrl} />
           </div>
         )}
 
         {moduleType === "focus_tap" && (
-          <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3 text-sm">
-            <div className="flex gap-1.5">
+          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Target size={16} className="text-primary" /> 专注力点数字 · 内容设置
+            </div>
+            <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
               {(["grid", "custom"] as const).map((m) => (
                 <button
                   key={m} type="button" onClick={() => setFtMode(m)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                    ftMode === m ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground"
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    ftMode === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   {m === "grid" ? "🔲 格子模式" : "🖼️ 自定义场景"}
@@ -1362,29 +3275,44 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
             </div>
 
             {ftMode === "grid" ? (
-              <div className="flex gap-3 flex-wrap items-center">
+              <div className="flex gap-3 flex-wrap items-center pt-1 border-t border-border/60">
                 <label className="flex items-center gap-1.5">格子大小
                   <select value={gridSize} onChange={(e) => setGridSize(+e.target.value)} className={MINI_SELECT_CLASS}>
                     <option value={3}>3×3</option><option value={4}>4×4</option>
                     <option value={5}>5×5</option><option value={6}>6×6</option>
                   </select>
                 </label>
-                <span className="text-xs text-muted-foreground">共 {gridSize * gridSize} 个数字，玩的时候每次都会重新随机分配位置</span>
+                <span className="text-xs text-muted-foreground/80">共 {gridSize * gridSize} 个数字，玩的时候每次都会重新随机分配位置</span>
               </div>
             ) : (
-              <FocusTapCustomDesigner bgUrl={ftBgUrl} setBgUrl={setFtBgUrl} positions={ftPositions} setPositions={setFtPositions} />
+              <div className="space-y-3 pt-1 border-t border-border/60">
+                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+                  选背景图、加几个标记（代表数字会出现的位置，可以从素材库选任意图标，也可以直接上传），拖到想要的位置，还能旋转、缩放、复制。加了几个标记，游戏里就有几个数字，具体哪个数字落在哪个位置，每次玩都会重新随机分配。
+                </p>
+                <SceneEditor
+                  structuredMode presetModuleType="focus_tap"
+                  onSaveStructured={setFtScene} initial={ftScene ?? undefined}
+                />
+                {ftScene && (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">✓ 场景已确认（{ftScene.objects.length} 个位置），可以点上面"完成"重新调整</p>
+                )}
+              </div>
             )}
           </div>
         )}
 
         {moduleType === "memory" && (
-          <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3 text-sm">
-            <div className="flex gap-1.5">
+          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Layers size={16} className="text-primary" /> Memory配对 · 内容设置
+            </div>
+
+            <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
               {(["preset", "custom"] as const).map((m) => (
                 <button
                   key={m} type="button" onClick={() => setMemoryMode(m)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                    memoryMode === m ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground"
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    memoryMode === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   {m === "preset" ? "🎨 主题图库" : "🖼️ 自定义图片"}
@@ -1393,7 +3321,7 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
             </div>
 
             {memoryMode === "preset" ? (
-              <div className="flex gap-3 flex-wrap items-center">
+              <div className="flex gap-3 flex-wrap items-center pt-1 border-t border-border/60">
                 <label className="flex items-center gap-1.5">主题
                   <select value={memoryTheme} onChange={(e) => setMemoryTheme(e.target.value)} className={MINI_SELECT_CLASS}>
                     <option value="animal">🐶 动物</option><option value="fruit">🍎 水果</option>
@@ -1404,26 +3332,89 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
                 <label className="flex items-center gap-1.5">预览秒数 <input type="number" min={1} max={10} value={previewSeconds} onChange={(e) => setPreviewSeconds(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
               </div>
             ) : (
-              <>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <AssetPicker category="object" label="🧸 加一张配对图片" moduleType="memory" onSelect={(url) => setMemoryCustomIcons((arr) => [...arr, url])} />
-                  <AssetPicker category="background" label="🗂️ 选背景图（选填）" moduleType="memory" onSelect={setMemoryBgUrl} />
-                  {memoryBgUrl && <span className="text-xs text-emerald-600 dark:text-emerald-400">已选背景</span>}
+              <div className="space-y-4 pt-1 border-t border-border/60">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-medium text-muted-foreground">配对图片（{memoryCustomIcons.length} 张，至少需要2张）</p>
+                    <AssetPicker category="object" label="🧸 加一张" moduleType="memory" onSelect={(url) => setMemoryCustomIcons((arr) => [...arr, url])} />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {memoryCustomIcons.map((url, i) => (
+                      <div key={i} className="relative w-16 h-16 rounded-lg border border-border shadow-sm bg-white flex items-center justify-center overflow-hidden">
+                        <img src={url} alt="" className="max-w-full max-h-full object-contain" />
+                        <button
+                          type="button" onClick={() => setMemoryCustomIcons((arr) => arr.filter((_, idx) => idx !== i))}
+                          className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/60 text-white text-[10px] flex items-center justify-center hover:bg-red-500"
+                        >✕</button>
+                      </div>
+                    ))}
+                    {memoryCustomIcons.length === 0 && (
+                      <div className="w-16 h-16 rounded-lg border border-dashed border-border flex items-center justify-center text-muted-foreground/50">
+                        <ImagePlus size={18} />
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {memoryCustomIcons.map((url, i) => (
-                    <div key={i} className="relative w-12 h-12 rounded border border-border bg-muted/30 flex items-center justify-center overflow-hidden">
-                      <img src={url} alt="" className="max-w-full max-h-full object-contain" />
-                      <button
-                        type="button" onClick={() => setMemoryCustomIcons((arr) => arr.filter((_, idx) => idx !== i))}
-                        className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center"
-                      >✕</button>
-                    </div>
-                  ))}
+
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">背景图（选填）</p>
+                  <div className="flex items-center gap-3">
+                    {memoryBgUrl ? (
+                      <div className="relative w-24 h-24 rounded-lg border border-border shadow-sm overflow-hidden bg-muted/30 shrink-0">
+                        <img src={memoryBgUrl} alt="背景" className="w-full h-full object-cover" />
+                        <button
+                          type="button" onClick={() => setMemoryBgUrl(null)}
+                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-[11px] flex items-center justify-center hover:bg-red-500"
+                        >✕</button>
+                      </div>
+                    ) : (
+                      <div className="w-24 h-24 rounded-lg border border-dashed border-border flex items-center justify-center text-muted-foreground/50 shrink-0">
+                        <ImagePlus size={22} />
+                      </div>
+                    )}
+                    <AssetPicker category="background" label={memoryBgUrl ? "换一张" : "🗂️ 选背景图"} moduleType="memory" onSelect={setMemoryBgUrl} />
+                  </div>
                 </div>
-                <p className="text-xs text-muted-foreground">已加 {memoryCustomIcons.length} 张图片，至少需要2张。每张图片会出现两次（配对），保存时配对数会自动等于图片数量。</p>
                 <label className="flex items-center gap-1.5">预览秒数 <input type="number" min={1} max={10} value={previewSeconds} onChange={(e) => setPreviewSeconds(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
-              </>
+
+                <div className="pt-3 border-t border-border/60 space-y-3">
+                  <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
+                    {(["grid", "free"] as const).map((lo) => (
+                      <button
+                        key={lo} type="button" onClick={() => setMemoryLayout(lo)}
+                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                          memoryLayout === lo ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {lo === "grid" ? "🔲 传统表格排法" : "🖼️ 自由摆放"}
+                      </button>
+                    ))}
+                  </div>
+
+                  {memoryLayout === "free" && (
+                    !memoryBgUrl ? (
+                      <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">自由摆放需要先在上面选一张背景图。</p>
+                    ) : (
+                      <>
+                        <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+                          已经把 {memoryCustomIcons.length * 2} 张配对图片（每张各出现两次）自动排好摆进画布了——直接拖动调整到想要的位置就行；也可以再点左边"🧸 加物件"补充别的图片、或删掉多余的。哪张图落在哪个位置最后是随机的，跟专注力点数字同一个逻辑。
+                        </p>
+                        <SceneEditor
+                          key={memoryBgUrl}
+                          structuredMode presetModuleType="memory"
+                          onSaveStructured={setMemoryScene}
+                          initial={memoryScene ?? { bgUrl: memoryBgUrl, objects: buildInitialMemoryPositions(memoryCustomIcons), texts: [] }}
+                        />
+                        {memoryScene && (
+                          <p className={`text-xs flex items-center gap-1 ${memoryScene.objects.length === memoryCustomIcons.length * 2 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                            {memoryScene.objects.length === memoryCustomIcons.length * 2 ? "✓" : "⚠️"} 已摆 {memoryScene.objects.length} / {memoryCustomIcons.length * 2} 个位置
+                          </p>
+                        )}
+                      </>
+                    )
+                  )}
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -1493,48 +3484,141 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
         )}
 
         {moduleType === "maze" && (
-          <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3">
-            <div className="flex items-center gap-3 text-sm flex-wrap">
-              <label className="flex items-center gap-1.5">背景图片
-                <input type="file" accept="image/*" className="text-xs" onChange={(e) => e.target.files?.[0] && handleMazeBgUpload(e.target.files[0])} />
-              </label>
-              <AssetPicker category="background" label="🗂️ 从素材库选" moduleType="maze" onSelect={handleMazeBgSelect} />
+          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Route size={16} className="text-primary" /> 迷宫 · 内容设置
+            </div>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 text-sm flex-wrap pb-3 border-b border-border/60">
+                <span className="text-xs font-medium text-muted-foreground w-16 shrink-0">背景图片</span>
+                {mazeBgUrl ? (
+                  <div className="w-14 h-14 rounded-lg border border-border shadow-sm overflow-hidden bg-muted/30 shrink-0">
+                    <img src={mazeBgUrl} alt="背景" className="w-full h-full object-cover" />
+                  </div>
+                ) : (
+                  <div className="w-14 h-14 rounded-lg border border-dashed border-border flex items-center justify-center text-muted-foreground/50 shrink-0">
+                    <ImagePlus size={18} />
+                  </div>
+                )}
+                <label className="flex items-center gap-1.5">
+                  <input type="file" accept="image/*" className="text-xs" onChange={(e) => e.target.files?.[0] && handleMazeBgUpload(e.target.files[0])} />
+                </label>
+                <AssetPicker category="background" label={mazeBgUrl ? "换一张" : "🗂️ 从素材库选"} moduleType="maze" onSelect={handleMazeBgSelect} />
+              </div>
+
               {mazeBgUrl && (
-                <div className="flex gap-1.5">
-                  {([["paint","🖌️ 画路径"],["erase","🧹 擦除"],["fill","🪣 填充"],["fillErase","🗑️ 删除颜色"],["start","🟠 设起点"],["end","🟢 设终点"]] as const).map(([key,label]) => (
+                <div className="flex items-center gap-3 flex-wrap pb-3 border-b border-border/60">
+                  <span className="text-xs font-medium text-muted-foreground w-16 shrink-0">编辑模式</span>
+                  <div className="flex gap-1 bg-muted/50 p-1 rounded-lg">
                     <button
-                      key={key} type="button" onClick={() => setMazeTool(key)}
-                      className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
-                        mazeTool === key ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground"
-                      }`}
+                      type="button" onClick={() => setMazeEditMode("path")}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${mazeEditMode === "path" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
                     >
-                      {label}
+                      🧭 画路径模式
                     </button>
-                  ))}
-                  <button
-                    type="button" onClick={undoMaze} disabled={mazeHistoryCount === 0}
-                    className="px-2.5 py-1 rounded-md text-xs font-medium border bg-card border-border text-muted-foreground disabled:opacity-30"
-                  >
-                    ↩️ 撤销
-                  </button>
+                    <button
+                      type="button" onClick={() => setMazeEditMode("decorate")}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${mazeEditMode === "decorate" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                      🎨 装饰模式（不影响走路）
+                    </button>
+                  </div>
                 </div>
               )}
-              {mazeBgUrl && (mazeTool === "paint" || mazeTool === "erase") && (
-                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">笔刷宽度
-                  <input
-                    type="range" min={2} max={50} value={mazeBrushWidth}
-                    onChange={(e) => setMazeBrushWidth(+e.target.value)}
-                    className="w-24"
-                  />
-                  <span className="w-6 text-right">{mazeBrushWidth}</span>
-                </label>
+
+              {mazeBgUrl && mazeEditMode === "path" && (
+                <div className="flex items-start gap-3 flex-wrap pb-3 border-b border-border/60">
+                  <span className="text-xs font-medium text-muted-foreground w-16 shrink-0 pt-1.5">工具</span>
+                  <div className="flex-1 space-y-2 min-w-[240px]">
+                    <div className="flex gap-1 flex-wrap bg-muted/50 p-1 rounded-lg w-fit">
+                      {([["paint","🖌️ 画路径"],["erase","🧹 擦除"],["fill","🪣 填充"],["barrier","🚧 画分隔线"],["fillErase","🗑️ 删除颜色"],["start","🟠 设起点"],["end","🟢 设终点"]] as const).map(([key,label]) => (
+                        <button
+                          key={key} type="button" onClick={() => setMazeTool(key)}
+                          className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                            mazeTool === key ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button" onClick={undoMaze} disabled={mazeHistoryCount === 0}
+                        className="px-2.5 py-1 rounded-md text-xs font-medium border bg-card border-border text-muted-foreground disabled:opacity-30"
+                      >
+                        ↩️ 撤销
+                      </button>
+                      <button
+                        type="button" onClick={clearMazeBarriers}
+                        className="px-2.5 py-1 rounded-md text-xs font-medium border bg-card border-border text-muted-foreground"
+                        title="把画好的分隔线（红色）全部清掉，不影响已经填好的路径"
+                      >
+                        🧽 清除分隔线
+                      </button>
+                    </div>
+                    {(mazeTool === "paint" || mazeTool === "erase" || mazeTool === "barrier") && (
+                      <div className="flex items-center gap-4 flex-wrap pt-1">
+                        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">笔刷宽度
+                          <input
+                            type="range" min={2} max={50} value={mazeBrushWidth}
+                            onChange={(e) => setMazeBrushWidth(+e.target.value)}
+                            className="w-24"
+                          />
+                          <span className="w-6 text-right">{mazeBrushWidth}</span>
+                        </label>
+                        {mazeTool === "paint" && (
+                          <label className="flex items-center gap-1.5 text-xs text-muted-foreground" title="只是方便看清楚画了哪里，颜色本身不影响走不走得通">画笔颜色
+                            <input type="color" value={mazePaintColor} onChange={(e) => setMazePaintColor(e.target.value)} className="w-7 h-7 rounded border border-border cursor-pointer p-0.5" />
+                          </label>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
-            {mazeBgUrl && (
+            {mazeBgUrl && mazeEditMode === "path" && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-medium text-muted-foreground">起点/终点配对：</span>
+                {mazePairs.map((p, i) => (
+                  <button
+                    key={i} type="button" onClick={() => setMazeActivePairIdx(i)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border transition-colors ${
+                      i === mazeActivePairIdx ? "border-2 border-foreground" : "border-border"
+                    }`}
+                    style={{ background: `${MZ_BALL_COLORS[i % MZ_BALL_COLORS.length]}22` }}
+                  >
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ background: MZ_BALL_COLORS[i % MZ_BALL_COLORS.length] }} />
+                    第{i + 1}对{p.start && p.end ? " ✓" : ""}
+                    {mazePairs.length > 1 && (
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMazePairs((ps) => ps.filter((_, idx) => idx !== i));
+                          setMazeActivePairIdx((idx) => Math.max(0, idx >= i ? idx - 1 : idx));
+                        }}
+                        className="ml-1 text-muted-foreground hover:text-destructive"
+                      >
+                        ✕
+                      </span>
+                    )}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => { setMazePairs((ps) => [...ps, { start: null, end: null }]); setMazeActivePairIdx(mazePairs.length); }}
+                  className="px-2.5 py-1 rounded-full text-xs border border-dashed border-border text-muted-foreground hover:border-primary hover:text-primary"
+                >
+                  ➕ 加一对
+                </button>
+              </div>
+            )}
+            {mazeBgUrl && mazeEditMode === "path" && (
               <>
                 <p className="text-xs text-muted-foreground">
-                  用"画路径"在图上涂出孩子能走的路（按住拖动，笔刷宽度可以调到很小方便画细的路），画错了"擦除"修正。"填充"点一下封闭区域整块填满；如果画布还没有边界、点填充会覆盖整张图——不小心点错了，直接点"↩️ 撤销"就能退回上一步。"删除颜色"是填充的反向操作，点一下能把连在一起的一整块颜色清掉。分别点"设起点"/"设终点"在图上点一下位置。
-                  {mazeStart && mazeEnd ? " 起点终点都设好了 ✓" : " 起点/终点还没设。"}
+                  用"画路径"在图上涂出孩子能走的路（按住拖动，笔刷宽度可以调到很小方便画细的路），画错了"擦除"修正。"填充"认的是背景图片本身画好的颜色和边界——如果背景图上已经有一条边界清楚的路（比如这张图这种），点一下路中间就能把整条路自动填满，不用重新描一遍轮廓；如果背景图没有清楚边界，填充还是可能顺着颜色相近的地方漏出去，这种情况建议直接用"画路径"手动涂。如果路是一整条连在一起、只想填其中一段（比如螺旋迷宫从头到尾没分岔），先用"🚧 画分隔线"在想切开的地方画一道红线当"墙"，再点"填充"，就只会填到墙为止，不会漫过去——分隔线画错了用"🧽 清除分隔线"整个清掉重画（这个没有单独的撤销，跟"↩️ 撤销"是分开的两套）。"删除颜色"是填充的反向操作，点一下能把蒙版上连在一起的一整块已填色区域清掉。"设起点"/"设终点"改的是上面选中的那一对——先点选一对，再点"设起点"/"设终点"，在图上点一下位置。
+                  {mazePairs.every((p) => p.start && p.end) ? ` 全部 ${mazePairs.length} 对都设好了 ✓` : " 还有配对没设完。"}
                 </p>
                 <canvas
                   ref={mazeCanvasRef} width={MZ_W} height={MZ_H}
@@ -1544,6 +3628,9 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
                   className="w-full h-auto rounded-lg bg-card cursor-crosshair border border-border"
                 />
               </>
+            )}
+            {mazeBgUrl && mazeEditMode === "decorate" && (
+              <MazeDecorator bgUrl={mazeBgUrl} onBgUpdated={handleMazeDecorationUpdate} />
             )}
           </div>
         )}
@@ -1563,57 +3650,309 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
         )}
 
         {moduleType === "line_match" && (
-          <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3">
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={lineMatchShuffleRight} onChange={(e) => setLineMatchShuffleRight(e.target.checked)} />
-              右栏顺序打乱（推荐开启，不然一眼就能看穿答案）
-            </label>
-            <div className="space-y-2">
-              {lineMatchPairs.map((pair, i) => (
-                <div key={i} className="flex items-start gap-2 bg-card rounded-lg border border-border p-2">
-                  <span className="text-xs text-muted-foreground mt-2 w-5">{i + 1}.</span>
-                  {(["left", "right"] as const).map((side) => (
-                    <div key={side} className="flex-1 space-y-1">
-                      <div className="flex gap-1">
-                        <select
-                          className="text-xs border rounded p-1"
-                          value={pair[side].type}
-                          onChange={(e) => setLineMatchPairs((ps) => ps.map((p, idx) => idx === i ? { ...p, [side]: { type: e.target.value as "text" | "image", content: "" } } : p))}
-                        >
-                          <option value="text">文字</option>
-                          <option value="image">图片</option>
-                        </select>
-                        {side === "left" ? <span className="text-xs text-muted-foreground mt-1">左</span> : <span className="text-xs text-muted-foreground mt-1">右</span>}
-                      </div>
-                      {pair[side].type === "text" ? (
-                        <Input
-                          placeholder={side === "left" ? "如：狗" : "如：汪汪"} value={pair[side].content}
-                          onChange={(e) => setLineMatchPairs((ps) => ps.map((p, idx) => idx === i ? { ...p, [side]: { ...p[side], content: e.target.value } } : p))}
-                          className="h-8 text-sm"
-                        />
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          {pair[side].content && <img src={pair[side].content} alt="" className="w-10 h-10 object-contain rounded border border-border" />}
-                          <AssetPicker
-                            category="object" label={pair[side].content ? "换一张" : "选图片"} moduleType="line_match"
-                            onSelect={(url) => setLineMatchPairs((ps) => ps.map((p, idx) => idx === i ? { ...p, [side]: { ...p[side], content: url } } : p))}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  <button
-                    type="button" onClick={() => setLineMatchPairs((ps) => ps.filter((_, idx) => idx !== i))}
-                    disabled={lineMatchPairs.length <= 1}
-                    className="text-red-500 hover:text-red-600 text-xs mt-2 disabled:opacity-30"
-                  >删除</button>
-                </div>
+          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Link2 size={16} className="text-primary" /> 连线配对 · 内容设置
+            </div>
+            <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
+              {(["list", "scene"] as const).map((m) => (
+                <button
+                  key={m} type="button" onClick={() => setLineMatchLayout(m)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    lineMatchLayout === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {m === "list" ? "📋 列表配对" : "🖼️ 自定义画面"}
+                </button>
               ))}
             </div>
-            <Button
-              type="button" size="sm" variant="outline"
-              onClick={() => setLineMatchPairs((ps) => [...ps, { left: { type: "text", content: "" }, right: { type: "text", content: "" } }])}
-            >+ 加一组配对</Button>
+
+            {lineMatchLayout === "list" ? (
+              <>
+                <label className="flex items-center gap-2 text-sm pt-1 border-t border-border/60">
+                  <input type="checkbox" checked={lineMatchShuffleRight} onChange={(e) => setLineMatchShuffleRight(e.target.checked)} />
+                  右栏顺序打乱（推荐开启，不然一眼就能看穿答案）
+                </label>
+
+                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+                  左右两边先各自加物件，加完之后点下面"连线"区块里的一个左边项目、再点一个右边项目，就连一条线——一个物件可以连好几条线，不限1对1。
+                </p>
+
+                <div className="grid grid-cols-2 gap-3">
+                  {([["left", lineMatchLeftItems, setLineMatchLeftItems, "左"], ["right", lineMatchRightItems, setLineMatchRightItems, "右"]] as const).map(([side, items, setItems, label]) => (
+                    <div key={side} className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-muted-foreground">{label}边物件（{items.length}）</p>
+                        <button
+                          type="button"
+                          onClick={() => setItems((arr) => [...arr, { id: crypto.randomUUID(), type: "text", content: "" }])}
+                          className="text-xs text-primary hover:underline"
+                        >
+                          + 加一个
+                        </button>
+                      </div>
+                      {items.map((it, idx) => (
+                        <div key={it.id} className="flex items-start gap-1.5 bg-card rounded-lg border border-border p-2">
+                          <div className="flex-1 space-y-1">
+                            <select
+                              className="text-xs border rounded p-1"
+                              value={it.type}
+                              onChange={(e) => setItems((arr) => arr.map((x) => x.id === it.id ? { ...x, type: e.target.value as "text" | "image", content: "" } : x))}
+                            >
+                              <option value="text">文字</option>
+                              <option value="image">图片</option>
+                            </select>
+                            {it.type === "text" ? (
+                              <Input
+                                placeholder={side === "left" ? "如：狗" : "如：汪汪"} value={it.content}
+                                onChange={(e) => setItems((arr) => arr.map((x) => x.id === it.id ? { ...x, content: e.target.value } : x))}
+                                className="h-8 text-sm"
+                              />
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                {it.content && <img src={it.content} alt="" className="w-10 h-10 object-contain rounded border border-border" />}
+                                <AssetPicker
+                                  category="object" label={it.content ? "换一张" : "选图片"} moduleType="line_match"
+                                  onSelect={(url) => setItems((arr) => arr.map((x) => x.id === it.id ? { ...x, content: url } : x))}
+                                />
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setItems((arr) => arr.filter((x) => x.id !== it.id));
+                              setLineMatchEdges((es) => es.filter((e) => e.leftId !== it.id && e.rightId !== it.id));
+                              if (lineMatchConnectFrom === it.id) setLineMatchConnectFrom(null);
+                            }}
+                            disabled={items.length <= 1}
+                            className="text-red-500 hover:text-red-600 text-xs disabled:opacity-30"
+                          >
+                            删除
+                          </button>
+                          <span className="text-[10px] text-muted-foreground/50 shrink-0">#{idx + 1}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="pt-3 border-t border-border/60 space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">连线（{lineMatchEdges.length} 条）{lineMatchConnectFrom && <span className="text-primary">· 已选中一项，点对面一项完成连线</span>}</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {([["left", lineMatchLeftItems], ["right", lineMatchRightItems]] as const).map(([side, items]) => (
+                      <div key={side} className="flex flex-wrap gap-1.5">
+                        {items.map((it) => {
+                          const isSelected = lineMatchConnectFrom === it.id;
+                          const connCount = lineMatchEdges.filter((e) => e.leftId === it.id || e.rightId === it.id).length;
+                          return (
+                            <button
+                              key={it.id} type="button"
+                              onClick={() => {
+                                if (!lineMatchConnectFrom) { setLineMatchConnectFrom(it.id); return; }
+                                if (lineMatchConnectFrom === it.id) { setLineMatchConnectFrom(null); return; }
+                                const fromIsLeft = lineMatchLeftItems.some((x) => x.id === lineMatchConnectFrom);
+                                const thisIsLeft = side === "left";
+                                if (fromIsLeft === thisIsLeft) { setLineMatchConnectFrom(it.id); return; } // 选了同一边的另一个，改选它
+                                const leftId = fromIsLeft ? lineMatchConnectFrom : it.id;
+                                const rightId = fromIsLeft ? it.id : lineMatchConnectFrom;
+                                setLineMatchEdges((es) => es.some((e) => e.leftId === leftId && e.rightId === rightId) ? es : [...es, { leftId, rightId }]);
+                                setLineMatchConnectFrom(null);
+                              }}
+                              className={`px-2 py-1 rounded-full text-xs border transition-colors flex items-center gap-1 ${
+                                isSelected ? "bg-primary text-primary-foreground border-primary" : connCount > 0 ? "bg-primary/10 border-primary/40" : "bg-card border-border text-muted-foreground"
+                              }`}
+                            >
+                              {it.type === "image" ? (it.content ? <img src={it.content} alt="" className="w-4 h-4 object-contain" /> : "🖼️") : (it.content || "（空）")}
+                              {connCount > 0 && <span className="text-[9px] opacity-70">×{connCount}</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                  {lineMatchEdges.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {lineMatchEdges.map((edge, i) => {
+                        const l = lineMatchLeftItems.find((x) => x.id === edge.leftId);
+                        const r = lineMatchRightItems.find((x) => x.id === edge.rightId);
+                        return (
+                          <span key={i} className="flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-muted/60 text-muted-foreground">
+                            {l?.type === "image" ? "🖼️" : l?.content ?? "?"} ↔ {r?.type === "image" ? "🖼️" : r?.content ?? "?"}
+                            <button type="button" onClick={() => setLineMatchEdges((es) => es.filter((_, idx) => idx !== i))} className="hover:text-red-500">✕</button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="space-y-3 pt-1 border-t border-border/60">
+                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+                  选背景图（素材库选或直接从电脑上传都可以）、加物件自由摆放到想要的位置。要连在一起的物件，在右边属性面板的「配对标记」填一样的字（比如都填「1」）——一组可以是2个也可以是3个以上，同一组的物件保存时会检查是不是至少2个、最后播放时会互相连起来。连线怎么连（直的、弯的）不影响判分，只看两端有没有接对。
+                </p>
+                <SceneEditor
+                  structuredMode presetModuleType="line_match"
+                  onSaveStructured={setLineMatchScene} initial={lineMatchScene ?? undefined}
+                />
+                {lineMatchScene && (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">✓ 已摆 {lineMatchScene.objects.length} 个物件，可以点上面"完成"重新调整</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {moduleType === "ppt_lecture" && (
+          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Presentation size={16} className="text-primary" /> PPT讲义 · 内容设置
+            </div>
+            <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+              上传 PPT 文件，后端会自动转换成一页页的幻灯片图片；也可以直接从素材库选一份已经上传过的 PPT。转换需要几秒钟，转换完成前选到的话幻灯片数量会是 0，重新打开这个选择器再选一次就有了。
+            </p>
+            <div className="flex items-center gap-3">
+              <AssetPicker
+                category="ppt" label={pptSlideUrls.length > 0 ? "换一份 PPT" : "🗂️ 选 / 上传 PPT"}
+                onSelect={() => {}}
+                onSelectAsset={(asset) => { setPptSlideUrls(asset.slideUrls ?? []); setPptOriginalFilename(asset.name ?? ""); }}
+              />
+              {pptOriginalFilename && <span className="text-xs text-muted-foreground truncate">{pptOriginalFilename}</span>}
+            </div>
+            {pptSlideUrls.length > 0 ? (
+              <div className="space-y-2">
+                <p className="text-xs text-emerald-600 dark:text-emerald-400">✓ 已转换 {pptSlideUrls.length} 页幻灯片</p>
+                <div className="flex flex-wrap gap-2">
+                  {pptSlideUrls.map((url, i) => (
+                    <div key={i} className="w-20 h-14 rounded-lg border border-border shadow-sm overflow-hidden bg-muted/30 shrink-0">
+                      <img src={url} alt={`第${i + 1}页`} className="w-full h-full object-cover" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-amber-600 dark:text-amber-400">⚠️ 还没有幻灯片——上传/选好 PPT 之后才能保存</p>
+            )}
+          </div>
+        )}
+
+        {moduleType === "video_lecture" && (
+          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Film size={16} className="text-primary" /> 视频讲义 · 内容设置
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-2">视频</p>
+              <div className="flex items-center gap-3">
+                {videoUrl ? (
+                  <video src={videoUrl} controls className="w-40 rounded-lg border border-border shadow-sm bg-black" />
+                ) : (
+                  <div className="w-40 h-24 rounded-lg border border-dashed border-border flex items-center justify-center text-muted-foreground/50 shrink-0">
+                    <Film size={22} />
+                  </div>
+                )}
+                <AssetPicker category="video" label={videoUrl ? "换一个视频" : "🗂️ 选 / 上传视频"} onSelect={setVideoUrl} />
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-2">封面图（选填，不设的话播放前显示黑屏）</p>
+              <div className="flex items-center gap-3">
+                {videoPosterUrl ? (
+                  <div className="relative w-24 h-24 rounded-lg border border-border shadow-sm overflow-hidden bg-muted/30 shrink-0">
+                    <img src={videoPosterUrl} alt="封面" className="w-full h-full object-cover" />
+                    <button
+                      type="button" onClick={() => setVideoPosterUrl(null)}
+                      className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-[11px] flex items-center justify-center hover:bg-red-500"
+                    >✕</button>
+                  </div>
+                ) : (
+                  <div className="w-24 h-24 rounded-lg border border-dashed border-border flex items-center justify-center text-muted-foreground/50 shrink-0">
+                    <ImagePlus size={22} />
+                  </div>
+                )}
+                <AssetPicker category="background" label={videoPosterUrl ? "换一张" : "🗂️ 选封面图"} onSelect={setVideoPosterUrl} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {moduleType === "play_along" && (
+          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Music2 size={16} className="text-primary" /> 跟弹练习 · 内容设置
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-medium text-muted-foreground">乐谱（{paSheetUrls.length} 页，按顺序）</p>
+                <AssetPicker category="background" label="🗂️ 加一页" onSelect={(url) => setPaSheetUrls((arr) => [...arr, url])} />
+              </div>
+              {paSheetUrls.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {paSheetUrls.map((url, i) => (
+                    <div key={i} className="relative w-16 h-20 rounded-lg border border-border shadow-sm bg-white overflow-hidden shrink-0">
+                      <img src={url} alt={`第${i + 1}页`} className="w-full h-full object-cover" />
+                      <span className="absolute top-0.5 left-0.5 bg-black/60 text-white text-[9px] px-1 rounded">{i + 1}</span>
+                      <div className="absolute bottom-0 inset-x-0 flex justify-between bg-black/50">
+                        <button
+                          type="button" disabled={i === 0}
+                          onClick={() => setPaSheetUrls((arr) => { const next = [...arr]; [next[i - 1], next[i]] = [next[i], next[i - 1]]; return next; })}
+                          className="text-white text-[10px] px-1 disabled:opacity-30"
+                        >◀</button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPaSheetUrls((arr) => arr.filter((_, idx) => idx !== i));
+                            setPaMarkers((ms) => ms.filter((m) => m.page !== i).map((m) => (m.page > i ? { ...m, page: m.page - 1 } : m)));
+                            setPaEditorPage((p) => Math.min(p, Math.max(0, paSheetUrls.length - 2)));
+                          }}
+                          className="text-white text-[10px] px-1 hover:text-red-300"
+                        >✕</button>
+                        <button
+                          type="button" disabled={i === paSheetUrls.length - 1}
+                          onClick={() => setPaSheetUrls((arr) => { const next = [...arr]; [next[i], next[i + 1]] = [next[i + 1], next[i]]; return next; })}
+                          className="text-white text-[10px] px-1 disabled:opacity-30"
+                        >▶</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="w-16 h-20 rounded-lg border border-dashed border-border flex items-center justify-center text-muted-foreground/50">
+                  <ImagePlus size={18} />
+                </div>
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-2">音频</p>
+              <AssetPicker category="audio" label={paAudioUrl ? "换一个音频" : "🗂️ 选 / 上传音频"} onSelect={setPaAudioUrl} />
+              {paAudioUrl && <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">✓ 已选好音频</p>}
+            </div>
+
+            <div>
+              <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                原速 BPM
+                <input
+                  type="number" min={1} max={400} value={paOriginalBpm}
+                  onChange={(e) => setPaOriginalBpm(Math.max(1, Math.round(+e.target.value) || 1))}
+                  className={MINI_INPUT_CLASS}
+                />
+                拍/分钟
+              </label>
+              <p className="text-xs text-muted-foreground/70 mt-1">这首曲子正常速度是多少 BPM——学生调速度的时候是按 BPM 调（比如 120/100/80/45），不是按巴仙，得先知道原速才能换算。不确定的话先填个大概值，之后随时能改。</p>
+            </div>
+
+            {paSheetUrls.length > 0 && paAudioUrl ? (
+              <PlayAlongMarkerEditor
+                pages={paSheetUrls} audioUrl={paAudioUrl}
+                markers={paMarkers} setMarkers={setPaMarkers}
+                currentPage={Math.min(paEditorPage, paSheetUrls.length - 1)} setCurrentPage={setPaEditorPage}
+              />
+            ) : (
+              <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-lg p-2.5">⚠️ 先上传乐谱和音频，才能开始打时间标记</p>
+            )}
           </div>
         )}
 
@@ -1629,8 +3968,11 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
         </div>
 
         <div className={activeTab === "properties" ? "block space-y-4" : "hidden"}>
-        <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3">
-          <Label>Activity 属性（选填）</Label>
+        <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <Sparkles size={16} className="text-primary" /> Activity 属性
+            <span className="text-xs font-normal text-muted-foreground">（选填）</span>
+          </div>
           <div className="flex flex-wrap gap-2">
             <label className="flex items-center gap-1.5 text-sm">活动类型
               <select value={activityType} onChange={(e) => setActivityType(e.target.value)} className={MINI_SELECT_CLASS}>
@@ -1680,7 +4022,7 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 items-end">
+          <div className="flex flex-wrap gap-4 items-end pt-1 border-t border-border/60">
             <label className="text-sm">适合年龄
               <div className="flex items-center gap-1 mt-1">
                 <Input type="number" value={ageGroupMin} onChange={(e) => setAgeGroupMin(e.target.value)} className="w-16 h-8" placeholder="4" />
@@ -1697,29 +4039,37 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
             </label>
           </div>
 
-          <div>
-            <Label className="text-xs">学习成果（选填）</Label>
-            <Input placeholder="如：能够正确数出1到10之间的物体数量" value={learningOutcomes} onChange={(e) => setLearningOutcomes(e.target.value)} />
-          </div>
-          <div>
-            <Label className="text-xs">培养能力（选填，顿号或逗号分隔，不限数量）</Label>
-            <Input placeholder="如：数感、专注力、手眼协调" value={skillsInput} onChange={(e) => setSkillsInput(e.target.value)} />
-          </div>
-          <div>
-            <Label className="text-xs">标签（选填，最多3个，顿号或逗号分隔）</Label>
-            <Input placeholder="如：入门、森林、冬天" value={activityTagsInput} onChange={(e) => setActivityTagsInput(e.target.value)} />
+          <div className="grid sm:grid-cols-1 gap-3 pt-1 border-t border-border/60">
+            <div>
+              <Label className="text-xs">学习成果</Label>
+              <Input placeholder="如：能够正确数出1到10之间的物体数量" value={learningOutcomes} onChange={(e) => setLearningOutcomes(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">培养能力（顿号或逗号分隔）</Label>
+              <Input placeholder="如：数感、专注力、手眼协调" value={skillsInput} onChange={(e) => setSkillsInput(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">标签（最多3个）</Label>
+              <Input placeholder="如：入门、森林、冬天" value={activityTagsInput} onChange={(e) => setActivityTagsInput(e.target.value)} />
+            </div>
           </div>
         </div>
+        </div>
 
-        <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
-          <Label>提示栏（玩的时候显示，选填）</Label>
-          <p className="text-xs text-muted-foreground">跟"讲解"不一样——这个是玩的过程中一直显示在上面的小提示，不是答完才看到。写一句简单的引导就好，比如"仔细看清楚每个角落哦"。</p>
+        <div className={activeTab === "hints" ? "block space-y-4" : "hidden"}>
+        <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-2">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <MessageSquareText size={16} className="text-primary" /> 提示栏
+            <span className="text-xs font-normal text-muted-foreground">（游戏过程中一直显示的小提示，选填）</span>
+          </div>
           <Input placeholder="如：数一数的时候可以用手指点着数" value={hintText} onChange={(e) => setHintText(e.target.value)} />
         </div>
 
-        <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
-          <Label>朗读音频（选填，预录上传，不是AI生成）</Label>
-          <p className="text-xs text-muted-foreground">上传一段预先录好的语音（题目说明、引导语都可以），玩的时候学生能点"🔊 听题目"播放——给还不太会读字的孩子用。</p>
+        <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-2">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <Volume2 size={16} className="text-primary" /> 朗读音频
+            <span className="text-xs font-normal text-muted-foreground">（预录音频，选填，不是AI生成）</span>
+          </div>
           <div className="flex items-center gap-2 flex-wrap">
             <input
               type="file" accept="audio/*" className="text-xs"
@@ -1744,24 +4094,34 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
           {audioUrl && <audio controls src={audioUrl} className="w-full h-8" />}
         </div>
 
-        <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
-          <Label>讲解（答案演示，选填）</Label>
-          <p className="text-xs text-muted-foreground">玩完之后学生可以点"查看讲解"看到这里写的内容——写一段解题思路，或者选一张示意图，都可以。</p>
+        <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-2">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <BookOpenText size={16} className="text-primary" /> 讲解
+            <span className="text-xs font-normal text-muted-foreground">（答完后可查看的讲解，选填）</span>
+          </div>
           <textarea
             className="w-full border rounded-md p-2 text-sm min-h-[70px]"
             placeholder="如：数数的小技巧，可以把物体两两分组来数..."
             value={explanationText} onChange={(e) => setExplanationText(e.target.value)}
           />
-          <div className="flex items-center gap-2">
-            <AssetPicker category="other" label="🗂️ 加一张讲解图" onSelect={setExplanationImageUrl} />
-            {explanationImageUrl && (
-              <span className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                已选图片 <button type="button" onClick={() => setExplanationImageUrl(null)} className="text-muted-foreground hover:text-red-500">✕</button>
-              </span>
+          <div className="flex items-center gap-3">
+            {explanationImageUrl ? (
+              <div className="relative w-24 h-24 rounded-lg border border-border shadow-sm overflow-hidden bg-muted/30 shrink-0">
+                <img src={explanationImageUrl} alt="讲解图" className="w-full h-full object-cover" />
+                <button
+                  type="button" onClick={() => setExplanationImageUrl(null)}
+                  className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-[11px] flex items-center justify-center hover:bg-red-500"
+                >✕</button>
+              </div>
+            ) : (
+              <div className="w-24 h-24 rounded-lg border border-dashed border-border flex items-center justify-center text-muted-foreground/50 shrink-0">
+                <ImagePlus size={22} />
+              </div>
             )}
+            <AssetPicker category="other" label={explanationImageUrl ? "换一张" : "🗂️ 加一张讲解图"} onSelect={setExplanationImageUrl} />
           </div>
           <div>
-            <Label>讲解视频链接（选填，播放时会自动循环、可以暂停定格）</Label>
+            <Label className="text-xs">讲解视频链接（选填，播放时会自动循环、可以暂停定格）</Label>
             <Input placeholder="https://..." value={explanationVideoUrl} onChange={(e) => setExplanationVideoUrl(e.target.value)} />
           </div>
         </div>
@@ -1773,27 +4133,20 @@ function AddLevelModal({ open, onClose, courseId, editingLevelId, onSaved }: {
   );
 }
 
-// ── Main page: Activity 管理 — 全平台平铺表格，不再是"先选课程" ─────────────────
-function SortHeader({ label, active, order, onClick }: { label: string; active: boolean; order: "asc"|"desc"; onClick: () => void }) {
-  return (
-    <th className="py-2.5 px-3 font-medium cursor-pointer select-none hover:text-foreground transition-colors" onClick={onClick}>
-      <span className="inline-flex items-center gap-1">
-        {label}
-        <span className={`text-[10px] transition-opacity ${active ? "opacity-100" : "opacity-0"}`}>{order === "asc" ? "▲" : "▼"}</span>
-      </span>
-    </th>
-  );
-}
-
-type SortKey = "programme" | "subject" | "topic" | "activity" | "exercise_number" | "created_at";
+// ── Main page: Activity 管理 — 全平台卡带式卡片网格，不再是"先选课程" ─────────────
+type SortKey = "subject" | "topic" | "activity" | "exercise_number" | "created_at";
 
 interface ActivityRow {
   id: string; course_id: string; module_type: string; title_i18n?: Record<string,string>;
   exercise_number?: string; created_at: string;
   course_title_i18n?: Record<string,string>;
-  programme_id?: string; programme_name_zh?: string;
-  subject_id?: string; subject_name_zh?: string;
-  category_id?: string; topic_name_zh?: string;
+  // 一个 Activity 现在可以同时挂好几个 Topic（多对多），不再是单一的
+  // programme_name_zh/subject_name_zh/topic_name_zh 那几个字段。
+  topics: Array<{
+    category_id: string; topic_name_zh?: string;
+    subject_id?: string; subject_name_zh?: string;
+    programme_id?: string; programme_name_zh?: string;
+  }>;
 }
 
 export default function CourseDesignerPage() {
@@ -1801,7 +4154,6 @@ export default function CourseDesignerPage() {
   const [meta, setMeta] = useState({ page: 1, limit: 20, total: 0, totalPages: 1 });
 
   const [search, setSearch] = useState("");
-  const [programmeId, setProgrammeId] = useState("");
   const [subjectId, setSubjectId] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("created_at");
@@ -1809,8 +4161,7 @@ export default function CourseDesignerPage() {
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20;
 
-  const [programmes, setProgrammes] = useState<Array<{ id: string; name_zh: string }>>([]);
-  const [subjects, setSubjects] = useState<Array<{ id: string; programme_id: string; name_zh: string }>>([]);
+  const [subjects, setSubjects] = useState<Array<{ id: string; programme_id?: string; name_zh: string }>>([]);
   const [topics, setTopics] = useState<Array<{ id: string; subject_id?: string; name_zh: string }>>([]);
 
   const [showLevelModal, setShowLevelModal] = useState(false);
@@ -1819,33 +4170,23 @@ export default function CourseDesignerPage() {
   function refresh() {
     eduApi.listAllActivities({
       search: search || undefined,
-      programme_id: programmeId || undefined, subject_id: subjectId || undefined, category_id: categoryId || undefined,
+      subject_id: subjectId || undefined, category_id: categoryId || undefined,
       sort: sortKey, order: sortOrder, page, limit: PAGE_SIZE,
     }).then((r) => { setActivities(r.data); setMeta(r.meta); });
   }
-  useEffect(refresh, [search, programmeId, subjectId, categoryId, sortKey, sortOrder, page]);
+  useEffect(refresh, [search, subjectId, categoryId, sortKey, sortOrder, page]);
   // 筛选条件一变就跳回第1页——不然筛出来的结果如果比原本停留的页数少，
   // 会出现"明明有资料，画面却空白"的情况
-  useEffect(() => { setPage(1); }, [search, programmeId, subjectId, categoryId]);
+  useEffect(() => { setPage(1); }, [search, subjectId, categoryId]);
 
-  // Programme→Subject→Topic 三层级联筛选，跟建 Activity 表单里那组是同一套
-  // 逻辑，只是这里是拿来筛选列表，不是拿来决定新 Activity 的分类。
-  useEffect(() => { taxonomyApi.listProgrammes().then((ps) => setProgrammes(ps.map((p) => ({ id: p.id, name_zh: p.name_zh })))); }, []);
-  useEffect(() => {
-    setSubjectId(""); setCategoryId("");
-    if (programmeId) taxonomyApi.listSubjects(programmeId).then((ss) => setSubjects(ss.map((s) => ({ id: s.id, programme_id: s.programme_id, name_zh: s.name_zh }))));
-    else setSubjects([]);
-  }, [programmeId]);
+  // Subject→Topic 两层级联筛选，跟建 Activity 表单里那组是同一套逻辑，
+  // 只是这里是拿来筛选列表，不是拿来决定新 Activity 的分类。
+  useEffect(() => { taxonomyApi.listSubjects().then((ss) => setSubjects(ss.map((s) => ({ id: s.id, programme_id: s.programme_id, name_zh: s.name_zh })))); }, []);
   useEffect(() => {
     setCategoryId("");
     if (subjectId) exerciseClassificationApi.listCategories(subjectId).then((cs) => setTopics(cs.map((c) => ({ id: c.id, subject_id: c.subject_id, name_zh: c.name_zh }))));
     else setTopics([]);
   }, [subjectId]);
-
-  function toggleSort(key: SortKey) {
-    if (sortKey === key) setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
-    else { setSortKey(key); setSortOrder("desc"); }
-  }
 
   async function handleDeleteLevel(levelId: string) {
     if (!window.confirm("确定要删除这个 Activity 吗？这个操作没办法撤销。")) return;
@@ -1859,104 +4200,162 @@ export default function CourseDesignerPage() {
     }
   }
 
+  // 本页各游戏类型分布——只反映当前筛选/当前这一页看到的结果，不是全站
+  // 统计（要做到全站统计得另外开一个后端接口，这次先不做那个，诚实标
+  // 清楚"本页"两个字，不要让人误以为是全站数据）。
+  const typeBreakdown = useMemo(() => {
+    const counts = new Map<string, number>();
+    activities.forEach((a) => counts.set(a.module_type, (counts.get(a.module_type) ?? 0) + 1));
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  }, [activities]);
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-16">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Activity 设计管理</h1>
+          <h1 className="text-2xl font-bold tracking-tight" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Activity 设计管理</h1>
           <p className="text-sm text-muted-foreground mt-0.5">全平台 Activity，按 Programme / Subject / Topic 搜索、筛选、排序——课程与课时管理、Programme/Subject/Topic 本身的建立，都在各自独立的页面</p>
         </div>
         <Button size="sm" onClick={() => { setEditingLevelId(null); setShowLevelModal(true); }}>+ Add Activity</Button>
       </div>
 
+      {/* 统计条——总数是全站准确数字（来自meta.total），类型分布只反映当前这一页 */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="rounded-2xl p-4 text-white shadow-sm" style={{ background: "linear-gradient(135deg, #14B8A6, #2563EB)" }}>
+          <div className="text-3xl font-bold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>{meta.total}</div>
+          <div className="text-xs opacity-90 mt-0.5">符合条件的 Activity 总数</div>
+        </div>
+        <div className="rounded-2xl p-4 bg-white border border-border shadow-sm">
+          <div className="text-3xl font-bold text-foreground" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>{activities.length}</div>
+          <div className="text-xs text-muted-foreground mt-0.5">本页显示数量</div>
+        </div>
+        <div className="rounded-2xl p-4 bg-white border border-border shadow-sm col-span-2 sm:col-span-2">
+          <div className="text-xs text-muted-foreground mb-1.5">本页游戏类型分布</div>
+          {typeBreakdown.length === 0 ? (
+            <div className="text-xs text-muted-foreground/60">—</div>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {typeBreakdown.map(([mt, count]) => {
+                const c = MODULE_COLORS[mt] ?? FALLBACK_COLOR;
+                const Icon = MODULE_ICONS[mt];
+                return (
+                  <span key={mt} className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full" style={{ background: c.bg, color: c.text }}>
+                    {Icon ? <Icon size={12} strokeWidth={2.5} /> : null} {count}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
       <Card>
         <CardContent className="pt-6 space-y-3">
-          <Input placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-[240px]" />
-          <div className="flex flex-wrap gap-2">
-            <select className={`${SELECT_CLASS} w-auto`} value={programmeId} onChange={(e) => setProgrammeId(e.target.value)}>
-              <option value="">全部 Programme</option>
-              {programmes.map((p) => <option key={p.id} value={p.id}>{p.name_zh}</option>)}
-            </select>
-            <select className={`${SELECT_CLASS} w-auto`} value={subjectId} onChange={(e) => setSubjectId(e.target.value)} disabled={!programmeId}>
+          <div className="flex flex-wrap gap-2 items-center">
+            <Input placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-[180px] shrink-0" />
+            <select className="h-10 rounded-lg border border-input bg-transparent px-3 text-sm font-medium shadow-sm w-[150px] shrink-0" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
               <option value="">全部 Subject</option>
               {subjects.map((s) => <option key={s.id} value={s.id}>{s.name_zh}</option>)}
             </select>
-            <select className={`${SELECT_CLASS} w-auto`} value={categoryId} onChange={(e) => setCategoryId(e.target.value)} disabled={!subjectId}>
+            <select className="h-10 rounded-lg border border-input bg-transparent px-3 text-sm font-medium shadow-sm w-[150px] shrink-0 disabled:opacity-50" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} disabled={!subjectId}>
               <option value="">全部 Topic</option>
               {topics.map((t) => <option key={t.id} value={t.id}>{t.name_zh}</option>)}
             </select>
-            {(programmeId || subjectId || categoryId || search) && (
-              <Button size="sm" variant="ghost" onClick={() => { setSearch(""); setProgrammeId(""); setSubjectId(""); setCategoryId(""); }}>清空筛选</Button>
+            <select className="h-10 rounded-lg border border-input bg-transparent px-3 text-sm font-medium shadow-sm w-[140px] shrink-0" value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}>
+              <option value="created_at">按建立时间</option>
+              <option value="activity">按名称</option>
+              <option value="exercise_number">按编号</option>
+              <option value="subject">按 Subject</option>
+              <option value="topic">按 Topic</option>
+            </select>
+            <button
+              type="button" onClick={() => setSortOrder((o) => (o === "asc" ? "desc" : "asc"))}
+              className="h-10 rounded-lg border border-input bg-transparent px-3 text-sm font-medium shadow-sm shrink-0 hover:bg-muted transition-colors"
+              title={sortOrder === "asc" ? "升序" : "降序"}
+            >
+              {sortOrder === "asc" ? "↑ 升序" : "↓ 降序"}
+            </button>
+            {(subjectId || categoryId || search) && (
+              <Button size="sm" variant="ghost" onClick={() => { setSearch(""); setSubjectId(""); setCategoryId(""); }}>清空筛选</Button>
             )}
           </div>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="pt-6">
-          {activities.length === 0 ? (
-            <EmptyState title={search || programmeId ? "没有符合条件的 Activity" : "还没有 Activity"} description={search || programmeId ? "换个搜索词或筛选条件试试" : "点右上角 Add Activity 建第一个"} />
-          ) : (
-            <>
-              <div className="rounded-lg border border-border overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-muted-foreground bg-muted/50 border-b border-border">
-                      <th className="py-2.5 px-3 font-medium w-12">no</th>
-                      <SortHeader label="programme" active={sortKey === "programme"} order={sortOrder} onClick={() => toggleSort("programme")} />
-                      <SortHeader label="subject" active={sortKey === "subject"} order={sortOrder} onClick={() => toggleSort("subject")} />
-                      <SortHeader label="topic" active={sortKey === "topic"} order={sortOrder} onClick={() => toggleSort("topic")} />
-                      <SortHeader label="activity" active={sortKey === "activity"} order={sortOrder} onClick={() => toggleSort("activity")} />
-                      <th className="py-2.5 px-3 font-medium">view</th>
-                      <th className="py-2.5 px-3 font-medium">edit</th>
-                      <th className="py-2.5 px-3 font-medium">delete</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activities.map((a, i) => (
-                      <tr key={a.id} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
-                        <td className="py-2.5 px-3 text-muted-foreground">{(meta.page - 1) * meta.limit + i + 1}</td>
-                        <td className="px-3">{a.programme_name_zh ?? "—"}</td>
-                        <td className="px-3">{a.subject_name_zh ?? "—"}</td>
-                        <td className="px-3">{a.topic_name_zh ?? "—"}</td>
-                        <td className="px-3 font-medium">
-                          {a.title_i18n?.zh ?? a.title_i18n?.en ?? a.module_type}
-                          {a.exercise_number && <span className="text-xs text-muted-foreground font-mono ml-2">{a.exercise_number}</span>}
-                          <Badge variant="outline" className="ml-2">{MODULE_LABELS[a.module_type]?.emoji} {MODULE_LABELS[a.module_type]?.label ?? a.module_type}</Badge>
-                          <span className="text-xs text-muted-foreground ml-2">({a.course_title_i18n?.zh ?? a.course_title_i18n?.en})</span>
-                        </td>
-                        <td className="px-3">
-                          <a href={`/play/${a.id}`} target="_blank" rel="noreferrer" className="text-primary text-xs font-medium hover:underline">试玩</a>
-                        </td>
-                        <td className="px-3">
-                          <button type="button" onClick={() => { setEditingLevelId(a.id); setShowLevelModal(true); }} className="text-muted-foreground text-xs font-medium hover:text-foreground hover:underline">编辑</button>
-                        </td>
-                        <td className="px-3">
-                          <button type="button" onClick={() => handleDeleteLevel(a.id)} className="text-red-500 text-xs font-medium hover:text-red-600 hover:underline">删除</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
-                <span>Number of Records: {meta.total}，第 {meta.page} / {meta.totalPages} 页</span>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>上一页</Button>
-                  <Button size="sm" variant="outline" disabled={page >= meta.totalPages} onClick={() => setPage((p) => p + 1)}>下一页</Button>
+      {activities.length === 0 ? (
+        <Card><CardContent className="pt-6">
+          <EmptyState title={search || subjectId ? "没有符合条件的 Activity" : "还没有 Activity"} description={search || subjectId ? "换个搜索词或筛选条件试试" : "点右上角 Add Activity 建第一个"} />
+        </CardContent></Card>
+      ) : (
+        <>
+          {/* 卡带式卡片网格——每张卡片用它自己游戏类型的颜色，一眼能从颜色分辨类型 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {activities.map((a) => {
+              const c = MODULE_COLORS[a.module_type] ?? FALLBACK_COLOR;
+              const Icon = MODULE_ICONS[a.module_type];
+              const previewHref =
+                a.module_type === "ppt_lecture" ? `/view/ppt?levelId=${a.id}`
+                : a.module_type === "video_lecture" ? `/view/video?levelId=${a.id}`
+                : `/play/${a.id}?from=designer`;
+              const topicNames = Array.from(new Set(a.topics.map((t) => t.topic_name_zh).filter(Boolean)));
+              return (
+                <div
+                  key={a.id}
+                  className="group rounded-2xl bg-white border border-border shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col"
+                  style={{ borderTopWidth: 4, borderTopColor: c.ring }}
+                >
+                  <div className="p-4 flex-1 space-y-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div
+                        className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
+                        style={{ background: c.bg }}
+                      >
+                        {Icon ? <Icon size={22} strokeWidth={2} style={{ color: c.text }} /> : null}
+                      </div>
+                      {a.exercise_number && (
+                        <span className="text-[10px] font-mono text-muted-foreground bg-muted rounded-full px-2 py-1 whitespace-nowrap">{a.exercise_number}</span>
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-sm leading-snug line-clamp-2">{a.title_i18n?.zh ?? a.title_i18n?.en ?? a.module_type}</p>
+                      <p className="text-[11px] font-medium mt-0.5" style={{ color: c.text }}>{MODULE_LABELS[a.module_type]?.label ?? a.module_type}</p>
+                    </div>
+                    {topicNames.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {topicNames.map((t) => (
+                          <span key={t} className="text-[10px] bg-muted text-muted-foreground rounded-full px-2 py-0.5">{t}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground/60">还没挂 Topic</span>
+                    )}
+                  </div>
+                  <div className="flex items-center border-t border-border divide-x divide-border text-xs font-medium">
+                    <a href={previewHref} target="_blank" rel="noreferrer" className="flex-1 text-center py-2.5 text-primary hover:bg-primary/5 transition-colors">▶ 试玩</a>
+                    <button type="button" onClick={() => { setEditingLevelId(a.id); setShowLevelModal(true); }} className="flex-1 text-center py-2.5 text-muted-foreground hover:bg-muted transition-colors">✎ 编辑</button>
+                    <button type="button" onClick={() => handleDeleteLevel(a.id)} className="flex-1 text-center py-2.5 text-red-500 hover:bg-red-50 transition-colors">🗑 删除</button>
+                  </div>
                 </div>
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
+            <span>Number of Records: {meta.total}，第 {meta.page} / {meta.totalPages} 页</span>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>上一页</Button>
+              <Button size="sm" variant="outline" disabled={page >= meta.totalPages} onClick={() => setPage((p) => p + 1)}>下一页</Button>
+            </div>
+          </div>
+        </>
+      )}
 
       <AddLevelModal
         open={showLevelModal} onClose={() => { setShowLevelModal(false); setEditingLevelId(null); }}
-        courseId={null} editingLevelId={editingLevelId}
+        editingLevelId={editingLevelId}
         onSaved={refresh}
       />
     </div>
   );
 }
+

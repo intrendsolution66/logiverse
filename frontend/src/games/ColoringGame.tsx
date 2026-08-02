@@ -16,7 +16,7 @@
 // rule — just not the target color itself.
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { eduApi } from "@/api/index";
+import { eduApi } from "@/api";
 import { Button } from "@/components/ui/button";
 
 interface ColoringRegion { marker_color: string; rule: "specific" | "free"; label?: string }
@@ -27,6 +27,7 @@ export interface ColoringConfig {
   palette?: string[];
   timer_mode: "stopwatch" | "countdown";
   time_limit?: number | null;
+  question_i18n?: { zh?: string; en?: string };
 }
 export interface ColoringResult {
   score: number; max_score: number; time_spent_seconds: number; mistakes: number; completed: boolean;
@@ -161,6 +162,9 @@ export default function ColoringGame({ levelId, config, onComplete }: {
         <span>🎨 已填 {filledCount} / {regions.length}</span>
         <span>⏱️ 用时 {elapsed.toFixed(1)}s</span>
       </div>
+      {(config.question_i18n?.zh || config.question_i18n?.en) && (
+        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.zh || config.question_i18n?.en}</p>
+      )}
 
       <div className="flex flex-wrap items-center justify-center gap-2 mb-3 p-2 bg-muted/40 rounded-xl">
         {palette.map((color) => (

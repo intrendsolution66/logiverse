@@ -18,6 +18,7 @@ export interface SpotDiffConfig {
   hotspots: SpotDiffHotspot[];
   timer_mode: "stopwatch" | "countdown";
   time_limit?: number | null;
+  question_i18n?: { zh?: string; en?: string };
 }
 export interface SpotDiffResult {
   score: number; max_score: number; time_spent_seconds: number; mistakes: number; completed: boolean;
@@ -35,7 +36,7 @@ export default function SpotDiffGame({ config, onComplete }: {
   const [imagesLoaded, setImagesLoaded] = useState(false);
   const [found, setFound] = useState<Set<number>>(new Set());
   const [misses, setMisses] = useState(0);
-  const [status, setStatus] = useState("找找看两张图哪里不一样，点一下不同的地方吧！");
+  const [status, setStatus] = useState(config.question_i18n?.zh || config.question_i18n?.en || "找找看两张图哪里不一样，点一下不同的地方吧！");
   const [elapsed, setElapsed] = useState(0);
   const [finished, setFinished] = useState(false);
   const missFlashRef = useRef<{ x: number; y: number; t: number }[]>([]);

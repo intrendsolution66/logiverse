@@ -10,6 +10,7 @@
 
 import type { Response } from "express";
 import type { AuthRequest } from "../../middlewares/authenticate.js";
+import { randomUUID } from "crypto";
 import { query } from "../../config/db.js";
 import { ok, created, badRequest, serverError } from "../../utils/response.js";
 
@@ -66,36 +67,53 @@ export async function listSubjects(req: AuthRequest, res: Response): Promise<voi
     const programmeId = typeof req.query.programme_id === "string" ? req.query.programme_id : null;
     const { rows } = await query(
       programmeId
-        ? `SELECT id, programme_id, code, name_zh, name_en FROM edu.subjects WHERE programme_id = $1 ORDER BY name_zh`
-        : `SELECT id, programme_id, code, name_zh, name_en FROM edu.subjects ORDER BY name_zh`,
+        ? `SELECT id, programme_id, code, name_zh, name_en, prefix FROM edu.subjects WHERE programme_id = $1 ORDER BY name_zh`
+        : `SELECT id, programme_id, code, name_zh, name_en, prefix FROM edu.subjects ORDER BY name_zh`,
       programmeId ? [programmeId] : []
     );
     ok(res, rows);
   } catch (err) { serverError(res, err); }
 }
 
+// programme_id 不再强制要求——可以先建 Subject，之后再透过 updateSubject
+// 补上归属的 Programme，跟 Activity 那边"先建、之后再分类"是同一个思路。
+// prefix 现在会接进实际的 Activity 编号（Subject前缀-Topic前缀-Group代号-
+// 流水号），所以这里要求必填——不像 programme_id 那样纯粹是分类，prefix
+// 缺了会影响到编号生成，新建的时候就该定下来，见 nextExerciseNumber。
+// 注意：原本 code 在同一个 programme_id 底下唯一（ON CONFLICT (programme_id,
+// code) DO UPDATE），programme_id 是 NULL 的时候 Postgres 的唯一约束不会
+// 把两个 NULL 视为相同值，所以"先不挂 Programme"的 Subject 之间 code 允许
+// 重复——这是 Postgres NULL 在唯一约束里的标准行为，不是这里特别处理的。
 export async function createSubject(req: AuthRequest, res: Response): Promise<void> {
   try {
-    const { programme_id, code, name_zh, name_en } = req.body as Record<string, string>;
-    if (!programme_id || !code || !name_zh) { badRequest(res, "programme_id, code, and name_zh are required"); return; }
+    const { programme_id, code, name_zh, name_en, prefix } = req.body as Record<string, string>;
+    if (!code || !name_zh || !prefix) { badRequest(res, "code, name_zh, and prefix are required"); return; }
     const { rows } = await query(
-      `INSERT INTO edu.subjects (programme_id, code, name_zh, name_en) VALUES ($1,$2,$3,$4)
-       ON CONFLICT (programme_id, code) DO UPDATE SET name_zh = EXCLUDED.name_zh
-       RETURNING id, programme_id, code, name_zh, name_en`,
-      [programme_id, code.toLowerCase().trim(), name_zh, name_en ?? null]
+      programme_id
+        ? `INSERT INTO edu.subjects (programme_id, code, name_zh, name_en, prefix) VALUES ($1,$2,$3,$4,$5)
+           ON CONFLICT (programme_id, code) DO UPDATE SET name_zh = EXCLUDED.name_zh
+           RETURNING id, programme_id, code, name_zh, name_en, prefix`
+        : `INSERT INTO edu.subjects (programme_id, code, name_zh, name_en, prefix) VALUES (NULL,$1,$2,$3,$4)
+           RETURNING id, programme_id, code, name_zh, name_en, prefix`,
+      programme_id
+        ? [programme_id, code.toLowerCase().trim(), name_zh, name_en ?? null, prefix.toUpperCase().trim()]
+        : [code.toLowerCase().trim(), name_zh, name_en ?? null, prefix.toUpperCase().trim()]
     );
     created(res, rows[0]);
   } catch (err) { serverError(res, err); }
 }
 
+// 现在支持顺带补上/改掉 programme_id、prefix——建立的时候没填的话，编辑
+// 时再补上（旧的历史 Subject 没有 prefix，靠这里慢慢补齐）。
 export async function updateSubject(req: AuthRequest, res: Response): Promise<void> {
   try {
     const { subjectId } = req.params;
-    const { name_zh, name_en } = req.body as Record<string, string>;
+    const { name_zh, name_en, programme_id, prefix } = req.body as Record<string, string>;
     const { rows } = await query(
-      `UPDATE edu.subjects SET name_zh = COALESCE($2, name_zh), name_en = COALESCE($3, name_en)
-       WHERE id = $1 RETURNING id, programme_id, code, name_zh, name_en`,
-      [subjectId, name_zh ?? null, name_en ?? null]
+      `UPDATE edu.subjects SET name_zh = COALESCE($2, name_zh), name_en = COALESCE($3, name_en),
+           programme_id = COALESCE($4, programme_id), prefix = COALESCE($5, prefix)
+       WHERE id = $1 RETURNING id, programme_id, code, name_zh, name_en, prefix`,
+      [subjectId, name_zh ?? null, name_en ?? null, programme_id ?? null, prefix ? prefix.toUpperCase().trim() : null]
     );
     if (!rows.length) { badRequest(res, "Subject not found"); return; }
     ok(res, rows[0]);
@@ -132,15 +150,20 @@ export async function listCategories(req: AuthRequest, res: Response): Promise<v
 // needed ahead of a brand-new game module) but still exposed here rather
 // than only seedable via migration — an operator shouldn't need a code
 // change just to add one more classification bucket.
+//
+// code 不再要求前端传——系统自动生成一个 UUID（Postgres那边也设了
+// DEFAULT gen_random_uuid()兜底，这里额外显式生成一次，不依赖任何一边
+// 单独记得做这件事）。code 纯粹是数据库内部的唯一键，跟真正会出现在
+// 编号里的 prefix 是两回事，prefix 还是照旧必填、照旧是使用者自己定。
 export async function createCategory(req: AuthRequest, res: Response): Promise<void> {
   try {
-    const { code, name_zh, name_en, prefix, subject_id } = req.body as Record<string, string>;
-    if (!code || !name_zh || !prefix) { badRequest(res, "code, name_zh, and prefix are required"); return; }
+    const { name_zh, name_en, prefix, subject_id } = req.body as Record<string, string>;
+    if (!name_zh || !prefix) { badRequest(res, "name_zh and prefix are required"); return; }
     const { rows } = await query(
       `INSERT INTO edu.exercise_categories (code, name_zh, name_en, prefix, subject_id)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, code, name_zh, name_en, prefix, subject_id`,
-      [code.toLowerCase().trim(), name_zh, name_en ?? null, prefix.toUpperCase().trim(), subject_id ?? null]
+      [randomUUID(), name_zh, name_en ?? null, prefix.toUpperCase().trim(), subject_id ?? null]
     );
     created(res, rows[0]);
   } catch (err) { serverError(res, err); }
@@ -261,10 +284,23 @@ export async function listCurriculumTypes(_req: AuthRequest, res: Response): Pro
 // two designers creating exercises in the same category+group at the same
 // moment can't collide on the same number (each gets a distinct increment,
 // enforced by Postgres, not by application-level locking).
+//
+// 编号现在是四段式：Subject前缀-Topic前缀-Group代号-流水号（如
+// LOGIC-MK-NUM-10001）。Subject前缀、Group代号都是可选的——历史上建的
+// Subject/Group可能还没有前缀/代号，这种情况对应那一段直接跳过，不会
+// 在编号里留下空字符串（比如变成"MK--10001"这种难看的东西），效果上
+// 就是退回旧的三段式或两段式，跟原本的行为完全兼容。
 export async function nextExerciseNumber(categoryId: string, groupId: string | null): Promise<string> {
-  const { rows: catRows } = await query(`SELECT prefix FROM edu.exercise_categories WHERE id = $1`, [categoryId]);
+  const { rows: catRows } = await query(
+    `SELECT ec.prefix AS topic_prefix, s.prefix AS subject_prefix
+     FROM edu.exercise_categories ec
+     LEFT JOIN edu.subjects s ON s.id = ec.subject_id
+     WHERE ec.id = $1`,
+    [categoryId]
+  );
   if (!catRows.length) throw new Error("Invalid category_id for exercise numbering");
-  const prefix = catRows[0].prefix as string;
+  const topicPrefix = catRows[0].topic_prefix as string;
+  const subjectPrefix = (catRows[0].subject_prefix as string | null) ?? null;
 
   let groupCode = "";
   if (groupId) {
@@ -282,5 +318,6 @@ export async function nextExerciseNumber(categoryId: string, groupId: string | n
   );
   const seq = seqRows[0].next_seq as number;
 
-  return groupCode ? `${prefix}-${groupCode}-${seq}` : `${prefix}-${seq}`;
+  const segments = [subjectPrefix, topicPrefix, groupCode || null, String(seq)].filter((s): s is string => !!s);
+  return segments.join("-");
 }

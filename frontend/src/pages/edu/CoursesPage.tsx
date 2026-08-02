@@ -17,7 +17,7 @@
 
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { eduApi } from "@/api/index";
+import { eduApi } from "@/api";
 
 interface Course { id: string; title_i18n: Record<string,string>; age_group?: string }
 interface Level {

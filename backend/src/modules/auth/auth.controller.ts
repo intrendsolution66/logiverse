@@ -438,6 +438,51 @@ export async function getMe(req: AuthRequest, res: Response): Promise<void> {
   } catch (err) { serverError(res, err); }
 }
 
+// ── 更新自己的资料 ────────────────────────────────────────────────────────────
+// 跟 adminUsers.controller.ts#updateUserProfile 不一样——那个是 operator
+// 改别人的资料，这个是用户自己改自己的，走的是当前登录身份(req.user.sub)，
+// 不接受 userId 参数，没办法拿来改别人。username、密码、角色、账号状态
+// 这些不属于"个人资料"，这里不处理——密码改动已经有独立的
+// changePassword，其他几项本来就不该让用户自己改。
+export async function updateMe(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const {
+      full_name_zh, full_name_en, preferred_name, avatar_url, bio,
+      gender_code, date_of_birth, nationality_code, language_code, timezone,
+      email, mobile,
+    } = req.body as Record<string, string>;
+
+    if (email || mobile) {
+      await query(
+        `UPDATE auth.users SET email = COALESCE($2, email), mobile = COALESCE($3, mobile) WHERE id = $1`,
+        [req.user!.sub, email ?? null, mobile ?? null]
+      );
+    }
+
+    await query(
+      `INSERT INTO auth.user_profiles (user_id, full_name_zh, full_name_en, preferred_name, avatar_url, bio, gender_code, date_of_birth, nationality_code, language_code, timezone)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       ON CONFLICT (user_id) DO UPDATE SET
+         full_name_zh = COALESCE($2, auth.user_profiles.full_name_zh),
+         full_name_en = COALESCE($3, auth.user_profiles.full_name_en),
+         preferred_name = COALESCE($4, auth.user_profiles.preferred_name),
+         avatar_url = COALESCE($5, auth.user_profiles.avatar_url),
+         bio = COALESCE($6, auth.user_profiles.bio),
+         gender_code = COALESCE($7, auth.user_profiles.gender_code),
+         date_of_birth = COALESCE($8, auth.user_profiles.date_of_birth),
+         nationality_code = COALESCE($9, auth.user_profiles.nationality_code),
+         language_code = COALESCE($10, auth.user_profiles.language_code),
+         timezone = COALESCE($11, auth.user_profiles.timezone)`,
+      [
+        req.user!.sub, full_name_zh ?? null, full_name_en ?? null, preferred_name ?? null, avatar_url ?? null, bio ?? null,
+        gender_code ?? null, date_of_birth ?? null, nationality_code ?? null, language_code ?? null, timezone ?? null,
+      ]
+    );
+
+    ok(res, null, "资料已更新");
+  } catch (err) { serverError(res, err); }
+}
+
 // ── Change password ──────────────────────────────────────────────────────────
 export async function changePassword(req: AuthRequest, res: Response): Promise<void> {
   try {

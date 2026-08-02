@@ -180,14 +180,21 @@ export async function subscribeChild(req: AuthRequest, res: Response): Promise<v
     if (!guardRows.length) { forbidden(res, "You are not this student's guardian"); return; }
 
     const { rows: subRows } = await query(
-      `SELECT id, status, locked_monthly_fee, currency FROM edu.subscriptions
+      `SELECT id, status, locked_monthly_fee, currency, current_period_end FROM edu.subscriptions
        WHERE student_id = $1 ORDER BY created_at DESC LIMIT 1`,
       [studentId]
     );
     if (!subRows.length) { notFound(res, "No subscription record found for this student"); return; }
     const sub = subRows[0];
 
-    if (sub.status === "active") { conflict(res, "This subscription is already active"); return; }
+    // 光看 status==='active' 不够——这次付费周期(current_period_end)可能
+    // 早就过了，但没有任何东西会自动把状态改回去，status 字面上永远停
+    // 在 'active'。真正该拦的是"这次付费周期还没结束、还在有效期内"，
+    // 不是"状态字段写着 active"这四个字本身。周期已经过了的话，即使
+    // status 还是 active，也该当成"到期了、可以续订"处理，不能因为一
+    // 个从没被更新过的字段就把家长卡死在"已经订阅"这个死结里。
+    const stillWithinPaidPeriod = sub.status === "active" && (!sub.current_period_end || new Date(sub.current_period_end) > new Date());
+    if (stillWithinPaidPeriod) { conflict(res, "This subscription is already active"); return; }
 
     const { rows: updated } = await query(
       `UPDATE edu.subscriptions

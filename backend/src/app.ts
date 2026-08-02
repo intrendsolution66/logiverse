@@ -19,6 +19,7 @@ import systemRoutes from "./modules/system/system.routes.js";
 import orgRoutes    from "./modules/org/org.routes.js";
 import uploadRoutes from "./modules/upload/upload.routes.js";
 import eduRoutes    from "./modules/edu/edu.routes.js";
+import { cleanupStaleUploads } from './modules/edu/cleanupStaleUploads.js';
 
 const app  = express();
 const PORT = process.env.PORT ?? 4000;
@@ -33,6 +34,8 @@ app.use(cors({
 }));
 app.use(express.json({ limit: "100mb" }));
 app.use(express.urlencoded({ extended: true }));
+cleanupStaleUploads();
+setInterval(() => cleanupStaleUploads(), 60 * 60 * 1000); // 每小时清理一次超过24小时的废弃分片
 
 // ── Static uploads ────────────────────────────────────────────────────────────
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));

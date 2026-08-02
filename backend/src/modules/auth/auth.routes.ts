@@ -15,7 +15,7 @@ import { authenticate } from "../../middlewares/authenticate.js";
 import { authorize } from "../../middlewares/authorize.js";
 import {
   login, refreshToken, logout, logoutAll,
-  getMe, changePassword, forgotPassword,
+  getMe, updateMe, changePassword, forgotPassword,
   submitVerification, getMyVerification,
   createManagedUser,
 } from "./auth.controller.js";
@@ -29,6 +29,7 @@ router.post("/forgot-password", forgotPassword);
 
 // Authenticated
 router.get ("/me",              authenticate, getMe);
+router.put ("/me",              authenticate, updateMe);
 router.post("/logout",          authenticate, logout);
 router.post("/logout-all",      authenticate, logoutAll);
 router.put ("/change-password", authenticate, changePassword);

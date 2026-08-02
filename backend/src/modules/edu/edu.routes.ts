@@ -4,16 +4,9 @@
 // courses.manage), any authenticated user can read them (no assignment
 // filtering yet — see courses.controller.ts comments), students submit
 // progress after playing.
-
 import { Router } from "express";
 import { authenticate } from "../../middlewares/authenticate.js";
 import { authorize } from "../../middlewares/authorize.js";
-import {
-  listCourses, createCourse,
-  listLevels, createLevel, getLevel, getLevelForEdit, updateLevel, deleteLevel, checkSudoku, checkWordProblem, checkLineMatch, checkColoring, listAllActivities,
-  submitProgress, listMyProgress,
-  listGradeTiers, createGradeTier, updateGradeTier, deleteGradeTier,
-} from "./courses.controller.js";
 import {
   registerParent, addChild, subscribeChild, listMyChildren, getChildProgress, resetChildPassword, getChildStudyTime, getChildTopicBreakdown,
 } from "./family.controller.js";
@@ -28,15 +21,30 @@ import {
   listMyGroups, createGroup as createStudentGroup,
   listGroupMembers, addGroupMember, removeGroupMember,
 } from "./studentGroups.controller.js";
-import { listAssets, getAsset, createAsset, deleteAsset, listAllTags, convertPptToSlides } from "./assets.controller.js";
-import { listLessons, createLesson, getLesson, createStep, moveStep, deleteStep } from "./lessons.controller.js";
 import {
   listProgrammes, createProgramme, updateProgramme, deleteProgramme,
   listSubjects, createSubject, updateSubject, deleteSubject,
   listCategories, createCategory, updateCategory, deleteCategory, listGroups, createGroup, updateGroup, deleteGroup, listCurriculumTypes,
 } from "./exerciseClassification.controller.js";
-import { listStudents, updateStudentEnrollment, listTeachers, listParents, getUserDetail, updateUserProfile, deactivateUser, linkGuardian, unlinkGuardian } from "./adminUsers.controller.js";
+import { listStudents, updateStudentEnrollment, extendStudentSubscription, expireStudentSubscription, listTeachers, listParents, getUserDetail, updateUserProfile, deactivateUser, blockUser, unblockUser, linkGuardian, unlinkGuardian } from "./adminUsers.controller.js";
 import { getSettings, updateSettings } from "./systemSettings.controller.js";
+import { initChunkUpload, getChunkUploadStatus, uploadChunk, completeChunkUpload, chunkUploadMiddleware } from "./assetChunkUpload.controller.js";
+import { listSelfGuidedCourses, listSelfGuidedLessons, getSelfGuidedLesson } from "./selfGuided.controller.js";
+import { getActiveSubscription } from "./subscriptionGate.js";
+import { submitMediaProgress, getMediaProgress } from "./mediaProgress.controller.js";
+import { listDiscoveryTopics, listDiscoveryActivities } from "./discovery.controller.js";
+import {
+  listCourses, createCourse, updateCourse, deleteCourse,
+  listLevels, createLevel, createActivity, getLevel, getLevelForEdit, updateLevel, deleteLevel, checkSudoku, checkWordProblem, checkLineMatch, checkColoring, listAllActivities,
+  submitProgress, listMyProgress, listAllProgressRecords,
+  listGradeTiers, createGradeTier, updateGradeTier, deleteGradeTier,
+} from "./courses.controller.js";
+ 
+// lessons.controller.js 那行加 updateLesson/deleteLesson：
+import { listLessons, createLesson, updateLesson, deleteLesson, getLesson, createStep, moveStep, deleteStep } from "./lessons.controller.js";
+import { listActivitiesWithData, purgeActivity, purgeActivitiesBulk } from "./dataCleanup.controller.js";
+import { listAssets, getAsset, createAsset, updateAsset, deleteAsset, listAllTags, convertPptToSlides } from "./assets.controller.js";
+import { listParentPreviewCourses, getParentPreviewCourse, listParentPreviewTopics, listParentPreviewActivities } from "./parentPreview.controller.js";
 
 const router = Router();
 
@@ -64,11 +72,15 @@ router.get   ("/exercise-curriculum-types", authenticate, listCurriculumTypes);
 // ── 学生/老师/家长管理 (admin, operator-only via classes.manage) ───────────────
 router.get   ("/admin/students",                     authenticate, authorize("classes.manage"), listStudents);
 router.patch ("/admin/students/:studentId/enrollment", authenticate, authorize("classes.manage"), updateStudentEnrollment);
+router.post  ("/admin/students/:studentId/extend-subscription", authenticate, authorize("classes.manage"), extendStudentSubscription);
+router.post  ("/admin/students/:studentId/expire-subscription", authenticate, authorize("classes.manage"), expireStudentSubscription);
 router.get   ("/admin/teachers",                     authenticate, authorize("classes.manage"), listTeachers);
 router.get   ("/admin/parents",                      authenticate, authorize("classes.manage"), listParents);
 router.get   ("/admin/users/:userId",                authenticate, authorize("classes.manage"), getUserDetail);
 router.patch ("/admin/users/:userId",                authenticate, authorize("classes.manage"), updateUserProfile);
 router.delete("/admin/users/:userId",                authenticate, authorize("classes.manage"), deactivateUser);
+router.post  ("/admin/users/:userId/block",           authenticate, authorize("classes.manage"), blockUser);
+router.post  ("/admin/users/:userId/unblock",         authenticate, authorize("classes.manage"), unblockUser);
 router.post  ("/admin/guardian-relationships",        authenticate, authorize("classes.manage"), linkGuardian);
 router.delete("/admin/guardian-relationships/:parentUserId/:studentUserId", authenticate, authorize("classes.manage"), unlinkGuardian);
 
@@ -87,7 +99,10 @@ router.get   ("/assets/:assetId",  authenticate, getAsset);
 router.post  ("/assets",           authenticate, authorize("courses.manage"), createAsset);
 router.delete("/assets/:assetId",  authenticate, authorize("courses.manage"), deleteAsset);
 router.post  ("/assets/convert-ppt", authenticate, authorize("courses.manage"), convertPptToSlides);
-
+router.post("/assets/chunk-upload/init",                       authenticate, authorize("courses.manage"), initChunkUpload);
+router.get ("/assets/chunk-upload/:uploadId/status",             authenticate, authorize("courses.manage"), getChunkUploadStatus);
+router.post("/assets/chunk-upload/:uploadId/chunk/:chunkIndex",  authenticate, authorize("courses.manage"), chunkUploadMiddleware, uploadChunk);
+router.post("/assets/chunk-upload/:uploadId/complete",           authenticate, authorize("courses.manage"), completeChunkUpload);
 // ── Family journey (public registration + parent dashboard) ──────────────────
 router.post("/register-parent",              registerParent); // public, no auth
 router.post("/family/children",              authenticate, addChild);
@@ -131,6 +146,11 @@ router.get ("/courses/:courseId/levels",   authenticate, listLevels);
 router.post("/courses/:courseId/levels",   authenticate, authorize("courses.manage"), createLevel);
 
 router.get ("/activities",                 authenticate, listAllActivities);
+// 独立建 Activity，不挂在任何 Course 底下——跟上面 POST /courses/:courseId/levels
+// 底层是同一个 createLevel 函数（course_id 现在是选填的），这里单纯是给
+// "先建 Activity，之后再透过 Lesson 引用它"这个新流程一个不用先有 course
+// 的入口。权限跟建 Activity 本来就一样，都是 courses.manage。
+router.post("/activities",                 authenticate, authorize("courses.manage"), createActivity);
 router.get ("/levels/:levelId",            authenticate, getLevel);
 router.get ("/levels/:levelId/edit",       authenticate, authorize("courses.manage"), getLevelForEdit);
 router.patch("/levels/:levelId",           authenticate, authorize("courses.manage"), updateLevel);
@@ -142,8 +162,52 @@ router.post("/levels/:levelId/word-problem-check", authenticate, checkWordProble
 router.post("/levels/:levelId/progress",   authenticate, submitProgress);
 
 router.get ("/progress/me",                authenticate, listMyProgress);
+router.get ("/admin/progress-records",       authenticate, authorize("classes.manage"), listAllProgressRecords);
 
 router.get  ("/settings", authenticate, authorize("courses.manage"), getSettings);
 router.patch("/settings", authenticate, authorize("courses.manage"), updateSettings);
+// 2) 路由本体——建议加在文件靠后、跟 "Family journey" 那组相邻的位置
+// （这些都是学生自己的账号在用，不需要 courses.manage 权限，只要登录即可，
+//  订阅检查在各自 controller 内部做）
+ 
+// ── 学生模式选择 (登录后首页用来判断能否进 Discovery / Self Guided) ─────────────
+router.get("/student/modes", authenticate, async (req, res) => {
+  const sub = await getActiveSubscription((req as any).user.sub);
+  res.json({
+    success: true, message: "Success",
+    data: { hasActiveSubscription: !!sub, gradeTierId: sub?.gradeTierId ?? null },
+  });
+});
+ 
+ 
+// ── Self Guided Learning (按序学习 Course → Lesson → 步骤) ────────────────────
+router.get("/self-guided/courses",                  authenticate, listSelfGuidedCourses);
+router.get("/self-guided/courses/:courseId/lessons", authenticate, listSelfGuidedLessons);
+router.get("/self-guided/lessons/:lessonId",         authenticate, getSelfGuidedLesson);
+ 
+router.get("/discovery/topics",     authenticate, listDiscoveryTopics);    // ?programme_id=xxx
+router.get("/discovery/activities", authenticate, listDiscoveryActivities); // ?category_id=xxx
+// 备注：router.get("/student/modes", ...) 里为了偷懒直接内联了handler，
+// 如果你的项目风格更偏好"所有handler都在controller文件里"，可以把这段
+// 挪到 subscriptionGate.ts 或新建一个 studentModes.controller.ts，逻辑不变。
+router.post("/media-progress", authenticate, submitMediaProgress);
+router.get ("/media-progress", authenticate, getMediaProgress);
+// 路由本体——加在现有 "/courses" 那几行附近：
+router.patch ("/courses/:courseId", authenticate, authorize("courses.manage"), updateCourse);
+router.delete("/courses/:courseId", authenticate, authorize("courses.manage"), deleteCourse);
+ 
+// 加在现有 "/courses/:courseId/lessons" 那几行附近：
+router.patch ("/lessons/:lessonId", authenticate, authorize("courses.manage"), updateLesson);
+router.delete("/lessons/:lessonId", authenticate, authorize("courses.manage"), deleteLesson);
 
+// 路由——权限用 courses.manage（跟其他Activity管理操作同一个门槛，
+// 前端另外再加一层"输入确认文字"的保护，不在后端加额外权限层）：
+router.get   ("/admin/cleanup/played-activities",       authenticate, authorize("courses.manage"), listActivitiesWithData);
+router.delete("/admin/cleanup/activities/:levelId",     authenticate, authorize("courses.manage"), purgeActivity);
+router.post  ("/admin/cleanup/activities/bulk-delete",  authenticate, authorize("courses.manage"), purgeActivitiesBulk);
+router.put("/assets/:assetId", authenticate, authorize("courses.manage"), updateAsset); 
+router.get("/parent-preview/courses", authenticate, listParentPreviewCourses);
+router.get("/parent-preview/courses/:courseId", authenticate, getParentPreviewCourse);
+router.get("/parent-preview/topics",     authenticate, listParentPreviewTopics);     // ?programme_id=&subject_id=&grade_tier_id=
+router.get("/parent-preview/activities", authenticate, listParentPreviewActivities); // ?category_id=xxx&grade_tier_id=
 export default router;

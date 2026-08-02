@@ -14,7 +14,7 @@
 // No custom virtual keyboard needed to satisfy "键盘+鼠标、触控".
 
 import { useState, useRef, useEffect } from "react";
-import { eduApi } from "@/api/index";
+import { eduApi } from "@/api";
 import { Button } from "@/components/ui/button";
 
 export interface SudokuConfig {
@@ -23,6 +23,7 @@ export interface SudokuConfig {
   difficulty: "easy" | "medium" | "hard" | "custom";
   timer_mode: "stopwatch" | "countdown";
   time_limit?: number | null;
+  question_i18n?: { zh?: string; en?: string };
 }
 export interface SudokuResult {
   score: number; max_score: number; time_spent_seconds: number; mistakes: number; completed: boolean;
@@ -89,6 +90,9 @@ export default function SudokuGame({ levelId, config, onComplete }: {
         <span>🔢 数独 <span className="text-xs">{DIFFICULTY_LABELS[config.difficulty] ?? config.difficulty}</span></span>
         <span>⏱️ 用时 {elapsed.toFixed(1)}s · 已填 {filledCount}/{cells.length}</span>
       </div>
+      {(config.question_i18n?.zh || config.question_i18n?.en) && (
+        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.zh || config.question_i18n?.en}</p>
+      )}
 
       <div className="relative w-full aspect-[11/7] rounded-2xl mb-4 bg-white overflow-hidden shadow-lg ring-1 ring-black/5" style={{ backgroundImage: `url(${config.bg_image_url})`, backgroundSize: "100% 100%", backgroundPosition: "center" }}>
         {cells.map((c, i) => {

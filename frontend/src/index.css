@@ -1,9 +1,21 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@400;600;700&family=ZCOOL+XiaoWei&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
+    /* ── Selectable typography ──────────────────────────────────────
+       --font-zh / --font-en are the two knobs a Settings page can flip
+       (see src/lib/fontPreferences.ts). Everything else (Tailwind's
+       font-sans, body, inputs...) reads through these variables, so
+       changing them here is enough to re-theme the whole app. Listing
+       --font-en first lets Latin glyphs render in the English pick
+       while CJK glyphs automatically fall through to the Chinese pick
+       — no separate zh/en text-splitting needed. */
+    --font-zh: "Noto Sans SC", sans-serif;
+    --font-en: "IBM Plex Sans", sans-serif;
+
     --background:        0 0% 100%;
     --foreground:        224 71% 4%;
     --card:              0 0% 100%;
@@ -109,6 +121,7 @@ html {
 }
 
 body {
+  font-family: var(--font-en), var(--font-zh), sans-serif;
   font-weight: 450;
   -webkit-font-smoothing: antialiased;
 }

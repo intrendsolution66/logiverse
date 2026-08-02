@@ -300,6 +300,118 @@ export async function deactivateUser(req: AuthRequest, res: Response): Promise<v
   } catch (err) { serverError(res, err); }
 }
 
+// ── 封锁 / 解封账号 ──────────────────────────────────────────────────────────────
+// 跟"删除"(is_deleted)不一样——封锁是可逆的、operator 主动决定的("这个
+// 学生先别让他登录，但账号资料都留着"），删除是软删除、代表这个账号不
+// 该再出现在名单里了。也跟"登录失败太多次自动锁定"(auth.users.status =
+// 'LOCKED'、locked_until 到期会自动解锁)不一样——这里用一个独立的状态值
+// 'BLOCKED'，不会因为时间到了就自动恢复，只有 operator 自己解封才会解除。
+// auth.controller.ts 登录那边的检查要同步加上这个状态，不然封了也没用，
+// 账号还是能登录进去。
+export async function blockUser(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { userId } = req.params;
+    const { rows: roleRows } = await query(
+      `SELECT r.code FROM rbac.user_roles ur JOIN rbac.roles r ON r.id = ur.role_id WHERE ur.user_id = $1 AND ur.is_active = true AND r.code = ANY($2)`,
+      [userId, MANAGEABLE_ROLES]
+    );
+    if (!roleRows.length) { notFound(res, "User not found"); return; }
+    await query(`UPDATE auth.users SET status = 'BLOCKED' WHERE id = $1`, [userId]);
+    ok(res, null, "已封锁——这个账号没办法再登录，直到 operator 手动解封");
+  } catch (err) { serverError(res, err); }
+}
+
+export async function unblockUser(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { userId } = req.params;
+    const { rows: roleRows } = await query(
+      `SELECT r.code, u.status FROM rbac.user_roles ur JOIN rbac.roles r ON r.id = ur.role_id JOIN auth.users u ON u.id = ur.user_id WHERE ur.user_id = $1 AND ur.is_active = true AND r.code = ANY($2)`,
+      [userId, MANAGEABLE_ROLES]
+    );
+    if (!roleRows.length) { notFound(res, "User not found"); return; }
+    // 只解除"operator手动封锁"这个状态——如果账号现在是别的状态（比如
+    // 还在登录失败自动锁定期间），不会被这个操作误解开，只处理 BLOCKED。
+    if (roleRows[0].status !== "BLOCKED") { badRequest(res, "这个账号目前不是被封锁的状态"); return; }
+    await query(`UPDATE auth.users SET status = 'ACTIVE' WHERE id = $1`, [userId]);
+    ok(res, null, "已解封");
+  } catch (err) { serverError(res, err); }
+}
+
+// ── 延长学生订阅 ──────────────────────────────────────────────────────────────
+// "延长 N 天"统一走"宽限期"(past_due + grace_period_ends_at)这个机制来
+// 实现，不管学生原本订阅状态是什么（试用中/已过期/被取消/从来没订阅
+// 过）——这是系统里唯一"状态+到期日"两者都会被检查、能保证效果精确是
+// "从现在起N天后到期"的机制。特意不用 status='active'：那个状态在现有
+// 判断逻辑里完全不检查任何到期日，设成 active 会变成永久有效，不是
+// "N天"。唯一的例外：如果学生的试用期本来就还没过，直接在原本的试用期
+// 上累加天数（延长试用期本身），比切成宽限期更符合直觉。
+export async function extendStudentSubscription(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { studentId } = req.params;
+    const { days } = req.body as { days?: number };
+    if (!days || !Number.isFinite(days) || days <= 0) { badRequest(res, "days 必须是正数"); return; }
+
+    const { rows: roleRows } = await query(
+      `SELECT 1 FROM rbac.user_roles ur JOIN rbac.roles r ON r.id = ur.role_id WHERE ur.user_id = $1 AND ur.is_active = true AND r.code = 'STUDENT'`,
+      [studentId]
+    );
+    if (!roleRows.length) { notFound(res, "Student not found"); return; }
+
+    const { rows: subRows } = await query(
+      `SELECT id, status, trial_ends_at, grace_period_ends_at FROM edu.subscriptions WHERE student_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [studentId]
+    );
+    const sub = subRows[0] as { id: string; status: string; trial_ends_at: Date | null; grace_period_ends_at: Date | null } | undefined;
+    const now = new Date();
+    const dayMs = days * 24 * 60 * 60 * 1000;
+
+    if (sub && sub.status === "trial" && sub.trial_ends_at && new Date(sub.trial_ends_at) > now) {
+      const newEnd = new Date(new Date(sub.trial_ends_at).getTime() + dayMs);
+      await query(`UPDATE edu.subscriptions SET trial_ends_at = $2 WHERE id = $1`, [sub.id, newEnd]);
+      ok(res, { extended_to: newEnd, mode: "trial" }, `试用期延长了 ${days} 天`);
+      return;
+    }
+
+    const newGraceEnd = new Date(now.getTime() + dayMs);
+    if (sub) {
+      await query(`UPDATE edu.subscriptions SET status = 'past_due', grace_period_ends_at = $2 WHERE id = $1`, [sub.id, newGraceEnd]);
+    } else {
+      await query(
+        `INSERT INTO edu.subscriptions (student_id, status, grace_period_ends_at, created_at) VALUES ($1, 'past_due', $2, now())`,
+        [studentId, newGraceEnd]
+      );
+    }
+    ok(res, { extended_to: newGraceEnd, mode: "grace" }, `已经给这个学生开通 ${days} 天的使用权限`);
+  } catch (err) { serverError(res, err); }
+}
+
+// 跟延长订阅正好相反——operator 主动把一个"正在订阅中"的学生标记成过期。
+// 不管现在是 trial/active/past_due 哪个状态，统一设成 'expired'，这个
+// 状态不在 subscriptionGate.ts#hasActiveSub 判断为"有效"的三种情况
+// （trial未过期 / active / past_due但宽限期内）里，所以设完之后不管
+// 学生登录、玩游戏都会立刻被当成没有有效订阅。宽限期日期也顺便清掉，
+// 避免留着一个未来的日期造成"明明是expired却还在宽限期内"这种自相
+// 矛盾的状态。
+export async function expireStudentSubscription(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { studentId } = req.params;
+    const { rows: roleRows } = await query(
+      `SELECT 1 FROM rbac.user_roles ur JOIN rbac.roles r ON r.id = ur.role_id WHERE ur.user_id = $1 AND ur.is_active = true AND r.code = 'STUDENT'`,
+      [studentId]
+    );
+    if (!roleRows.length) { notFound(res, "Student not found"); return; }
+
+    const { rows: subRows } = await query(
+      `SELECT id FROM edu.subscriptions WHERE student_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [studentId]
+    );
+    if (!subRows.length) { badRequest(res, "这个学生还没有任何订阅记录，没有什么好设成过期的"); return; }
+
+    await query(`UPDATE edu.subscriptions SET status = 'expired', grace_period_ends_at = NULL WHERE id = $1`, [subRows[0].id]);
+    ok(res, null, "已经把这个学生的订阅设成过期");
+  } catch (err) { serverError(res, err); }
+}
+
 // ── 家长/学生关联管理 (admin) ────────────────────────────────────────────────
 // edu.guardian_relationships already exists and is used by the parent's
 // own self-service "add a child" flow (family.controller.ts#addChild) —

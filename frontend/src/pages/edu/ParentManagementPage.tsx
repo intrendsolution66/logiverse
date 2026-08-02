@@ -8,7 +8,7 @@
 // relationship.
 
 import { useState, useEffect } from "react";
-import { adminUsersApi, adminUserDetailApi, managedUserApi } from "@/api/index";
+import { adminUsersApi, adminUserDetailApi, managedUserApi } from "@/api";
 import { Input, Label, Card, CardContent, Badge, EmptyState } from "@/components/ui/index";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
