@@ -32,6 +32,14 @@ const SELECT_CLASS = "flex h-10 w-full rounded-lg border border-input bg-transpa
 const MINI_SELECT_CLASS = "h-9 rounded-lg border border-input bg-transparent px-2 text-sm font-medium shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 const MINI_INPUT_CLASS = "h-9 w-16 rounded-lg border border-input bg-transparent px-2 text-sm font-medium shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
+// crypto.randomUUID() 只在"安全上下文"下可用（HTTPS 或 localhost）——
+// 局域网内用普通 HTTP 访问（比如 http://192.168.0.5:8080 这种）会被浏览
+// 器当成不安全环境，直接不提供这个 API，调用就整页崩溃。这里生成的都
+// 是前端本地临时用来区分"这是哪一个"的标记（列表 key、临时对象 id），
+// 不是真的需要密码学级别的唯一性，不用 crypto，一个简单的随机字符串
+// 就够用，而且到处都能跑，不挑访问方式。
+function uid() { return Math.random().toString(36).slice(2, 10); }
+
 const MODULE_LABELS: Record<string, { emoji: string; label: string }> = {
   counting:     { emoji: "🔢", label: "点点数数" },
   spot_diff:    { emoji: "🔍", label: "找不同之处" },
@@ -1730,7 +1738,7 @@ function NumberMazeDesigner({
         setSelectedDecisionId(hitPoint.id);
       } else {
         const newPoint: NumberMazeDecisionPoint = {
-          id: crypto.randomUUID(), x: x / GAME_CANVAS_W, y: y / GAME_CANVAS_H,
+          id: uid(), x: x / GAME_CANVAS_W, y: y / GAME_CANVAS_H,
           options: [{ value: "" }, { value: "" }], correctIndex: 0,
         };
         setDecisionPoints([...decisionPoints, newPoint]);
@@ -2320,8 +2328,8 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   // LineMatchGame.tsx 也保留了同样的向后兼容转换，旧 Activity 不用重新编辑就能继续玩。
   interface LineMatchItem { id: string; type: "text" | "image"; content: string }
   interface LineMatchEdge { leftId: string; rightId: string }
-  const [lineMatchLeftItems, setLineMatchLeftItems] = useState<LineMatchItem[]>([{ id: crypto.randomUUID(), type: "text", content: "" }]);
-  const [lineMatchRightItems, setLineMatchRightItems] = useState<LineMatchItem[]>([{ id: crypto.randomUUID(), type: "text", content: "" }]);
+  const [lineMatchLeftItems, setLineMatchLeftItems] = useState<LineMatchItem[]>([{ id: uid(), type: "text", content: "" }]);
+  const [lineMatchRightItems, setLineMatchRightItems] = useState<LineMatchItem[]>([{ id: uid(), type: "text", content: "" }]);
   const [lineMatchEdges, setLineMatchEdges] = useState<LineMatchEdge[]>([]);
   const [lineMatchConnectFrom, setLineMatchConnectFrom] = useState<string | null>(null); // 连线时先点的那个item的id，等第二下点击完成一条线
   const [lineMatchShuffleRight, setLineMatchShuffleRight] = useState(true);
@@ -2662,8 +2670,8 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       setNmBgUrl(null); setNmMaskDataUrl(null); setNmStart(null); setNmEnd(null); setNmDecisionPoints([]);
       setNmLayout("path"); setNmScene(null);
       setStickerScene(null);
-      setLineMatchLeftItems([{ id: crypto.randomUUID(), type: "text", content: "" }]);
-      setLineMatchRightItems([{ id: crypto.randomUUID(), type: "text", content: "" }]);
+      setLineMatchLeftItems([{ id: uid(), type: "text", content: "" }]);
+      setLineMatchRightItems([{ id: uid(), type: "text", content: "" }]);
       setLineMatchEdges([]); setLineMatchConnectFrom(null); setLineMatchShuffleRight(true);
       setLineMatchLayout("list"); setLineMatchScene(null);
       setPptSlideUrls([]); setPptOriginalFilename(""); setVideoUrl(null); setVideoPosterUrl(null);
@@ -2892,14 +2900,14 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           // Activity 编辑时会自动升级，不用手动重建
           const oldPairs = (cfg.pairs as Array<{ left: { type: "text" | "image"; content: string }; right: { type: "text" | "image"; content: string } }>) ?? [];
           if (oldPairs.length > 0) {
-            const lefts = oldPairs.map((p) => ({ id: crypto.randomUUID(), ...p.left }));
-            const rights = oldPairs.map((p) => ({ id: crypto.randomUUID(), ...p.right }));
+            const lefts = oldPairs.map((p) => ({ id: uid(), ...p.left }));
+            const rights = oldPairs.map((p) => ({ id: uid(), ...p.right }));
             setLineMatchLeftItems(lefts);
             setLineMatchRightItems(rights);
             setLineMatchEdges(lefts.map((l, i) => ({ leftId: l.id, rightId: rights[i].id })));
           } else {
-            setLineMatchLeftItems([{ id: crypto.randomUUID(), type: "text", content: "" }]);
-            setLineMatchRightItems([{ id: crypto.randomUUID(), type: "text", content: "" }]);
+            setLineMatchLeftItems([{ id: uid(), type: "text", content: "" }]);
+            setLineMatchRightItems([{ id: uid(), type: "text", content: "" }]);
             setLineMatchEdges([]);
           }
         }
@@ -4278,7 +4286,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
                         <p className="text-xs font-medium text-muted-foreground">{label}边物件（{items.length}）</p>
                         <button
                           type="button"
-                          onClick={() => setItems((arr) => [...arr, { id: crypto.randomUUID(), type: "text", content: "" }])}
+                          onClick={() => setItems((arr) => [...arr, { id: uid(), type: "text", content: "" }])}
                           className="text-xs text-primary hover:underline"
                         >
                           + 加一个
