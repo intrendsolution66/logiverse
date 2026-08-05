@@ -318,7 +318,14 @@ export async function login(req: Request, res: Response): Promise<void> {
       user: { id: user.id, username: user.username, email: user.email },
       forcedOtherDevicesLogout: enforceSingleSession, // NEW: lets the frontend show "you were signed out elsewhere" copy if useful
     });
-  } catch (err) { serverError(res, err); }
+  } catch (err) {
+    // 临时诊断用——serverError() 好像没有把详细报错打到控制台，先在这里
+    // 直接印出来，看一次真正的错误信息之后，这行可以拿掉（或者更好的
+    // 做法是回头去改 serverError 本身，让它以后也一直印详细日志，不用
+    // 每次都这样现改代码去抓）。
+    console.error("❌ login 报错详情：", err);
+    serverError(res, err);
+  }
 }
 
 // ── Refresh token ────────────────────────────────────────────────────────────
