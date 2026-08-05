@@ -34,7 +34,24 @@ interface ShapeLayer {
   radius?: number; // 只有 rect 用得到——四角圆角半径(px)，line/ellipse/triangle 忽略这个值
   opacity?: number; // 0-100，不传视为100（不透明）
 }
-type Layer = ObjectLayer | TextLayer | ShapeLayer;
+// 网格图层——给数独这种"自己画格子"的场景用。跟物件/形状一样有包围盒
+// (x,y,w,h,rotation)，缩放/旋转/拖动走的是同一套通用机制；rows×cols
+// 定义几行几列，cells 是一个 rows×cols 的二维阵列，每格记着填的数字
+// (value，可以留空)跟这一格是不是"留给学生填"(blank)。
+// pathStep 是给"数字迷宫·方格棋盘"模式用的——这一格是不是解题路径的一部分、
+// 第几步(1起算，起点=1)。跟 blank/answer(数独专用)是两码事，互不冲突，
+// 同一个 GridLayer 结构两边共用，各自只填自己关心的字段。
+interface GridCellData { value: string; blank: boolean; answer?: string; pathStep?: number }
+interface GridLayer {
+  id: string; type: "grid";
+  x: number; y: number; w: number; h: number; rotation: number;
+  rows: number; cols: number;
+  cells: GridCellData[][]; // [row][col]
+  lineColor: string; givenColor: string; blankBg: string;
+  bgColor: string; bgEnabled: boolean; // 整个网格底色（选填，跟blankBg是两回事——blankBg只填空格那一小块，这个是整个网格范围的底色）
+  opacity?: number; // 0-100，不传视为100
+}
+type Layer = ObjectLayer | TextLayer | ShapeLayer | GridLayer;
 interface Stroke { color: string; width: number; opacity: number; isEraser?: boolean; points: { x: number; y: number }[] }
 interface Bounds { x: number; y: number; w: number; h: number }
 
@@ -202,6 +219,10 @@ export interface StructuredSceneOutput {
   bgBounds?: { x: number; y: number; w: number; h: number };
   objects: Array<{ imageUrl: string; x: number; y: number; w: number; h: number; rotation: number; objectType?: string; flipX?: boolean; flipY?: boolean; opacity?: number }>;
   texts: Array<{ text: string; x: number; y: number; fontSize: number; color: string; fontFamily: string; rotation: number; bold?: boolean; italic?: boolean; underline?: boolean }>;
+  // 网格（数独这种"自己画格子"用）——不像形状会被烤进背景图，网格要
+  // 保持可交互（学生要能填空），所以走跟 objects/texts 一样的结构化
+  // 导出，不是扁平化 PNG 的那条路。
+  grids?: Array<{ x: number; y: number; w: number; h: number; rotation: number; rows: number; cols: number; cells: { value: string; blank: boolean; answer?: string; pathStep?: number }[][]; lineColor: string; givenColor: string; blankBg: string; bgColor: string; bgEnabled: boolean; opacity?: number }>;
 }
 
 export default function SceneEditor({ presetCategory, presetModuleType, onSaved, structuredMode, onSaveStructured, initial }: {
@@ -224,7 +245,12 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     if (!initial) return [];
     const objectLayers: ObjectLayer[] = initial.objects.map((o) => ({ id: uid(), type: "object", imageUrl: o.imageUrl, x: o.x, y: o.y, w: o.w, h: o.h, rotation: o.rotation, objectType: o.objectType ?? "", flipX: o.flipX, flipY: o.flipY, opacity: o.opacity }));
     const textLayers: TextLayer[] = initial.texts.map((t) => ({ id: uid(), type: "text", text: t.text, x: t.x, y: t.y, fontSize: t.fontSize, color: t.color, fontFamily: t.fontFamily, rotation: t.rotation, bold: t.bold, italic: t.italic, underline: t.underline }));
-    return [...objectLayers, ...textLayers];
+    const gridLayers: GridLayer[] = (initial.grids ?? []).map((g) => ({
+      id: uid(), type: "grid", x: g.x, y: g.y, w: g.w, h: g.h, rotation: g.rotation,
+      rows: g.rows, cols: g.cols, cells: g.cells, lineColor: g.lineColor, givenColor: g.givenColor, blankBg: g.blankBg,
+      bgColor: g.bgColor ?? "#ffffff", bgEnabled: g.bgEnabled ?? false, opacity: g.opacity,
+    }));
+    return [...objectLayers, ...textLayers, ...gridLayers];
   });
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [tool, setTool] = useState<Tool>("select");
@@ -233,6 +259,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   const [drawWidth, setDrawWidth] = useState(6);
   const [drawOpacity, setDrawOpacity] = useState(100); // 只有"毛笔"用得到，铅笔固定100%不透明
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedGridCell, setSelectedGridCell] = useState<{ row: number; col: number } | null>(null);
   const [showSave, setShowSave] = useState(false);
   const [history, setHistory] = useState<{ background: BackgroundLayer | null; layers: Layer[]; strokes: Stroke[] }[]>([]);
 
@@ -270,11 +297,11 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     });
   }
 
-  function objectBounds(l: ObjectLayer | ShapeLayer | BackgroundLayer): Bounds {
+  function objectBounds(l: ObjectLayer | ShapeLayer | GridLayer | BackgroundLayer): Bounds {
     return { x: l.x - l.w / 2, y: l.y - l.h / 2, w: l.w, h: l.h };
   }
   function layerBounds(l: Layer, ctx: CanvasRenderingContext2D): Bounds {
-    if (l.type === "object" || l.type === "shape") return objectBounds(l);
+    if (l.type === "object" || l.type === "shape" || l.type === "grid") return objectBounds(l);
     ctx.font = `${l.fontSize}px ${l.fontFamily}`;
     const width = ctx.measureText(l.text).width;
     return { x: l.x - width / 2, y: l.y - l.fontSize / 2, w: width, h: l.fontSize };
@@ -328,7 +355,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
       const rot = layerRotation(l);
       ctx.save();
       ctx.translate(l.x, l.y); ctx.rotate(deg2rad(rot)); ctx.translate(-l.x, -l.y);
-      if (l.type === "object" || l.type === "shape") ctx.globalAlpha = (l.opacity ?? 100) / 100;
+      if (l.type === "object" || l.type === "shape" || l.type === "grid") ctx.globalAlpha = (l.opacity ?? 100) / 100;
       if (l.type === "object") {
         const img = imgCacheRef.current.get(l.imageUrl);
         const b = objectBounds(l);
@@ -370,6 +397,66 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
           if (l.borderEnabled && l.borderWidth > 0) {
             ctx.strokeStyle = l.borderColor; ctx.lineWidth = l.borderWidth; ctx.stroke();
           }
+        }
+      } else if (l.type === "grid") {
+        const b = objectBounds(l);
+        const cellW = b.w / l.cols, cellH = b.h / l.rows;
+        if (l.bgEnabled) { ctx.fillStyle = l.bgColor; ctx.fillRect(b.x, b.y, b.w, b.h); }
+        // 外框
+        ctx.strokeStyle = l.lineColor; ctx.lineWidth = 2;
+        ctx.strokeRect(b.x, b.y, b.w, b.h);
+        for (let r = 0; r < l.rows; r++) {
+          for (let c = 0; c < l.cols; c++) {
+            const cellX = b.x + c * cellW, cellY = b.y + r * cellH;
+            const cell = l.cells[r]?.[c] ?? { value: "", blank: false };
+            if (cell.blank) {
+              ctx.fillStyle = l.blankBg;
+              ctx.fillRect(cellX + 2, cellY + 2, cellW - 4, cellH - 4);
+            }
+            // 内部分隔线（细一点，跟外框区分开）
+            ctx.strokeStyle = l.lineColor; ctx.lineWidth = 1;
+            ctx.strokeRect(cellX, cellY, cellW, cellH);
+            if (cell.blank) {
+              // 答案只在编辑器里给设计师自己看一眼核对用（淡色小字，
+              // 跟给定数字的粗体正常颜色明显区分），不会真的画进保存的
+              // 图片/发给运行时——运行时只拿得到 blank_cells 的位置，
+              // 答案是server端核对，这里纯粹是编辑器的可视化辅助。
+              if (cell.answer) {
+                ctx.font = `${Math.floor(Math.min(cellW, cellH) * 0.4)}px sans-serif`;
+                ctx.fillStyle = "#00000055";
+                ctx.textAlign = "center"; ctx.textBaseline = "middle";
+                ctx.fillText(cell.answer, cellX + cellW / 2, cellY + cellH / 2);
+              }
+            } else if (cell.value) {
+              ctx.font = `bold ${Math.floor(Math.min(cellW, cellH) * 0.55)}px sans-serif`;
+              ctx.fillStyle = l.givenColor;
+              ctx.textAlign = "center"; ctx.textBaseline = "middle";
+              ctx.fillText(cell.value, cellX + cellW / 2, cellY + cellH / 2);
+            }
+            if (cell.pathStep) {
+              // 数字迷宫·方格棋盘模式——这一格在解题路径上，画个橙色圈
+              // 框住整格 + 左上角一个小圆点标"第几步"，方便设计师核对
+              // 路径顺序对不对，不会真的画进保存结果（结构化模式下这个
+              // 网格是结构化数据，不是烤进背景图，运行时自己会画光标/
+              // 高亮，不需要编辑器的这个视觉提示）。
+              ctx.strokeStyle = "#f59e0b"; ctx.lineWidth = 3;
+              ctx.strokeRect(cellX + 3, cellY + 3, cellW - 6, cellH - 6);
+              ctx.beginPath(); ctx.arc(cellX + 10, cellY + 10, 8, 0, Math.PI * 2);
+              ctx.fillStyle = "#f59e0b"; ctx.fill();
+              ctx.font = "bold 10px sans-serif"; ctx.fillStyle = "#fff";
+              ctx.textAlign = "center"; ctx.textBaseline = "middle";
+              ctx.fillText(String(cell.pathStep), cellX + 10, cellY + 10);
+            }
+          }
+        }
+        // 选中格子的高亮框——比内部分隔线粗、颜色也不一样(用选中框同一个
+        // 蓝色)，一眼能看出现在编辑的是哪一格，不用去数行列。只有这个
+        // 网格本身也被选中的时候才画（避免切到别的图层了，另一个网格上
+        // 还留着一个不相关的高亮框）。
+        if (l.id === selectedId && selectedGridCell && selectedGridCell.row < l.rows && selectedGridCell.col < l.cols) {
+          const hx = b.x + selectedGridCell.col * cellW, hy = b.y + selectedGridCell.row * cellH;
+          ctx.strokeStyle = "#5b8def"; ctx.lineWidth = 3;
+          ctx.strokeRect(hx + 1.5, hy + 1.5, cellW - 3, cellH - 3);
         }
       } else {
         ctx.font = `${l.italic ? "italic " : ""}${l.bold ? "bold " : ""}${l.fontSize}px ${l.fontFamily}`;
@@ -453,7 +540,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
       return;
     }
     const hit = hitTest(x, y);
-    if (!hit) { setSelectedId(null); return; }
+    if (!hit) { setSelectedId(null); setSelectedGridCell(null); return; }
     setSelectedId(hit.id);
     pushHistory();
     if (hit.id === BG_ID && background) {
@@ -461,6 +548,18 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     } else {
       const l = layers.find((l2) => l2.id === hit.id);
       if (l) dragRef.current = { mode: hit.onHandle === "resize" ? "resize" : hit.onHandle === "rotate" ? "rotate" : "move", startX: x, startY: y, origLayer: { ...l } };
+      // 点在网格里面（不是拖手柄）——顺便算出点的是哪一格，给属性面板
+      // 那个"选中格子编辑"用。旋转过的网格要先把点击坐标转回网格自己
+      // 的本地坐标系再算行列，不然网格转了角度之后点哪格会算错。
+      if (l && l.type === "grid" && hit.onHandle === false) {
+        const b = objectBounds(l);
+        const local = toLocalSpace(x, y, l.x, l.y, l.rotation ?? 0);
+        const col = Math.floor((local.x - b.x) / (b.w / l.cols));
+        const row = Math.floor((local.y - b.y) / (b.h / l.rows));
+        if (row >= 0 && row < l.rows && col >= 0 && col < l.cols) setSelectedGridCell({ row, col });
+      } else {
+        setSelectedGridCell(null);
+      }
     }
   }
 
@@ -497,8 +596,8 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     setLayers((ls) => ls.map((l) => {
       if (l.id !== d.origLayer!.id) return l;
       if (d.mode === "move") return { ...l, x: d.origLayer!.x + dx, y: d.origLayer!.y + dy };
-      if (l.type === "object" || l.type === "shape") {
-        const orig = d.origLayer as ObjectLayer | ShapeLayer;
+      if (l.type === "object" || l.type === "shape" || l.type === "grid") {
+        const orig = d.origLayer as ObjectLayer | ShapeLayer | GridLayer;
         return { ...l, w: Math.max(20, orig.w + dx), h: Math.max(20, orig.h + dy) };
       }
       const orig = d.origLayer as TextLayer;
@@ -660,6 +759,29 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     setSelectedId(newLayer.id);
   }
 
+  // 加网格——数独这种"自己画格子"用。默认 4×4（比经典数独的9×9更适合
+  // 4-12岁小朋友），格子默认全部标"留空"（blank:true）——设计师再挑几格
+  // 填上数字、把那几格的 blank 改回 false，标成"给定的"，逻辑上比反过来
+  // (默认全部是"给定"，再一个个挑要留空的)更符合"先搭好空格子、再填几
+  // 个提示数字"这个自然的做题思路。
+  function addGrid() {
+    pushHistory();
+    const rows = 4, cols = 4;
+    const cells: GridCellData[][] = Array.from({ length: rows }, () =>
+      Array.from({ length: cols }, () => ({ value: "", blank: true }))
+    );
+    const newLayer: GridLayer = {
+      id: uid(), type: "grid",
+      x: W / 2, y: H / 2, w: 320, h: 320, rotation: 0,
+      rows, cols, cells,
+      lineColor: "#333333", givenColor: "#222222", blankBg: "#fff3d6",
+      bgColor: "#ffffff", bgEnabled: false, opacity: 100,
+    };
+    setLayers((ls) => [...ls, newLayer]);
+    setSelectedId(newLayer.id);
+    setSelectedGridCell({ row: 0, col: 0 });
+  }
+
   function addText() {
     pushHistory();
     const newLayer: TextLayer = { id: uid(), type: "text", text: "文字", x: W / 2, y: H / 2, fontSize: 40, color: "#222222", fontFamily: FONT_OPTIONS[0].value, rotation: 0 };
@@ -726,6 +848,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
 
   function layerLabel(l: Layer): string {
     if (l.type === "text") return `🔤 ${l.text.slice(0, 8) || "文字"}`;
+    if (l.type === "grid") return `▦ 网格 ${l.rows}×${l.cols}`;
     if (l.type === "shape") {
       const shapeNames: Record<string, string> = { rect: "方块", ellipse: "圆/椭圆", triangle: "三角形", line: "直线" };
       return `▦ ${shapeNames[l.shape] ?? "形状"}`;
@@ -739,6 +862,28 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
 
   function updateSelectedObjectType(objectType: string) {
     setLayers((ls) => ls.map((l) => (l.id === selectedId && l.type === "object" ? { ...l, objectType } : l)));
+  }
+
+  // 改行数/列数——尽量保留原有格子的内容，缩小的话超出范围的格子直接
+  // 丢掉，放大的话新增的格子默认"留空"（跟 addGrid 的默认值一致）。
+  function setSelectedGridSize(rows: number, cols: number) {
+    setLayers((ls) => ls.map((l) => {
+      if (l.id !== selectedId || l.type !== "grid") return l;
+      const nextCells: GridCellData[][] = Array.from({ length: rows }, (_, r) =>
+        Array.from({ length: cols }, (_, c) => l.cells[r]?.[c] ?? { value: "", blank: true })
+      );
+      return { ...l, rows, cols, cells: nextCells };
+    }));
+  }
+
+  function updateSelectedGridCell(patch: Partial<GridCellData>) {
+    if (!selectedGridCell) return;
+    const { row, col } = selectedGridCell;
+    setLayers((ls) => ls.map((l) => {
+      if (l.id !== selectedId || l.type !== "grid") return l;
+      const nextCells = l.cells.map((rowArr, r) => rowArr.map((cell, c) => (r === row && c === col ? { ...cell, ...patch } : cell)));
+      return { ...l, cells: nextCells };
+    }));
   }
 
   // 结构化模式（Counting用）存档专用——objects/texts之外的东西（画的线、
@@ -803,10 +948,12 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
       .map((l) => ({ imageUrl: l.imageUrl, x: l.x, y: l.y, w: l.w, h: l.h, rotation: l.rotation ?? 0, objectType: l.objectType || undefined, flipX: l.flipX || undefined, flipY: l.flipY || undefined, opacity: l.opacity !== undefined && l.opacity !== 100 ? l.opacity : undefined }));
     const texts = layers.filter((l): l is TextLayer => l.type === "text")
       .map((l) => ({ text: l.text, x: l.x, y: l.y, fontSize: l.fontSize, color: l.color, fontFamily: l.fontFamily, rotation: l.rotation ?? 0, bold: l.bold || undefined, italic: l.italic || undefined, underline: l.underline || undefined }));
+    const grids = layers.filter((l): l is GridLayer => l.type === "grid")
+      .map((l) => ({ x: l.x, y: l.y, w: l.w, h: l.h, rotation: l.rotation ?? 0, rows: l.rows, cols: l.cols, cells: l.cells, lineColor: l.lineColor, givenColor: l.givenColor, blankBg: l.blankBg, bgColor: l.bgColor, bgEnabled: l.bgEnabled, opacity: l.opacity }));
     onSaveStructured?.({
       bgUrl: bakeBackgroundWithDecorations(),
       bgBounds: background ? { x: background.x, y: background.y, w: background.w, h: background.h } : undefined,
-      objects, texts,
+      objects, texts, grids,
     });
   }
 
@@ -847,7 +994,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   return (
     <div className="flex flex-col md:flex-row gap-3 items-start">
       {/* ── 左侧工具栏：跟 Photoshop 一样，垂直一排图标 ── */}
-      <div className="w-full md:w-14 shrink-0 flex md:flex-col flex-row flex-wrap items-center gap-1.5 rounded-lg border border-border bg-muted/40 p-2">
+      <div className="w-full md:w-14 shrink-0 flex md:flex-col flex-row flex-wrap items-center gap-1.5 rounded-lg border border-border bg-muted/40 p-2 md:max-h-[600px] md:overflow-y-auto">
         <button type="button" title="选择/移动" onClick={() => setTool("select")} className={toolBtnClass(tool === "select")}>🖱️</button>
         <button type="button" title="画笔" onClick={() => { setTool("draw"); setSelectedId(null); }} className={toolBtnClass(tool === "draw")}>🖌️</button>
         <div className="hidden md:block w-full h-px bg-border my-0.5" />
@@ -873,6 +1020,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
         <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-base" onClick={() => addShape("ellipse")} title="加椭圆形">⬭</Button>
         <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-base" onClick={() => addShape("triangle")} title="加三角形">🔺</Button>
         <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-base" onClick={() => addShape("line")} title="加直线">／</Button>
+        <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-base" onClick={addGrid} title="加网格（数独这种自己画格子用）">▦</Button>
 
         <div className="hidden md:block w-full h-px bg-border my-0.5" />
         <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-base" onClick={undo} disabled={history.length === 0} title="撤销">↩️</Button>
@@ -1107,6 +1255,127 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
             </div>
           )}
 
+          {selectedLayer?.type === "grid" && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label>行数</Label>
+                  <input
+                    type="number" min={1} max={12} value={selectedLayer.rows}
+                    onChange={(e) => setSelectedGridSize(Math.max(1, Math.min(12, +e.target.value || 1)), selectedLayer.cols)}
+                    className="w-full border rounded-md p-1.5 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label>列数</Label>
+                  <input
+                    type="number" min={1} max={12} value={selectedLayer.cols}
+                    onChange={(e) => setSelectedGridSize(selectedLayer.rows, Math.max(1, Math.min(12, +e.target.value || 1)))}
+                    className="w-full border rounded-md p-1.5 text-sm"
+                  />
+                </div>
+              </div>
+
+              <p className="text-xs text-muted-foreground">直接在画布上点一个格子来选中它（跟点物件、点形状是一样的操作），选中的格子在下面编辑。</p>
+
+              {selectedGridCell ? (
+                <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">第 {selectedGridCell.row + 1} 行 · 第 {selectedGridCell.col + 1} 列</p>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={selectedLayer.cells[selectedGridCell.row]?.[selectedGridCell.col]?.blank ?? false}
+                      onChange={(e) => updateSelectedGridCell({ blank: e.target.checked })}
+                    />
+                    留空给学生填
+                  </label>
+                  {selectedLayer.cells[selectedGridCell.row]?.[selectedGridCell.col]?.blank ? (
+                    <div>
+                      <Label>答案（学生该填的数字，不会显示在格子里，只用来核对）</Label>
+                      <Input
+                        value={selectedLayer.cells[selectedGridCell.row]?.[selectedGridCell.col]?.answer ?? ""}
+                        onChange={(e) => updateSelectedGridCell({ answer: e.target.value.slice(0, 2) })}
+                        placeholder="如：5"
+                      />
+                    </div>
+                  ) : (
+                    <div>
+                      <Label>给定的数字（直接显示给学生看）</Label>
+                      <Input
+                        value={selectedLayer.cells[selectedGridCell.row]?.[selectedGridCell.col]?.value ?? ""}
+                        onChange={(e) => updateSelectedGridCell({ value: e.target.value.slice(0, 2) })}
+                        placeholder="留空=空白格"
+                      />
+                    </div>
+                  )}
+
+                  <div className="pt-2 border-t border-border/60">
+                    <Label>路径顺序（数字迷宫·方格棋盘模式用，起点填1，往后依次+1，不在路径上的格子留空）</Label>
+                    <input
+                      type="number" min={1}
+                      value={selectedLayer.cells[selectedGridCell.row]?.[selectedGridCell.col]?.pathStep ?? ""}
+                      onChange={(e) => updateSelectedGridCell({ pathStep: e.target.value ? +e.target.value : undefined })}
+                      className="w-full border rounded-md p-1.5 text-sm"
+                      placeholder="不在路径上留空"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-lg p-2.5">还没选中格子——点画布上网格里的任意一格</p>
+              )}
+
+              <div>
+                <Label>线条颜色</Label>
+                <div className="flex items-center gap-1.5 mt-1">
+                  {COLORS.map((c) => (
+                    <button key={c} type="button" onClick={() => setLayers((ls) => ls.map((l) => (l.id === selectedId && l.type === "grid" ? { ...l, lineColor: c } : l)))} className={`w-6 h-6 rounded-full border-2 ${selectedLayer.lineColor === c ? "border-primary" : "border-border"}`} style={{ background: c }} />
+                  ))}
+                  <input
+                    type="color" value={selectedLayer.lineColor}
+                    onChange={(e) => setLayers((ls) => ls.map((l) => (l.id === selectedId && l.type === "grid" ? { ...l, lineColor: e.target.value } : l)))}
+                    className="w-6 h-6 rounded border border-border cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="flex items-center gap-2 text-sm mb-1.5">
+                  <input
+                    type="checkbox" checked={selectedLayer.bgEnabled}
+                    onChange={(e) => setLayers((ls) => ls.map((l) => (l.id === selectedId && l.type === "grid" ? { ...l, bgEnabled: e.target.checked } : l)))}
+                  />
+                  网格底色
+                </label>
+                {selectedLayer.bgEnabled && (
+                  <div className="flex items-center gap-1.5">
+                    {COLORS.map((c) => (
+                      <button key={c} type="button" onClick={() => setLayers((ls) => ls.map((l) => (l.id === selectedId && l.type === "grid" ? { ...l, bgColor: c } : l)))} className={`w-6 h-6 rounded-full border-2 ${selectedLayer.bgColor === c ? "border-primary" : "border-border"}`} style={{ background: c }} />
+                    ))}
+                    <input
+                      type="color" value={selectedLayer.bgColor}
+                      onChange={(e) => setLayers((ls) => ls.map((l) => (l.id === selectedId && l.type === "grid" ? { ...l, bgColor: e.target.value } : l)))}
+                      className="w-6 h-6 rounded border border-border cursor-pointer"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <Label>不透明度</Label>
+                <div className="flex items-center gap-2 mt-1">
+                  <input
+                    type="range" min={10} max={100} value={selectedLayer.opacity ?? 100}
+                    onChange={(e) => setLayers((ls) => ls.map((l) => (l.id === selectedId && l.type === "grid" ? { ...l, opacity: +e.target.value } : l)))}
+                    className="flex-1"
+                  />
+                  <span className="text-xs text-muted-foreground tabular-nums w-9 text-right">{selectedLayer.opacity ?? 100}%</span>
+                </div>
+              </div>
+
+              <p className="text-xs text-muted-foreground">缩放：拖右下角蓝点；旋转：拖顶部绿点，或用左侧 ↺/↻ 快速转90°</p>
+            </div>
+          )}
+
           {selectedLayer?.type === "text" && (
             <div className="space-y-3">
               <div><Label>文字内容</Label><Input value={selectedLayer.text} onChange={(e) => updateSelectedText(e.target.value)} /></div>
@@ -1214,6 +1483,4 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     </div>
   );
 }
-
-
 

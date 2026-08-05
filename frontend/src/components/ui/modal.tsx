@@ -11,6 +11,15 @@ interface ModalProps {
   children: React.ReactNode;
   className?: string;
   size?: "sm" | "md" | "lg" | "xl" | "full";
+  // Radix Dialog 默认是"modal"模式——接管焦点、锁背景滚动、拦截外部指针
+  // 事件。这套机制在"弹窗里面还开另一个弹窗"（比如 AssetPicker 的选择
+  // 器，本来就是嵌在别的内容设置面板里用的）会互相打架：两层都在抢
+  // "谁能拦截指针事件"，结果内层弹窗的触发按钮点了没反应，连遮罩都不
+  // 出现。传 false 关掉这层弹窗自己的 modal 焦点锁定/指针拦截，让它跟
+  // 外层弹窗和平共处——这是 Radix 官方文档对嵌套 Dialog 场景给的建议
+  // 做法，不是我们自己发明的取巧写法。默认 true，保持所有现有单层用法
+  // 不变，只有真的会嵌套使用的地方（比如 AssetPicker）才需要传 false。
+  modal?: boolean;
 }
 
 const sizes = {
@@ -21,9 +30,9 @@ const sizes = {
   full: "max-w-6xl", // sized to comfortably fit GAME_CANVAS_W (1100px) + padding — same width the play page (LevelPlayerPage) uses, so designer and play views aren't different sizes
 };
 
-export function Modal({ open, onClose, title, description, children, className, size = "md" }: ModalProps) {
+export function Modal({ open, onClose, title, description, children, className, size = "md", modal = true }: ModalProps) {
   return (
-    <Dialog.Root open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog.Root open={open} onOpenChange={(v) => !v && onClose()} modal={modal}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-fade-in" />
         <Dialog.Content

@@ -117,12 +117,29 @@ export default function MazeGame({ config, onComplete }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.bg_image_url, config.mask_image_url]);
 
+  // 判断某个坐标"能不能走"——不是只看那一个精确像素，而是看它周围一小
+  // 圈(半径WALK_TOLERANCE)有没有任何一点是可走的。原因：设计师点"设
+  // 起点"是手动点的，跟画笔涂的蒙版范围很难保证像素级对齐，起点差个
+  // 一两像素很正常；严格拦截之后，起点没精确落在蒙版上的话，球会从
+  // 第一步检测就判定"不在路上"，哪个方向都走不出去、完全卡死在起点。
+  // 留一点容错半径，不会明显让"能穿墙"（就几像素），但能扛住起点/边缘
+  // 的正常误差。
+  const WALK_TOLERANCE = 5;
   const isWalkable = useCallback((x: number, y: number) => {
     const mc = maskCanvasRef.current;
-    if (!mc || x < 0 || y < 0 || x >= W || y >= H) return false;
+    if (!mc) return false;
     const ctx = mc.getContext("2d")!;
-    const alpha = ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data[3];
-    return alpha > 40;
+    const cx = Math.floor(x), cy = Math.floor(y);
+    const left = Math.max(0, cx - WALK_TOLERANCE), top = Math.max(0, cy - WALK_TOLERANCE);
+    const right = Math.min(W - 1, cx + WALK_TOLERANCE), bottom = Math.min(H - 1, cy + WALK_TOLERANCE);
+    const w = right - left + 1, h = bottom - top + 1;
+    if (w <= 0 || h <= 0) return false;
+    // 一次性读一块区域的像素、在内存里扫描，而不是对每个采样点分别调用
+    // getImageData——canvas 像素读取本身有开销，拖动时一次移动要检查
+    // 20个点，分开调用次数会乘起来，合并成一次读取明显快很多。
+    const data = ctx.getImageData(left, top, w, h).data;
+    for (let i = 3; i < data.length; i += 4) { if (data[i] > 40) return true; }
+    return false;
   }, []);
 
   const finish = useCallback((completed: boolean) => {
@@ -225,27 +242,39 @@ export default function MazeGame({ config, onComplete }: {
     if (tool === "erase") { eraseTrailNear(x, y); return; }
     if (activeBallId === null) return;
 
-    // 真的拦截——不能直接把球丢到指针位置，得沿着"上一个位置→指针位置"
-    // 这条线一小步一小步检查，走到第一个不能走的点就停在最后一个还合
-    // 法的点，跟真的撞墙一样。分成 STEPS 份检查而不是只看端点，是因为
-    // 拖得快的时候两次 pointermove 之间指针可能已经跳过了墙那么远，
-    // 只看终点会让球"穿墙"过去；沿路径插值检查才不会漏掉中间那堵墙。
+    // 先直接检查指针现在的位置能不能走——能走就直接把球放过去，这是最
+    // 常见的情况，效果跟"自由跟手"一样顺滑。只有指针的目标位置本身踩
+    // 到障碍物了，才退回去沿"上一个位置→指针位置"这条线一小步步找该
+    // 停在哪个点。
+    //
+    // 之前是不管三七二十一都先做20步插值检查，结果正常慢速拖动的时候
+    // 每次 pointermove 之间指针只挪了几像素，20份切下来每一步都不到
+    // 1像素、四舍五入后可能一直落在同一个点上，只要起点附近有一点点没
+    // 对齐，就会卡在这个死循环里出不去——直到某次指针挪动幅度够大、
+    // 某一步刚好跳过了这个死角，才会突然"启动"，明明起点已经踩在容错
+    // 范围里了却还是要拖出老远才有反应。改成先看目标点，只有真的要穿
+    // 墙才需要insert插值去找边界，从源头上避免了"卡在起点附近挪不动"
+    // 这种体验。
     const STEPS = 20;
     setBalls((bs) => {
       const ball = bs.find((b) => b.id === activeBallId);
       if (!ball) return bs;
       const from = ball.pos;
-      let landing = from;
-      let hitWall = false;
-      for (let i = 1; i <= STEPS; i++) {
-        const t = i / STEPS;
-        const px = from.x + (x - from.x) * t;
-        const py = from.y + (y - from.y) * t;
-        if (isWalkable(px, py)) {
-          landing = { x: px, y: py };
-        } else {
-          hitWall = true;
-          break;
+      let landing: { x: number; y: number };
+      let hitWall: boolean;
+
+      if (isWalkable(x, y)) {
+        landing = { x, y };
+        hitWall = false;
+      } else {
+        landing = from;
+        hitWall = true;
+        for (let i = 1; i <= STEPS; i++) {
+          const t = i / STEPS;
+          const px = from.x + (x - from.x) * t;
+          const py = from.y + (y - from.y) * t;
+          if (isWalkable(px, py)) landing = { x: px, y: py };
+          else break;
         }
       }
 

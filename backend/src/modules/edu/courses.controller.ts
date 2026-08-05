@@ -303,7 +303,7 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
     const categoryIds = Array.from(new Set((category_ids && category_ids.length ? category_ids : (category_id ? [category_id] : [])).filter(Boolean)));
     const primaryCategoryId = categoryIds[0] ?? null; // 旧栏位/编号生成还是要挑一个"主"分类，用第一个
 
-    const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "sudoku", "line_match", "coloring", "ppt_lecture", "video_lecture"];
+    const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "ppt_lecture", "video_lecture", "play_along", "sticker_game"];
     if (!SUPPORTED.includes(module_type)) {
       badRequest(res, `Unsupported module_type: ${module_type} (supported: ${SUPPORTED.join(", ")})`);
       return;
@@ -477,6 +477,65 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
         const { rows: cfgRows } = await client.query(
           `INSERT INTO edu.video_lecture_configs (video_url, poster_image_url) VALUES ($1,$2) RETURNING id`,
           [cfg.video_url, cfg.poster_image_url ?? null]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "play_along") { // 讲义类，不是游戏：乐谱+音频+同步标记，没有对错判断
+        const markers = cfg.markers as unknown[] | undefined;
+        if (!(cfg.sheet_image_urls as unknown[])?.length) throw new Error("请先上传乐谱图片");
+        if (!cfg.audio_url) throw new Error("请上传或选择音频");
+        if (!markers || markers.length < 2) throw new Error("至少要打2个时间标记");
+        if (!cfg.original_bpm || (cfg.original_bpm as number) < 1) throw new Error("请填这首曲子的原速 BPM");
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.play_along_configs (sheet_image_urls, original_filename, audio_url, markers, original_bpm)
+           VALUES ($1,$2,$3,$4,$5)
+           RETURNING id`,
+          [JSON.stringify(cfg.sheet_image_urls), cfg.original_filename ?? null, cfg.audio_url, JSON.stringify(markers), cfg.original_bpm]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "number_maze") { // authored content: 跟迷宫一样，路径分岔那几个字段直接就是关卡本身；方格棋盘模式的cells/path也是设计师authored的路径答案，不是随机生成
+        if (cfg.layout === "grid") {
+          const path = cfg.path as Array<{ row: number; col: number }> | undefined;
+          if (!(cfg.cells as unknown[])?.length) throw new Error("请先画好网格、填好数字");
+          if (!path || path.length < 2) throw new Error("至少要标2个格子的路径顺序");
+          const { rows: cfgRows } = await client.query(
+            `INSERT INTO edu.number_maze_configs (layout, rows, cols, cells, path, line_color, given_color, bg_color, bg_enabled, opacity, timer_mode, time_limit, question_i18n)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+             RETURNING id`,
+            [
+              "grid", cfg.rows, cfg.cols, JSON.stringify(cfg.cells), JSON.stringify(path),
+              cfg.line_color ?? null, cfg.given_color ?? null, cfg.bg_color ?? null, cfg.bg_enabled ?? false, cfg.opacity ?? null,
+              cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null,
+            ]
+          );
+          configId = cfgRows[0].id;
+        } else {
+          const decisionPoints = cfg.decision_points as Array<{ options: Array<{ value: string }> }> | undefined;
+          if (!cfg.bg_image_url || !cfg.mask_image_url) throw new Error("背景图和可走路径都是必须的");
+          if (!cfg.start || !cfg.end) throw new Error("请设好起点和终点");
+          if (decisionPoints?.some((d) => d.options.some((o) => !o.value?.trim()))) throw new Error("每个分岔点的每个选项都要填数字");
+          const { rows: cfgRows } = await client.query(
+            `INSERT INTO edu.number_maze_configs (layout, bg_image_url, mask_image_url, start_x, start_y, end_x, end_y, decision_points, timer_mode, time_limit, question_i18n)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+             RETURNING id`,
+            [
+              "path", cfg.bg_image_url, cfg.mask_image_url,
+              (cfg.start as { x: number }).x, (cfg.start as { y: number }).y,
+              (cfg.end as { x: number }).x, (cfg.end as { y: number }).y,
+              JSON.stringify(decisionPoints ?? []), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
+              cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null,
+            ]
+          );
+          configId = cfgRows[0].id;
+        }
+      } else if (module_type === "sticker_game") { // authored content: 贴纸摆的位置就是答案，跟line_match/迷宫同一个"client端直接核对"安全等级
+        const objects = cfg.objects as unknown[] | undefined;
+        if (!cfg.bg_image_url) throw new Error("请先选背景图片");
+        if (!objects?.length) throw new Error("请至少放1个贴纸");
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.sticker_game_configs (bg_image_url, objects, timer_mode, time_limit, question_i18n)
+           VALUES ($1,$2,$3,$4,$5)
+           RETURNING id`,
+          [cfg.bg_image_url, JSON.stringify(objects), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
         );
         configId = cfgRows[0].id;
       } else { // sudoku — authored content: a puzzle IMAGE + which cells are blank + the correct digit for each. Never generates or validates a real sudoku's row/column/box constraints, same "authored answer, not computed" principle as everything else here.
@@ -733,6 +792,57 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
             `UPDATE edu.video_lecture_configs SET video_url=$2, poster_image_url=$3 WHERE id=$1`,
             [module_config_id, cfg.video_url, cfg.poster_image_url ?? null]
           );
+        } else if (module_type === "play_along") {
+          const markers = cfg.markers as unknown[] | undefined;
+          if (!(cfg.sheet_image_urls as unknown[])?.length) throw new Error("请先上传乐谱图片");
+          if (!cfg.audio_url) throw new Error("请上传或选择音频");
+          if (!markers || markers.length < 2) throw new Error("至少要打2个时间标记");
+          if (!cfg.original_bpm || (cfg.original_bpm as number) < 1) throw new Error("请填这首曲子的原速 BPM");
+          await client.query(
+            `UPDATE edu.play_along_configs SET sheet_image_urls=$2, original_filename=$3, audio_url=$4, markers=$5, original_bpm=$6 WHERE id=$1`,
+            [module_config_id, JSON.stringify(cfg.sheet_image_urls), cfg.original_filename ?? null, cfg.audio_url, JSON.stringify(markers), cfg.original_bpm]
+          );
+        } else if (module_type === "number_maze") {
+          if (cfg.layout === "grid") {
+            const path = cfg.path as Array<{ row: number; col: number }> | undefined;
+            if (!(cfg.cells as unknown[])?.length) throw new Error("请先画好网格、填好数字");
+            if (!path || path.length < 2) throw new Error("至少要标2个格子的路径顺序");
+            await client.query(
+              `UPDATE edu.number_maze_configs SET layout=$2, rows=$3, cols=$4, cells=$5, path=$6, line_color=$7, given_color=$8, bg_color=$9, bg_enabled=$10, opacity=$11, timer_mode=$12, time_limit=$13, question_i18n=$14,
+                 bg_image_url=NULL, mask_image_url=NULL, start_x=NULL, start_y=NULL, end_x=NULL, end_y=NULL, decision_points=NULL
+               WHERE id=$1`,
+              [
+                module_config_id, "grid", cfg.rows, cfg.cols, JSON.stringify(cfg.cells), JSON.stringify(path),
+                cfg.line_color ?? null, cfg.given_color ?? null, cfg.bg_color ?? null, cfg.bg_enabled ?? false, cfg.opacity ?? null,
+                cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null,
+              ]
+            );
+          } else {
+            const decisionPoints = cfg.decision_points as Array<{ options: Array<{ value: string }> }> | undefined;
+            if (!cfg.bg_image_url || !cfg.mask_image_url) throw new Error("背景图和可走路径都是必须的");
+            if (!cfg.start || !cfg.end) throw new Error("请设好起点和终点");
+            if (decisionPoints?.some((d) => d.options.some((o) => !o.value?.trim()))) throw new Error("每个分岔点的每个选项都要填数字");
+            await client.query(
+              `UPDATE edu.number_maze_configs SET layout=$2, bg_image_url=$3, mask_image_url=$4, start_x=$5, start_y=$6, end_x=$7, end_y=$8, decision_points=$9, timer_mode=$10, time_limit=$11, question_i18n=$12,
+                 rows=NULL, cols=NULL, cells=NULL, path=NULL
+               WHERE id=$1`,
+              [
+                module_config_id, "path", cfg.bg_image_url, cfg.mask_image_url,
+                (cfg.start as { x: number }).x, (cfg.start as { y: number }).y,
+                (cfg.end as { x: number }).x, (cfg.end as { y: number }).y,
+                JSON.stringify(decisionPoints ?? []), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
+                cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null,
+              ]
+            );
+          }
+        } else if (module_type === "sticker_game") {
+          const objects = cfg.objects as unknown[] | undefined;
+          if (!cfg.bg_image_url) throw new Error("请先选背景图片");
+          if (!objects?.length) throw new Error("请至少放1个贴纸");
+          await client.query(
+            `UPDATE edu.sticker_game_configs SET bg_image_url=$2, objects=$3, timer_mode=$4, time_limit=$5, question_i18n=$6 WHERE id=$1`,
+            [module_config_id, cfg.bg_image_url, JSON.stringify(objects), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+          );
         } else { // sudoku
           const cells = cfg.cells as Array<{ x: number; y: number; answer: number }> | undefined;
           if (!cfg.bg_image_url) throw new Error("bg_image_url is required for sudoku");
@@ -973,6 +1083,39 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
     } else if (level.module_type === "video_lecture") {
       const { rows: cfgRows } = await query(
         `SELECT video_url, poster_image_url FROM edu.video_lecture_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "play_along") {
+      // 讲义类没有要藏的答案——跟弹练习靠时间标记同步，不是谜题
+      const { rows: cfgRows } = await query(
+        `SELECT sheet_image_urls, original_filename, audio_url, markers, original_bpm FROM edu.play_along_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "number_maze") {
+      // 分岔点的正确答案(correctIndex)、方格棋盘的路径(path)都直接发给
+      // 前端——client端直接核对，跟line_match/迷宫是同一个"休闲游戏"
+      // 安全等级，不是隐藏答案server端核对那一套。
+      const { rows: cfgRows } = await query(
+        `SELECT layout, bg_image_url, mask_image_url, start_x, start_y, end_x, end_y, decision_points,
+                rows, cols, cells, path, line_color, given_color, bg_color, bg_enabled, opacity,
+                timer_mode, time_limit, question_i18n
+         FROM edu.number_maze_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      const nmRow = cfgRows[0];
+      if (nmRow) {
+        config = nmRow.layout === "grid"
+          ? { layout: "grid", rows: nmRow.rows, cols: nmRow.cols, cells: nmRow.cells, path: nmRow.path, line_color: nmRow.line_color, given_color: nmRow.given_color, bg_color: nmRow.bg_color, bg_enabled: nmRow.bg_enabled, opacity: nmRow.opacity, timer_mode: nmRow.timer_mode, time_limit: nmRow.time_limit, question_i18n: nmRow.question_i18n }
+          : { layout: "path", bg_image_url: nmRow.bg_image_url, mask_image_url: nmRow.mask_image_url, start: { x: nmRow.start_x, y: nmRow.start_y }, end: { x: nmRow.end_x, y: nmRow.end_y }, decision_points: nmRow.decision_points, timer_mode: nmRow.timer_mode, time_limit: nmRow.time_limit, question_i18n: nmRow.question_i18n };
+      } else {
+        config = null;
+      }
+    } else if (level.module_type === "sticker_game") {
+      // 贴纸摆放位置直接发给前端——同上，client端直接核对
+      const { rows: cfgRows } = await query(
+        `SELECT bg_image_url, objects, timer_mode, time_limit, question_i18n FROM edu.sticker_game_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
@@ -1274,6 +1417,36 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
+    } else if (level.module_type === "play_along") {
+      const { rows: cfgRows } = await query(
+        `SELECT sheet_image_urls, original_filename, audio_url, markers, original_bpm FROM edu.play_along_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "number_maze") {
+      // 设计者视角不用另外拆——number_maze 本来就没有藏答案，跟学生
+      // 视角(getLevel)读到的是同一份数据。
+      const { rows: cfgRows } = await query(
+        `SELECT layout, bg_image_url, mask_image_url, start_x, start_y, end_x, end_y, decision_points,
+                rows, cols, cells, path, line_color, given_color, bg_color, bg_enabled, opacity,
+                timer_mode, time_limit, question_i18n
+         FROM edu.number_maze_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      const nmRow = cfgRows[0];
+      if (nmRow) {
+        config = nmRow.layout === "grid"
+          ? { layout: "grid", rows: nmRow.rows, cols: nmRow.cols, cells: nmRow.cells, path: nmRow.path, line_color: nmRow.line_color, given_color: nmRow.given_color, bg_color: nmRow.bg_color, bg_enabled: nmRow.bg_enabled, opacity: nmRow.opacity, timer_mode: nmRow.timer_mode, time_limit: nmRow.time_limit, question_i18n: nmRow.question_i18n }
+          : { layout: "path", bg_image_url: nmRow.bg_image_url, mask_image_url: nmRow.mask_image_url, start: { x: nmRow.start_x, y: nmRow.start_y }, end: { x: nmRow.end_x, y: nmRow.end_y }, decision_points: nmRow.decision_points, timer_mode: nmRow.timer_mode, time_limit: nmRow.time_limit, question_i18n: nmRow.question_i18n };
+      } else {
+        config = null;
+      }
+    } else if (level.module_type === "sticker_game") {
+      const { rows: cfgRows } = await query(
+        `SELECT bg_image_url, objects, timer_mode, time_limit, question_i18n FROM edu.sticker_game_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
     } else if (level.module_type === "line_match") {
       // 设计者视角要看完整原始配对（pairs 数组本身，左右两边都带内容，
       // 没有shuffle、没有隐藏），跟 getLevel 那个学生视角刻意拆开的做法
@@ -1346,6 +1519,7 @@ export async function listAllActivities(req: AuthRequest, res: Response): Promis
     const programmeId = typeof req.query.programme_id === "string" ? req.query.programme_id : "";
     const subjectId = typeof req.query.subject_id === "string" ? req.query.subject_id : "";
     const categoryId = typeof req.query.category_id === "string" ? req.query.category_id : "";
+    const moduleType = typeof req.query.module_type === "string" ? req.query.module_type : "";
     const sortKey = ACTIVITY_SORT_COLUMNS[String(req.query.sort)] ? String(req.query.sort) : "created_at";
     const order = req.query.order === "asc" ? "ASC" : "DESC";
 
@@ -1369,6 +1543,12 @@ export async function listAllActivities(req: AuthRequest, res: Response): Promis
     if (programmeId) {
       params.push(programmeId);
       conditions.push(`EXISTS (SELECT 1 FROM edu.activity_topic_links atl JOIN edu.exercise_categories ec ON ec.id = atl.category_id JOIN edu.subjects s ON s.id = ec.subject_id WHERE atl.course_level_id = cl.id AND s.programme_id = $${params.length})`);
+    }
+    // 前端"按类型分组"那个第二层列表页要用——之前没有这个筛选，前端只能
+    // 拉一大批回去自己在内存里过滤，数量一大会不准。
+    if (moduleType) {
+      params.push(moduleType);
+      conditions.push(`cl.module_type = $${params.length}`);
     }
     const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 

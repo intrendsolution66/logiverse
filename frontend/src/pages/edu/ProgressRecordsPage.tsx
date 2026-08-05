@@ -12,7 +12,7 @@ import { Input, Card, CardContent, Badge, EmptyState } from "@/components/ui/ind
 
 interface ProgressRecord {
   id: string; played_at: string; module_type: string; score: number; max_score: number;
-  time_spent_seconds: number; mistakes: number; completed: boolean; attempt_number?: number;
+  time_spent_seconds: number | string; mistakes: number; completed: boolean; attempt_number?: number;
   student_id: string; username: string; full_name_zh?: string; full_name_en?: string; role_codes: string[];
   course_level_id?: string; level_title_i18n?: Record<string, string>; exercise_number?: string;
 }
@@ -37,7 +37,13 @@ const ROLE_LABELS: Record<string, { label: string; className: string }> = {
   COURSE_DESIGNER: { label: "课程设计师", className: "bg-pink-100 text-pink-700" },
 };
 
-function fmtDuration(seconds: number): string {
+function fmtDuration(secondsRaw: number | string): string {
+  // time_spent_seconds 在数据库里是 numeric 类型，pg 这个库处理 numeric
+  // 字段默认会转成字符串返回（避免精度丢失），不是数字——字符串没有
+  // .toFixed() 这个方法，这里先强制转成 Number 再算，不管后端给的是
+  // 字符串还是数字都能处理，比原来那版 Math.round()（隐式转数字，凑巧
+  // 两种类型都能跑）更明确、也更安全。
+  const seconds = Number(secondsRaw) || 0;
   if (seconds < 60) return `${seconds.toFixed(1)}秒`;
   const m = Math.floor(seconds / 60), s = (seconds % 60).toFixed(1);
   return `${m}分${s}秒`;

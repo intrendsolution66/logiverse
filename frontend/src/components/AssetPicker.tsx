@@ -259,7 +259,7 @@ export default function AssetPicker({ category, label, moduleType, onSelect, mul
       <Button type="button" size="sm" variant="outline" onClick={() => { setOpen(true); setTab("library"); }}>
         {label}
       </Button>
-      <Modal open={open} onClose={() => setOpen(false)} title={label} size={tab === "edit" ? "full" : "md"}>
+      <Modal open={open} onClose={() => setOpen(false)} title={label} size={tab === "edit" ? "full" : "md"} modal={false}>
         <div className="space-y-3">
           <div className="flex gap-1.5">
             {([["library", "从素材库选"], ["upload", "上传新文件"], ["edit", "🎨 编辑/制作"]] as const)
@@ -378,3 +378,4 @@ export default function AssetPicker({ category, label, moduleType, onSelect, mul
     </>
   );
 }
+

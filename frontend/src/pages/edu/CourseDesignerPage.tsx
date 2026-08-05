@@ -8,7 +8,7 @@
 // existing scale instead of ad-hoc inline styles.
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, Grid3x3, Link2, Palette, Presentation, Film, Music2, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
+import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { eduApi, lessonsApi, exerciseClassificationApi, taxonomyApi } from "@/api";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
@@ -40,12 +40,14 @@ const MODULE_LABELS: Record<string, { emoji: string; label: string }> = {
   pattern:      { emoji: "🧩", label: "找规律" },
   word_problem: { emoji: "📝", label: "应用题" },
   maze:         { emoji: "🧭", label: "迷宫" },
+  number_maze:  { emoji: "🔀", label: "数字迷宫" },
   sudoku:       { emoji: "🔢", label: "数独" },
   line_match:   { emoji: "🔗", label: "连线配对" },
   coloring:     { emoji: "🎨", label: "填色游戏" },
   ppt_lecture:  { emoji: "📊", label: "PPT讲义" },
   video_lecture:{ emoji: "🎬", label: "视频讲义" },
   play_along:   { emoji: "🎼", label: "跟弹练习" },
+  sticker_game: { emoji: "🏷️", label: "贴纸游戏" },
 };
 
 // 每个游戏类型一个专属色系——像玩具架上的游戏卡带，一眼就能从颜色分辨
@@ -59,12 +61,14 @@ const MODULE_COLORS: Record<string, { bg: string; text: string; ring: string }> 
   pattern:       { bg: "#CCFBF1", text: "#0F766E", ring: "#14B8A6" },
   word_problem:  { bg: "#F1F5F9", text: "#334155", ring: "#64748B" },
   maze:          { bg: "#D1FAE5", text: "#047857", ring: "#10B981" },
+  number_maze:   { bg: "#E0F2FE", text: "#0369A1", ring: "#0EA5E9" },
   sudoku:        { bg: "#E0E7FF", text: "#4338CA", ring: "#6366F1" },
   line_match:    { bg: "#FCE7F3", text: "#BE185D", ring: "#EC4899" },
   coloring:      { bg: "#FFEDD5", text: "#C2410C", ring: "#F97316" },
   ppt_lecture:   { bg: "#F3F4F6", text: "#4B5563", ring: "#9CA3AF" },
   video_lecture: { bg: "#FEE2E2", text: "#B91C1C", ring: "#EF4444" },
   play_along:    { bg: "#FDF4FF", text: "#A21CAF", ring: "#D946EF" },
+  sticker_game:  { bg: "#FEF9C3", text: "#854D0E", ring: "#EAB308" },
 };
 const FALLBACK_COLOR = { bg: "#F1F5F9", text: "#334155", ring: "#94A3B8" };
 
@@ -73,9 +77,9 @@ const FALLBACK_COLOR = { bg: "#F1F5F9", text: "#334155", ring: "#94A3B8" };
 // 已经引入过），保持视觉统一、干净。
 const MODULE_ICONS: Record<string, LucideIcon> = {
   counting: Hash, spot_diff: ScanSearch, focus_tap: Target, memory: Layers,
-  pattern: Puzzle, word_problem: FileText, maze: Route, sudoku: Grid3x3,
+  pattern: Puzzle, word_problem: FileText, maze: Route, number_maze: GitBranch, sudoku: Grid3x3,
   line_match: Link2, coloring: Palette, ppt_lecture: Presentation, video_lecture: Film,
-  play_along: Music2,
+  play_along: Music2, sticker_game: Sticker,
 };
 
 function readAsDataURL(file: File): Promise<string> {
@@ -1593,6 +1597,245 @@ function ColoringRegionDesigner({ bgUrl, setBgUrl, regions, setRegions, maskData
   );
 }
 
+// 数字迷宫——独立的迷宫风格设计器，不共用现有 maze 那套（那套的画布/
+// canvas ref 是直接写死在主组件里的，深度耦合，硬要复用风险比重写一个
+// 简化版还大）。玩法：跟现有迷宫一样沿路径拖着走，但路上有几个"分岔
+// 点"，走到那里要先点对数字选项才能继续往前（选错算一次失误，可以
+// 重选）。这里只管路径+起点终点+分岔点怎么摆、怎么编辑，"选错了会怎样"
+// 这些运行时判定逻辑在 NumberMazeGame.tsx（还没做）。
+interface NumberMazeOption { value: string }
+interface NumberMazeDecisionPoint { id: string; x: number; y: number; options: NumberMazeOption[]; correctIndex: number }
+function NumberMazeDesigner({
+  bgUrl, setBgUrl, maskDataUrl, setMaskDataUrl,
+  start, setStart, end, setEnd,
+  decisionPoints, setDecisionPoints,
+}: {
+  bgUrl: string | null; setBgUrl: (u: string) => void;
+  maskDataUrl: string | null; setMaskDataUrl: (u: string) => void;
+  start: { x: number; y: number } | null; setStart: (p: { x: number; y: number } | null) => void;
+  end: { x: number; y: number } | null; setEnd: (p: { x: number; y: number } | null) => void;
+  decisionPoints: NumberMazeDecisionPoint[]; setDecisionPoints: (d: NumberMazeDecisionPoint[]) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const bgImgRef = useRef<HTMLImageElement | null>(null);
+  const maskCanvasRef = useRef<HTMLCanvasElement | null>(null); // offscreen——累积画的可走路径，跟主画布分开，方便单独导出成mask图
+  const [mode, setMode] = useState<"path" | "erase" | "start" | "end" | "decision">("path");
+  const [brushWidth, setBrushWidth] = useState(36);
+  const paintingRef = useRef(false);
+  const [selectedDecisionId, setSelectedDecisionId] = useState<string | null>(null);
+
+  const redraw = useCallback(() => {
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, GAME_CANVAS_W, GAME_CANVAS_H);
+    ctx.fillStyle = "#eef2f5"; ctx.fillRect(0, 0, GAME_CANVAS_W, GAME_CANVAS_H);
+    if (bgImgRef.current) ctx.drawImage(bgImgRef.current, 0, 0, GAME_CANVAS_W, GAME_CANVAS_H);
+    if (maskCanvasRef.current) {
+      ctx.save(); ctx.globalAlpha = 0.45;
+      ctx.drawImage(maskCanvasRef.current, 0, 0);
+      ctx.restore();
+    }
+    if (start) {
+      ctx.beginPath(); ctx.arc(start.x * GAME_CANVAS_W, start.y * GAME_CANVAS_H, 16, 0, Math.PI * 2);
+      ctx.fillStyle = "#ff7a59"; ctx.fill(); ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+      ctx.font = "bold 14px sans-serif"; ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.fillText("起", start.x * GAME_CANVAS_W, start.y * GAME_CANVAS_H + 5);
+    }
+    if (end) {
+      ctx.beginPath(); ctx.arc(end.x * GAME_CANVAS_W, end.y * GAME_CANVAS_H, 16, 0, Math.PI * 2);
+      ctx.fillStyle = "#2e9e5b"; ctx.fill(); ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+      ctx.font = "bold 14px sans-serif"; ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.fillText("终", end.x * GAME_CANVAS_W, end.y * GAME_CANVAS_H + 5);
+    }
+    decisionPoints.forEach((dp, i) => {
+      const isSel = dp.id === selectedDecisionId;
+      ctx.beginPath(); ctx.arc(dp.x * GAME_CANVAS_W, dp.y * GAME_CANVAS_H, 14, 0, Math.PI * 2);
+      ctx.fillStyle = isSel ? "#5b8def" : "#8b7ae0"; ctx.fill(); ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+      ctx.font = "bold 13px sans-serif"; ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.fillText(String(i + 1), dp.x * GAME_CANVAS_W, dp.y * GAME_CANVAS_H + 4);
+    });
+  }, [start, end, decisionPoints, selectedDecisionId]);
+
+  useEffect(redraw, [redraw, bgUrl]);
+
+  function loadBg(url: string) {
+    const img = new Image();
+    img.onload = () => { bgImgRef.current = img; redraw(); };
+    img.src = url;
+    setBgUrl(url);
+  }
+  async function handleUpload(file: File) {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result as string);
+      fr.onerror = reject;
+      fr.readAsDataURL(file);
+    });
+    loadBg(dataUrl);
+  }
+
+  // 蒙版画布只在组件第一次挂载的时候准备一次——这里特意用空依赖数组，
+  // 只处理"进来编辑已有关卡、maskDataUrl 一开始就有内容"这一种情况，
+  // 之后画笔画的东西都是直接改这个 canvas 本身，不会再重新触发这个
+  // effect，不然画到一半图会被这个 effect 冲掉重置。
+  useEffect(() => {
+    if (!maskCanvasRef.current) {
+      const off = document.createElement("canvas");
+      off.width = GAME_CANVAS_W; off.height = GAME_CANVAS_H;
+      maskCanvasRef.current = off;
+    }
+    if (maskDataUrl) {
+      const img = new Image();
+      img.onload = () => {
+        maskCanvasRef.current!.getContext("2d")!.drawImage(img, 0, 0, GAME_CANVAS_W, GAME_CANVAS_H);
+        redraw();
+      };
+      img.src = maskDataUrl;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function toXY(e: React.PointerEvent<HTMLCanvasElement>) {
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const scaleX = GAME_CANVAS_W / rect.width, scaleY = GAME_CANVAS_H / rect.height;
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+  }
+
+  function paintAt(x: number, y: number) {
+    const ctx = maskCanvasRef.current!.getContext("2d")!;
+    ctx.globalCompositeOperation = mode === "erase" ? "destination-out" : "source-over";
+    ctx.fillStyle = "#4fb06d";
+    ctx.beginPath(); ctx.arc(x, y, brushWidth / 2, 0, Math.PI * 2); ctx.fill();
+    redraw();
+  }
+
+  function commitMask() {
+    setMaskDataUrl(maskCanvasRef.current!.toDataURL("image/png"));
+  }
+
+  function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    const { x, y } = toXY(e);
+    if (mode === "path" || mode === "erase") {
+      paintingRef.current = true;
+      paintAt(x, y);
+    } else if (mode === "start") {
+      setStart({ x: x / GAME_CANVAS_W, y: y / GAME_CANVAS_H });
+    } else if (mode === "end") {
+      setEnd({ x: x / GAME_CANVAS_W, y: y / GAME_CANVAS_H });
+    } else if (mode === "decision") {
+      // 先看点的位置离哪个已有的分岔点够近——够近就选中它（方便回去改
+      // 选项），不够近才新建一个。之前漏了这个判断，导致点画布永远是
+      // 新建，前面建好的分岔点一旦不是"刚建好那一个"就再也点不回去选
+      // 中它、没法回去改选项了。
+      const HIT_R = 20; // 像素半径，跟画出来的圆点大小差不多
+      const hitPoint = decisionPoints.find((d) => Math.hypot(d.x * GAME_CANVAS_W - x, d.y * GAME_CANVAS_H - y) < HIT_R);
+      if (hitPoint) {
+        setSelectedDecisionId(hitPoint.id);
+      } else {
+        const newPoint: NumberMazeDecisionPoint = {
+          id: crypto.randomUUID(), x: x / GAME_CANVAS_W, y: y / GAME_CANVAS_H,
+          options: [{ value: "" }, { value: "" }], correctIndex: 0,
+        };
+        setDecisionPoints([...decisionPoints, newPoint]);
+        setSelectedDecisionId(newPoint.id);
+      }
+    }
+  }
+  function handlePointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!paintingRef.current) return;
+    const { x, y } = toXY(e);
+    paintAt(x, y);
+  }
+  function handlePointerUp() {
+    if (paintingRef.current) { paintingRef.current = false; commitMask(); }
+  }
+
+  const selectedPoint = decisionPoints.find((d) => d.id === selectedDecisionId) ?? null;
+
+  function updateSelectedPoint(patch: Partial<NumberMazeDecisionPoint>) {
+    setDecisionPoints(decisionPoints.map((d) => (d.id === selectedDecisionId ? { ...d, ...patch } : d)));
+  }
+  function updateOption(idx: number, value: string) {
+    if (!selectedPoint) return;
+    const options = selectedPoint.options.map((o, i) => (i === idx ? { value } : o));
+    updateSelectedPoint({ options });
+  }
+  function addOption() {
+    if (!selectedPoint || selectedPoint.options.length >= 4) return;
+    updateSelectedPoint({ options: [...selectedPoint.options, { value: "" }] });
+  }
+  function removeOption(idx: number) {
+    if (!selectedPoint || selectedPoint.options.length <= 2) return;
+    const options = selectedPoint.options.filter((_, i) => i !== idx);
+    const correctIndex = selectedPoint.correctIndex >= options.length ? 0 : selectedPoint.correctIndex;
+    updateSelectedPoint({ options, correctIndex });
+  }
+  function deleteSelectedPoint() {
+    setDecisionPoints(decisionPoints.filter((d) => d.id !== selectedDecisionId));
+    setSelectedDecisionId(null);
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <label className="flex items-center gap-1.5 text-sm">背景图 <input type="file" accept="image/*" className="text-xs" onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])} /></label>
+        <AssetPicker category="background" label="🗂️ 从素材库选" moduleType="number_maze" onSelect={loadBg} />
+      </div>
+
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {([["path", "🖌️ 画路径"], ["erase", "🧹 擦掉路径"], ["start", "🏁 设起点"], ["end", "🏆 设终点"], ["decision", "🔀 加分岔点"]] as const).map(([m, label]) => (
+          <button
+            key={m} type="button" onClick={() => setMode(m)}
+            className={`px-2.5 py-1.5 rounded-md text-xs font-medium border transition-colors ${mode === m ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground"}`}
+          >
+            {label}
+          </button>
+        ))}
+        {(mode === "path" || mode === "erase") && (
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            笔刷 <input type="range" min={12} max={80} value={brushWidth} onChange={(e) => setBrushWidth(+e.target.value)} />
+          </label>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">先上传背景图、画出可走的路径（绿色半透明区域），设好起点终点，再点"🔀 加分岔点"、在画布上点几个要放判断题的位置——每个分岔点在下面可以编辑它的数字选项，选一个标成正确答案。</p>
+
+      <canvas
+        ref={canvasRef} width={GAME_CANVAS_W} height={GAME_CANVAS_H}
+        onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
+        style={{ touchAction: "none" }}
+        className={`w-full h-auto rounded-lg bg-card border border-border ${mode === "path" || mode === "erase" ? "cursor-crosshair" : "cursor-pointer"}`}
+      />
+
+      {selectedPoint && (
+        <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-muted-foreground">分岔点 #{decisionPoints.findIndex((d) => d.id === selectedDecisionId) + 1} 的数字选项</p>
+            <button type="button" onClick={deleteSelectedPoint} className="text-xs text-red-500 hover:text-red-600">删除这个分岔点</button>
+          </div>
+          {selectedPoint.options.map((opt, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input type="radio" checked={selectedPoint.correctIndex === i} onChange={() => updateSelectedPoint({ correctIndex: i })} />
+              <input
+                type="text" value={opt.value} onChange={(e) => updateOption(i, e.target.value)}
+                placeholder={`选项${i + 1}`}
+                className={`flex-1 h-8 text-sm border rounded-md px-2 ${selectedPoint.correctIndex === i ? "border-emerald-400" : "border-border"}`}
+              />
+              {selectedPoint.options.length > 2 && (
+                <button type="button" onClick={() => removeOption(i)} className="text-xs text-muted-foreground hover:text-red-500">✕</button>
+              )}
+            </div>
+          ))}
+          {selectedPoint.options.length < 4 && (
+            <button type="button" onClick={addOption} className="text-xs text-primary hover:underline">+ 加一个选项</button>
+          )}
+          <p className="text-[11px] text-muted-foreground/70">左边打勾的是正确答案——学生走到这个分岔点，要点选项，选中打勾这个才能继续往前走。</p>
+        </div>
+      )}
+
+      <p className="text-xs text-muted-foreground">
+        已画路径 · 起点{start ? "✓" : "未设"} · 终点{end ? "✓" : "未设"} · {decisionPoints.length} 个分岔点
+      </p>
+    </div>
+  );
+}
+
 
 function SudokuCellDesigner({ bgUrl, setBgUrl, cells, setCells }: {
   bgUrl: string | null; setBgUrl: (u: string) => void;
@@ -1873,12 +2116,27 @@ function PlayAlongMarkerEditor({ pages, audioUrl, markers, setMarkers, currentPa
   );
 }
 
-function AddLevelModal({ open, onClose, editingLevelId, onSaved }: {
+// 模块类型的联合类型——单独命名，不要在 moduleType 自己的初始化表达式
+// 里用 typeof moduleType 反过来引用它自己（TS 处理不了这种循环引用，
+// 会报 "implicitly has type any"）。这两个地方（下面 useState 的初始值、
+// presetModuleType 转型）都要用这个命名类型，不要图省事写 typeof。
+type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game";
+
+function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleType }: {
   open: boolean; onClose: () => void; editingLevelId?: string | null; onSaved: () => void;
+  // 从第二层（某个类型的 Activity 列表）点"+ Add Activity"进来的时候，
+  // 类型其实已经在上下文里确定了（就是当前这个列表页的类型），不用再
+  // 让设计师在弹窗里重复选一次——传这个进来，新建时直接预选好，模块
+  // 类型那个下拉框也顺便锁住（逻辑上跟"编辑现有 Activity 时类型锁死
+  // 不能改"是同一件事：类型已经由外部上下文决定了，不该在这个弹窗里
+  // 再改）。
+  presetModuleType?: string | null;
 }) {
 
 
-  const [moduleType, setModuleType] = useState<"counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along">("counting");
+  const [moduleType, setModuleType] = useState<ModuleType>(
+    (presetModuleType as ModuleType) ?? "counting"
+  );
   const [levelTitle, setLevelTitle] = useState("");
   const [explanationText, setExplanationText] = useState("");
   const [hintText, setHintText] = useState("");
@@ -2031,6 +2289,28 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved }: {
   const [sudokuBgUrl, setSudokuBgUrl] = useState<string | null>(null);
   const [sudokuCells, setSudokuCells] = useState<SudokuCellDraft[]>([]);
   const [sudokuDifficulty, setSudokuDifficulty] = useState<"easy" | "medium" | "hard" | "custom">("medium");
+  // "传照片标空格"（旧）vs "自己画网格"（新，SceneEditor 网格图层）——
+  // grid 模式下不需要背景照片，网格本身就是画面；sudokuScene 存
+  // SceneEditor 的 structuredMode 输出，里面的 grids[0] 就是整个数独。
+  const [sudokuLayout, setSudokuLayout] = useState<"photo" | "grid">("photo");
+  const [sudokuScene, setSudokuScene] = useState<StructuredSceneOutput | null>(null);
+
+  // 数字迷宫 fields
+  const [nmBgUrl, setNmBgUrl] = useState<string | null>(null);
+  const [nmMaskDataUrl, setNmMaskDataUrl] = useState<string | null>(null);
+  const [nmStart, setNmStart] = useState<{ x: number; y: number } | null>(null);
+  const [nmEnd, setNmEnd] = useState<{ x: number; y: number } | null>(null);
+  const [nmDecisionPoints, setNmDecisionPoints] = useState<NumberMazeDecisionPoint[]>([]);
+  // "路径分岔"（上面那几个，图3那种房间迷宫） vs "方格棋盘"（图1那种，
+  // 从起点按相邻格子规则跳到终点，靠 SceneEditor 的网格图层 + pathStep
+  // 标记解题路径）——两种玩法都留着，设计师自己选。
+  const [nmLayout, setNmLayout] = useState<"path" | "grid">("path");
+  const [nmScene, setNmScene] = useState<StructuredSceneOutput | null>(null);
+
+  // 贴纸游戏——100%复用 SceneEditor 的自由摆放，物件摆在哪就是"正确
+  // 位置"。运行时会把这些贴纸打乱塞进一个"贴纸盘"，学生要拖回原本
+  // 摆放的位置（在NumberMazeGame等一样，还没做的是运行时组件）。
+  const [stickerScene, setStickerScene] = useState<StructuredSceneOutput | null>(null);
 
   // line_match fields — authored directly. 从"左右一一对应"换成"左右各
   // 自一份物件清单 + 一份明确的连线清单(edges)"，才能支持多对多——一个
@@ -2344,10 +2624,21 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved }: {
   }
   function handleMazePointerUp() { mazePaintingRef.current = false; }
 
+  // 弹窗真正打开的那一刻，重新对一次 moduleType——只在"关闭时重置"不够，
+  // 因为如果弹窗从上一次打开到现在都还没关过（或者根本还没打开过第
+  // 一次），presetModuleType 在这期间可能已经变了（比如用户在没关掉
+  // 弹窗的情况下，换了个类型的列表页），只在关闭那一刻同步的话会漏掉
+  // 这种情况，导致选了"数独"点加号，跳出来的却还是上一次的旧类型。
+  useEffect(() => {
+    if (open && !editingLevelId) {
+      setModuleType((presetModuleType as ModuleType) ?? "counting");
+    }
+  }, [open, editingLevelId, presetModuleType]);
+
   // reset when the modal is closed so re-opening starts fresh
   useEffect(() => {
     if (!open) {
-      setLevelTitle(""); setModuleType("counting");
+      setLevelTitle(""); setModuleType((presetModuleType as ModuleType) ?? "counting");
       setExplanationText(""); setExplanationImageUrl(null); setExplanationVideoUrl("");
       setHintText(""); setAudioUrl(null); setAudioFileName("");
       setSubjectId(""); setCategoryId(""); setCategoryIds([]); setGroupId(""); setCurriculumTypeId("");
@@ -2367,6 +2658,10 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved }: {
       mazeHistoryRef.current = []; setMazeHistoryCount(0);
       mazeMaskCanvasRef.current = null; mazeBgImgRef.current = null; mazeBarrierCanvasRef.current = null;
       setSudokuBgUrl(null); setSudokuCells([]); setSudokuDifficulty("medium");
+      setSudokuLayout("photo"); setSudokuScene(null);
+      setNmBgUrl(null); setNmMaskDataUrl(null); setNmStart(null); setNmEnd(null); setNmDecisionPoints([]);
+      setNmLayout("path"); setNmScene(null);
+      setStickerScene(null);
       setLineMatchLeftItems([{ id: crypto.randomUUID(), type: "text", content: "" }]);
       setLineMatchRightItems([{ id: crypto.randomUUID(), type: "text", content: "" }]);
       setLineMatchEdges([]); setLineMatchConnectFrom(null); setLineMatchShuffleRight(true);
@@ -2486,18 +2781,90 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved }: {
         setWpAnswerMode(((cfg.answer_mode as string) ?? "select") as "select" | "input");
         setTotalQuestions((cfg.total_questions as number) ?? 5);
       } else if (level.module_type === "sudoku") {
-        setSudokuBgUrl((cfg.bg_image_url as string) ?? null);
+        const layout = (cfg.layout as "photo" | "grid") ?? "photo";
+        setSudokuLayout(layout);
         setSudokuDifficulty(((cfg.difficulty as string) ?? "medium") as "easy" | "medium" | "hard" | "custom");
-        // cells come back from getLevel WITHOUT answers on the play side, but
-        // this is the DESIGNER editing their own puzzle — createLevel/
-        // updateLevel's own validation requires every cell to have an
-        // answer, so editing needs the real digits, not the play-side
-        // redacted shape. Re-fetching with answers isn't exposed by a
-        // separate endpoint (deliberately — see checkSudoku's comment on
-        // why), so for now editing a sudoku re-enters cells as blank
-        // placeholders the designer re-types — noted in the UI below.
-        const cells = (cfg.cells as Array<{ x: number; y: number; answer?: number }>) ?? [];
-        setSudokuCells(cells.map((c) => ({ x: c.x, y: c.y, answer: c.answer ? String(c.answer) : "" })));
+        if (layout === "grid") {
+          // 跟 photo 模式一样的限制——getLevel 不会把留空格子的正确答案
+          // 送回来（安全考量，见 checkSudoku 那边的说明），所以重新编辑
+          // grid 模式的数独，留空格子会是空的占位符，设计师要重新打一次
+          // 答案；给定的数字(given_cells)不是要藏的答案，会正常还原。
+          const rows = (cfg.rows as number) ?? 4, cols = (cfg.cols as number) ?? 4;
+          const givenCells = (cfg.given_cells as Array<{ row: number; col: number; value: string }>) ?? [];
+          const blankCells = (cfg.blank_cells as Array<{ row: number; col: number; answer?: string }>) ?? [];
+          const cells: { value: string; blank: boolean; answer?: string }[][] = Array.from({ length: rows }, () =>
+            Array.from({ length: cols }, () => ({ value: "", blank: false }))
+          );
+          givenCells.forEach((c) => { if (cells[c.row]?.[c.col]) cells[c.row][c.col] = { value: c.value, blank: false }; });
+          blankCells.forEach((c) => { if (cells[c.row]?.[c.col]) cells[c.row][c.col] = { value: "", blank: true, answer: c.answer ?? "" }; });
+          setSudokuScene({
+            bgUrl: null, objects: [], texts: [],
+            grids: [{
+              x: GAME_CANVAS_W / 2, y: GAME_CANVAS_H / 2, w: 320, h: 320, rotation: 0,
+              rows, cols, cells,
+              lineColor: (cfg.line_color as string) ?? "#333333",
+              givenColor: (cfg.given_color as string) ?? "#222222",
+              blankBg: (cfg.blank_bg as string) ?? "#fff3d6",
+              bgColor: (cfg.bg_color as string) ?? "#ffffff",
+              bgEnabled: (cfg.bg_enabled as boolean) ?? false,
+              opacity: cfg.opacity as number | undefined,
+            }],
+          });
+        } else {
+          setSudokuBgUrl((cfg.bg_image_url as string) ?? null);
+          // cells come back from getLevel WITHOUT answers on the play side, but
+          // this is the DESIGNER editing their own puzzle — createLevel/
+          // updateLevel's own validation requires every cell to have an
+          // answer, so editing needs the real digits, not the play-side
+          // redacted shape. Re-fetching with answers isn't exposed by a
+          // separate endpoint (deliberately — see checkSudoku's comment on
+          // why), so for now editing a sudoku re-enters cells as blank
+          // placeholders the designer re-types — noted in the UI below.
+          const cells = (cfg.cells as Array<{ x: number; y: number; answer?: number }>) ?? [];
+          setSudokuCells(cells.map((c) => ({ x: c.x, y: c.y, answer: c.answer ? String(c.answer) : "" })));
+        }
+      } else if (level.module_type === "number_maze") {
+        const layout = (cfg.layout as "path" | "grid") ?? "path";
+        setNmLayout(layout);
+        if (layout === "grid") {
+          const rows = (cfg.rows as number) ?? 4, cols = (cfg.cols as number) ?? 4;
+          const cells = (cfg.cells as string[][]) ?? Array.from({ length: rows }, () => Array.from({ length: cols }, () => ""));
+          const path = (cfg.path as Array<{ row: number; col: number }>) ?? [];
+          const gridCells: { value: string; blank: boolean; pathStep?: number }[][] = cells.map((rowArr) => rowArr.map((v) => ({ value: v, blank: false })));
+          path.forEach((p, i) => { if (gridCells[p.row]?.[p.col]) gridCells[p.row][p.col].pathStep = i + 1; });
+          setNmScene({
+            bgUrl: null, objects: [], texts: [],
+            grids: [{
+              x: GAME_CANVAS_W / 2, y: GAME_CANVAS_H / 2, w: 320, h: 320, rotation: 0,
+              rows, cols, cells: gridCells,
+              lineColor: (cfg.line_color as string) ?? "#333333",
+              givenColor: (cfg.given_color as string) ?? "#222222",
+              blankBg: "#fff3d6",
+              bgColor: (cfg.bg_color as string) ?? "#ffffff",
+              bgEnabled: (cfg.bg_enabled as boolean) ?? false,
+              opacity: cfg.opacity as number | undefined,
+            }],
+          });
+        } else {
+          setNmBgUrl((cfg.bg_image_url as string) ?? null);
+          setNmMaskDataUrl((cfg.mask_image_url as string) ?? null);
+          setNmStart((cfg.start as { x: number; y: number }) ?? null);
+          setNmEnd((cfg.end as { x: number; y: number }) ?? null);
+          setNmDecisionPoints((cfg.decision_points as NumberMazeDecisionPoint[]) ?? []);
+        }
+      } else if (level.module_type === "sticker_game") {
+        const objects = (cfg.objects as Array<{ image_url: string; x: number; y: number; w: number; h: number; rotation: number; type?: string; flip_x?: boolean; flip_y?: boolean }>) ?? [];
+        setStickerScene({
+          bgUrl: (cfg.bg_image_url as string) ?? null,
+          objects: objects.map((o) => ({
+            imageUrl: o.image_url,
+            x: o.x * GAME_CANVAS_W, y: o.y * GAME_CANVAS_H,
+            w: o.w, h: o.h, rotation: o.rotation,
+            objectType: o.type ?? "",
+            flipX: o.flip_x ?? false, flipY: o.flip_y ?? false,
+          })),
+          texts: [],
+        });
       } else if (level.module_type === "line_match") {
         const layout = (cfg.layout as "list" | "scene") ?? "list";
         setLineMatchLayout(layout);
@@ -2954,13 +3321,133 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved }: {
             question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
           },
         });
-      } else { // sudoku — authored: a puzzle image + which cells are blank + each one's correct digit
-        if (!sudokuBgUrl) { toast.error("请先上传数独图片"); return; }
-        if (sudokuCells.length === 0) { toast.error("请至少标记1个空格"); return; }
-        if (sudokuCells.some((c) => !c.answer)) { toast.error("每个空格都要填答案（1-9）"); return; }
+      } else if (moduleType === "sudoku") { // authored: a puzzle image + which cells are blank + each one's correct digit
+        if (sudokuLayout === "grid") {
+          const grid = sudokuScene?.grids?.[0];
+          if (!grid) { toast.error("请先在编辑器里画好网格"); return; }
+          const givenCells: Array<{ row: number; col: number; value: string }> = [];
+          const blankCells: Array<{ row: number; col: number; answer: string }> = [];
+          grid.cells.forEach((rowArr, r) => rowArr.forEach((cell, c) => {
+            if (cell.blank) blankCells.push({ row: r, col: c, answer: (cell.answer ?? "").trim() });
+            else if (cell.value.trim()) givenCells.push({ row: r, col: c, value: cell.value.trim() });
+          }));
+          if (blankCells.length === 0) { toast.error("至少要有1个留空的格子给学生填"); return; }
+          if (blankCells.some((c) => !c.answer)) { toast.error("每个留空的格子都要填答案（1-9），点画布上那个格子在右边填"); return; }
+          await saveLevel({
+            module_type: "sudoku",
+            title_i18n: { zh: levelTitle || "数独", en: levelTitle || "Sudoku" },
+            explanation_text: explanationText || undefined,
+            explanation_image_url: explanationImageUrl || undefined,
+            explanation_video_url: explanationVideoUrl || undefined,
+
+            hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+
+            category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+            config: {
+              layout: "grid",
+              rows: grid.rows, cols: grid.cols,
+              given_cells: givenCells, blank_cells: blankCells,
+              line_color: grid.lineColor, given_color: grid.givenColor, blank_bg: grid.blankBg,
+              bg_color: grid.bgColor, bg_enabled: grid.bgEnabled, opacity: grid.opacity,
+              difficulty: sudokuDifficulty,
+              timer_mode: "stopwatch",
+              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+            },
+          });
+        } else {
+          if (!sudokuBgUrl) { toast.error("请先上传数独图片"); return; }
+          if (sudokuCells.length === 0) { toast.error("请至少标记1个空格"); return; }
+          if (sudokuCells.some((c) => !c.answer)) { toast.error("每个空格都要填答案（1-9）"); return; }
+          await saveLevel({
+            module_type: "sudoku",
+            title_i18n: { zh: levelTitle || "数独", en: levelTitle || "Sudoku" },
+            explanation_text: explanationText || undefined,
+            explanation_image_url: explanationImageUrl || undefined,
+            explanation_video_url: explanationVideoUrl || undefined,
+
+            hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+
+            category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+            config: {
+              layout: "photo",
+              bg_image_url: sudokuBgUrl,
+              cells: sudokuCells.map((c) => ({ x: c.x, y: c.y, answer: parseInt(c.answer, 10) })),
+              difficulty: sudokuDifficulty,
+              timer_mode: "stopwatch",
+              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+            },
+          });
+        }
+      } else if (moduleType === "number_maze") { // authored: 判定走client端直接核对，不像数独那样藏答案——这是"休闲游戏"级别的安全模型，跟line_match/迷宫是同一个取舍，不是疏忽
+        if (nmLayout === "grid") {
+          const grid = nmScene?.grids?.[0];
+          if (!grid) { toast.error("请先在编辑器里画好网格、填好数字"); return; }
+          const pathCells: Array<{ row: number; col: number; step: number }> = [];
+          grid.cells.forEach((rowArr, r) => rowArr.forEach((cell, c) => { if (cell.pathStep) pathCells.push({ row: r, col: c, step: cell.pathStep }); }));
+          pathCells.sort((a, b) => a.step - b.step);
+          if (pathCells.length < 2) { toast.error("至少要标2个格子的「路径顺序」，构成从起点到终点的一条路"); return; }
+          // 相邻格子的顺序号必须连续(1,2,3...)且物理位置真的相邻(上下左右差1格)，
+          // 不然运行时没办法判断"从这格能不能走到下一格"——这个校验是为了
+          // 挡住设计师手滑标错、标了两个不相邻的格子当作连续步骤这种情况。
+          for (let i = 0; i < pathCells.length; i++) {
+            if (pathCells[i].step !== i + 1) { toast.error(`路径顺序不连续——缺第 ${i + 1} 步，检查一下有没有编号重复或跳号`); return; }
+            if (i > 0) {
+              const dr = Math.abs(pathCells[i].row - pathCells[i - 1].row), dc = Math.abs(pathCells[i].col - pathCells[i - 1].col);
+              if (dr + dc !== 1) { toast.error(`第 ${i} 步和第 ${i + 1} 步不是相邻的格子（只能上下左右移动一格），检查一下路径顺序标得对不对`); return; }
+            }
+          }
+          await saveLevel({
+            module_type: "number_maze",
+            title_i18n: { zh: levelTitle || "数字迷宫", en: levelTitle || "Number Maze" },
+            explanation_text: explanationText || undefined,
+            explanation_image_url: explanationImageUrl || undefined,
+            explanation_video_url: explanationVideoUrl || undefined,
+
+            hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+
+            category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+            config: {
+              layout: "grid",
+              rows: grid.rows, cols: grid.cols,
+              cells: grid.cells.map((rowArr) => rowArr.map((c) => c.value)),
+              path: pathCells.map((p) => ({ row: p.row, col: p.col })),
+              line_color: grid.lineColor, given_color: grid.givenColor,
+              bg_color: grid.bgColor, bg_enabled: grid.bgEnabled, opacity: grid.opacity,
+              timer_mode: "stopwatch",
+              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+            },
+          });
+        } else {
+          if (!nmBgUrl) { toast.error("请先上传背景图片"); return; }
+          if (!nmMaskDataUrl) { toast.error("请先画出可走的路径"); return; }
+          if (!nmStart || !nmEnd) { toast.error("请设好起点和终点"); return; }
+          if (nmDecisionPoints.some((d) => d.options.some((o) => !o.value.trim()))) { toast.error("每个分岔点的每个选项都要填数字，不能留空"); return; }
+          await saveLevel({
+            module_type: "number_maze",
+            title_i18n: { zh: levelTitle || "数字迷宫", en: levelTitle || "Number Maze" },
+            explanation_text: explanationText || undefined,
+            explanation_image_url: explanationImageUrl || undefined,
+            explanation_video_url: explanationVideoUrl || undefined,
+
+            hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+
+            category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+            config: {
+              layout: "path",
+              bg_image_url: nmBgUrl, mask_image_url: nmMaskDataUrl,
+              start: nmStart, end: nmEnd,
+              decision_points: nmDecisionPoints,
+              timer_mode: "stopwatch",
+              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+            },
+          });
+        }
+      } else if (moduleType === "sticker_game") { // authored: 摆的位置就是"正确答案"，跟counting的custom_scene模式同一个套路，运行时自己会把贴纸打乱塞进贴纸盘
+        if (!stickerScene?.bgUrl) { toast.error("请先选背景图片"); return; }
+        if (stickerScene.objects.length < 1) { toast.error("请至少放1个贴纸"); return; }
         await saveLevel({
-          module_type: "sudoku",
-          title_i18n: { zh: levelTitle || "数独", en: levelTitle || "Sudoku" },
+          module_type: "sticker_game",
+          title_i18n: { zh: levelTitle || "贴纸游戏", en: levelTitle || "Sticker Game" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -2969,13 +3456,17 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved }: {
 
           category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
           config: {
-            bg_image_url: sudokuBgUrl,
-            cells: sudokuCells.map((c) => ({ x: c.x, y: c.y, answer: parseInt(c.answer, 10) })),
-            difficulty: sudokuDifficulty,
+            bg_image_url: stickerScene.bgUrl,
+            objects: stickerScene.objects.map((o) => ({
+              image_url: o.imageUrl, x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H,
+              w: o.w, h: o.h, rotation: o.rotation, type: o.objectType || undefined,
+              flip_x: o.flipX || undefined, flip_y: o.flipY || undefined,
+            })),
             timer_mode: "stopwatch",
             question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
           },
         });
+      } else { // fallback — should be unreachable given the exhaustive branches above, kept only so TS doesn't flag a missing final else
       }
       toast.success(editingLevelId ? "Activity 改好了" : "Activity 加好了");
       onSaved(); onClose();
@@ -3092,7 +3583,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved }: {
                   </div>
                 );
               })()}
-              <select disabled={!!editingLevelId} className={`${SELECT_CLASS} flex-1`} value={moduleType} onChange={(e) => setModuleType(e.target.value as "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along")}>
+              <select disabled={!!editingLevelId || !!presetModuleType} className={`${SELECT_CLASS} flex-1`} value={moduleType} onChange={(e) => setModuleType(e.target.value as ModuleType)}>
                 {Object.entries(MODULE_LABELS).map(([key, { emoji, label }]) => (
                   <option key={key} value={key}>{emoji} {label}</option>
                 ))}
@@ -3636,8 +4127,24 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved }: {
         )}
 
         {moduleType === "sudoku" && (
-          <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3">
-            <label className="flex items-center gap-2 text-sm">难度（标签用，不影响玩法）
+          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Grid3x3 size={16} className="text-primary" /> 数独 · 内容设置
+            </div>
+            <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
+              {(["photo", "grid"] as const).map((m) => (
+                <button
+                  key={m} type="button" onClick={() => setSudokuLayout(m)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    sudokuLayout === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {m === "photo" ? "📷 传照片标空格" : "▦ 自己画网格"}
+                </button>
+              ))}
+            </div>
+
+            <label className="flex items-center gap-2 text-sm pt-1 border-t border-border/60">难度（标签用，不影响玩法）
               <select value={sudokuDifficulty} onChange={(e) => setSudokuDifficulty(e.target.value as "easy" | "medium" | "hard" | "custom")} className={MINI_SELECT_CLASS}>
                 <option value="easy">😊 简单</option>
                 <option value="medium">🙂 中等</option>
@@ -3645,7 +4152,93 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved }: {
                 <option value="custom">🎯 自定义</option>
               </select>
             </label>
-            <SudokuCellDesigner bgUrl={sudokuBgUrl} setBgUrl={setSudokuBgUrl} cells={sudokuCells} setCells={setSudokuCells} />
+
+            {sudokuLayout === "photo" ? (
+              <SudokuCellDesigner bgUrl={sudokuBgUrl} setBgUrl={setSudokuBgUrl} cells={sudokuCells} setCells={setSudokuCells} />
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+                  点左边工具栏的"▦ 加网格"插入格子，点画布上的格子选中它、在右边填数字，勾选"留空给学生填"标出哪些格要学生自己填——不勾的格子直接显示数字给学生看。背景图、物件、画笔这些工具照常能用，可以自由装饰。
+                </p>
+                <SceneEditor
+                  structuredMode presetModuleType="sudoku"
+                  onSaveStructured={setSudokuScene} initial={sudokuScene ?? undefined}
+                />
+                {sudokuScene?.grids?.[0] && (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                    ✓ 网格 {sudokuScene.grids[0].rows}×{sudokuScene.grids[0].cols}，可以点上面"完成"重新调整
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {moduleType === "number_maze" && (
+          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-3 text-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <GitBranch size={16} className="text-primary" /> 数字迷宫 · 内容设置
+            </div>
+            <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
+              {(["path", "grid"] as const).map((m) => (
+                <button
+                  key={m} type="button" onClick={() => setNmLayout(m)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    nmLayout === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {m === "path" ? "🧭 路径分岔（房间迷宫）" : "▦ 方格棋盘（跳格子）"}
+                </button>
+              ))}
+            </div>
+
+            {nmLayout === "path" ? (
+              <>
+                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+                  跟走迷宫玩法基本一样（沿着画好的路径拖着走，碰不到障碍物），多了"分岔点"——学生走到分岔点，要先点对数字选项才能继续往前走，选错算一次失误、可以重选。
+                </p>
+                <NumberMazeDesigner
+                  bgUrl={nmBgUrl} setBgUrl={setNmBgUrl}
+                  maskDataUrl={nmMaskDataUrl} setMaskDataUrl={setNmMaskDataUrl}
+                  start={nmStart} setStart={setNmStart}
+                  end={nmEnd} setEnd={setNmEnd}
+                  decisionPoints={nmDecisionPoints} setDecisionPoints={setNmDecisionPoints}
+                />
+              </>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+                  点"▦ 加网格"插入棋盘，每格填一个数字。再点画布上要走的每一格，在右边"路径顺序"填第几步——起点填1，往后依次+1，一路连到终点（只能填相邻的格子，上下左右，不能斜着跳）。学生玩的时候要照这个顺序，从相邻格子一步步跳过去。
+                </p>
+                <SceneEditor
+                  structuredMode presetModuleType="number_maze"
+                  onSaveStructured={setNmScene} initial={nmScene ?? undefined}
+                />
+                {nmScene?.grids?.[0] && (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                    ✓ 网格 {nmScene.grids[0].rows}×{nmScene.grids[0].cols}，已标 {nmScene.grids[0].cells.flat().filter((c) => c.pathStep).length} 步路径，可以点上面"完成"重新调整
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {moduleType === "sticker_game" && (
+          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-3 text-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Sticker size={16} className="text-primary" /> 贴纸游戏 · 内容设置
+            </div>
+            <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+              选背景图、加贴纸物件（素材库选或直接上传），拖到"正确的位置"摆好——这个位置就是答案。学生玩的时候，这些贴纸会被打乱塞进旁边的贴纸盘，要一个个拖回你摆的这个位置上。
+            </p>
+            <SceneEditor
+              structuredMode presetModuleType="sticker_game"
+              onSaveStructured={setStickerScene} initial={stickerScene ?? undefined}
+            />
+            {stickerScene && (
+              <p className="text-xs text-emerald-600 dark:text-emerald-400">✓ 已摆 {stickerScene.objects.length} 个贴纸，可以点上面"完成"重新调整</p>
+            )}
           </div>
         )}
 
@@ -4150,6 +4743,22 @@ interface ActivityRow {
 }
 
 export default function CourseDesignerPage() {
+  // 两层导航——默认先看模块类型卡片（每种类型一张卡+数量），点进去才是
+  // 该类型底下的 Activity 列表（这个列表页保留原本就有的 search/
+  // subject/topic/sort/分页 全套）。搜索框在两层都在，但含义会变：在
+  // 类型卡片这层输入，会跳过类型直接显示跨类型的搜索结果（不用先猜是
+  // 哪个类型）；进了某个类型的列表页之后，搜索框缩小范围成"在这个类型
+  // 里面搜"。
+  //
+  // 用网址上的 ?type= 记住现在在第二层的哪个类型——不只是好看/能分享
+  // 链接，更重要的是"试玩"从这里点出去之后，播放页那边如果要做"返回"，
+  // 只要导回 /course-designer?type=xxx 这个网址，就能回到正确的第二层，
+  // 不会掉回第一层的类型卡片。
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlType = searchParams.get("type");
+  const [viewMode, setViewMode] = useState<"types" | "list">(urlType ? "list" : "types");
+  const [activeModuleType, setActiveModuleType] = useState<string | null>(urlType);
+
   const [activities, setActivities] = useState<ActivityRow[]>([]);
   const [meta, setMeta] = useState({ page: 1, limit: 20, total: 0, totalPages: 1 });
 
@@ -4167,17 +4776,55 @@ export default function CourseDesignerPage() {
   const [showLevelModal, setShowLevelModal] = useState(false);
   const [editingLevelId, setEditingLevelId] = useState<string | null>(null);
 
+  // 类型卡片上显示的"这个类型有几个 Activity"——是全站准确数字，不是
+  // "本页"这种近似值，所以额外拉一次数据专门算这个，不跟下面分页用的
+  // activities/meta 混在一起。用一个够大的 limit 抓一次（目前平台规模
+  // 下够用）；如果以后 Activity 总数远超这个数字，这里的计数会不准，
+  // 到时候应该改成让后端出一个"按类型分组计数"的专用接口，而不是继续
+  // 加大这个 limit 硬撑。
+  const [typeCounts, setTypeCounts] = useState<Record<string, number> | null>(null);
+  function fetchTypeCounts() {
+    eduApi.listAllActivities({ page: 1, limit: 500 }).then((r) => {
+      const counts: Record<string, number> = {};
+      r.data.forEach((a) => { counts[a.module_type] = (counts[a.module_type] ?? 0) + 1; });
+      setTypeCounts(counts);
+    });
+  }
+  useEffect(() => { if (viewMode === "types" && !search.trim()) fetchTypeCounts(); }, [viewMode, search]);
+
+  // 在类型卡片这层直接搜索——跳过类型，显示跨类型的扁平结果；进了某个
+  // 类型的列表页之后，范围缩小到这个类型里。
+  const showingSearchAcrossTypes = viewMode === "types" && search.trim() !== "";
+  // eduApi.listAllActivities 这个接口本身不支持按 module_type 筛选（试过
+  // 传这个参数，TS 类型都不认，说明后端压根没接这个筛选条件）。所以类型
+  // 列表页这边干脆放弃指望服务器端分页对这个类型准——一次性多抓一批
+  // （用跟类型计数同一个上限），筛出这个类型的，分页交给前端自己切，
+  // 不然"第20条里混着各种类型，筛完剩没几条"会让翻页体验完全不对。
+  // 缺点：这批数据量一旦超过下面这个 FETCH_LIMIT，末尾的会抓不到——
+  // 等以后 Activity 规模真的大到这个量级，就该让后端出一个真的支持
+  // module_type 筛选的接口，而不是继续加大这个上限硬撑。
+  const TYPE_FILTERED_FETCH_LIMIT = 500;
   function refresh() {
+    if (viewMode === "types" && !showingSearchAcrossTypes) return; // 类型卡片层、没在搜索——不用拉 activities
+    const isTypeFiltered = viewMode === "list" && !!activeModuleType;
     eduApi.listAllActivities({
       search: search || undefined,
       subject_id: subjectId || undefined, category_id: categoryId || undefined,
-      sort: sortKey, order: sortOrder, page, limit: PAGE_SIZE,
-    }).then((r) => { setActivities(r.data); setMeta(r.meta); });
+      sort: sortKey, order: sortOrder,
+      page: isTypeFiltered ? 1 : page, limit: isTypeFiltered ? TYPE_FILTERED_FETCH_LIMIT : PAGE_SIZE,
+    }).then((r) => {
+      if (!isTypeFiltered) { setActivities(r.data); setMeta(r.meta); return; }
+      const filtered = r.data.filter((a) => a.module_type === activeModuleType);
+      const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+      const clampedPage = Math.min(page, totalPages);
+      setActivities(filtered.slice((clampedPage - 1) * PAGE_SIZE, clampedPage * PAGE_SIZE));
+      setMeta({ page: clampedPage, limit: PAGE_SIZE, total: filtered.length, totalPages });
+    });
   }
-  useEffect(refresh, [search, subjectId, categoryId, sortKey, sortOrder, page]);
+  useEffect(refresh, [search, subjectId, categoryId, sortKey, sortOrder, page, viewMode, activeModuleType]);
   // 筛选条件一变就跳回第1页——不然筛出来的结果如果比原本停留的页数少，
   // 会出现"明明有资料，画面却空白"的情况
-  useEffect(() => { setPage(1); }, [search, subjectId, categoryId]);
+  useEffect(() => { setPage(1); }, [search, subjectId, categoryId, viewMode, activeModuleType]);
 
   // Subject→Topic 两层级联筛选，跟建 Activity 表单里那组是同一套逻辑，
   // 只是这里是拿来筛选列表，不是拿来决定新 Activity 的分类。
@@ -4188,93 +4835,103 @@ export default function CourseDesignerPage() {
     else setTopics([]);
   }, [subjectId]);
 
+  function openType(mt: string) {
+    setActiveModuleType(mt); setViewMode("list");
+    setSearch(""); setSubjectId(""); setCategoryId(""); setPage(1);
+    setSearchParams({ type: mt });
+  }
+  function backToTypes() {
+    setViewMode("types"); setActiveModuleType(null);
+    setSearch(""); setSubjectId(""); setCategoryId(""); setPage(1);
+    setSearchParams({});
+  }
+
   async function handleDeleteLevel(levelId: string) {
     if (!window.confirm("确定要删除这个 Activity 吗？这个操作没办法撤销。")) return;
     try {
       await eduApi.deleteLevel(levelId);
       toast.success("已删除");
       refresh();
+      if (viewMode === "list") fetchTypeCounts(); // 删完这个类型的数量会变，类型卡片那层的数字要跟着更新
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "删除失败";
       toast.error(msg);
     }
   }
 
-  // 本页各游戏类型分布——只反映当前筛选/当前这一页看到的结果，不是全站
-  // 统计（要做到全站统计得另外开一个后端接口，这次先不做那个，诚实标
-  // 清楚"本页"两个字，不要让人误以为是全站数据）。
-  const typeBreakdown = useMemo(() => {
-    const counts = new Map<string, number>();
-    activities.forEach((a) => counts.set(a.module_type, (counts.get(a.module_type) ?? 0) + 1));
-    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
-  }, [activities]);
+  function handleModalSaved() {
+    refresh();
+    fetchTypeCounts();
+  }
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-16">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Activity 设计管理</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">全平台 Activity，按 Programme / Subject / Topic 搜索、筛选、排序——课程与课时管理、Programme/Subject/Topic 本身的建立，都在各自独立的页面</p>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {viewMode === "types" && !showingSearchAcrossTypes
+              ? "按模块类型分组——先选类型，再看该类型底下的 Activity；也可以直接在下面搜索框打字跳过类型"
+              : "课程与课时管理、Programme/Subject/Topic 本身的建立，都在各自独立的页面"}
+          </p>
         </div>
         <Button size="sm" onClick={() => { setEditingLevelId(null); setShowLevelModal(true); }}>+ Add Activity</Button>
       </div>
 
-      {/* 统计条——总数是全站准确数字（来自meta.total），类型分布只反映当前这一页 */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="rounded-2xl p-4 text-white shadow-sm" style={{ background: "linear-gradient(135deg, #14B8A6, #2563EB)" }}>
-          <div className="text-3xl font-bold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>{meta.total}</div>
-          <div className="text-xs opacity-90 mt-0.5">符合条件的 Activity 总数</div>
+      {viewMode === "list" && (
+        <div className="flex items-center gap-2 text-sm">
+          <button type="button" onClick={backToTypes} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors text-muted-foreground">
+            ← 返回类型
+          </button>
+          {activeModuleType && (() => {
+            const c = MODULE_COLORS[activeModuleType] ?? FALLBACK_COLOR;
+            const Icon = MODULE_ICONS[activeModuleType];
+            return (
+              <span className="inline-flex items-center gap-1.5 font-medium" style={{ color: c.text }}>
+                {Icon ? <Icon size={16} /> : null} {MODULE_LABELS[activeModuleType]?.label ?? activeModuleType}
+              </span>
+            );
+          })()}
         </div>
-        <div className="rounded-2xl p-4 bg-white border border-border shadow-sm">
-          <div className="text-3xl font-bold text-foreground" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>{activities.length}</div>
-          <div className="text-xs text-muted-foreground mt-0.5">本页显示数量</div>
-        </div>
-        <div className="rounded-2xl p-4 bg-white border border-border shadow-sm col-span-2 sm:col-span-2">
-          <div className="text-xs text-muted-foreground mb-1.5">本页游戏类型分布</div>
-          {typeBreakdown.length === 0 ? (
-            <div className="text-xs text-muted-foreground/60">—</div>
-          ) : (
-            <div className="flex flex-wrap gap-1.5">
-              {typeBreakdown.map(([mt, count]) => {
-                const c = MODULE_COLORS[mt] ?? FALLBACK_COLOR;
-                const Icon = MODULE_ICONS[mt];
-                return (
-                  <span key={mt} className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full" style={{ background: c.bg, color: c.text }}>
-                    {Icon ? <Icon size={12} strokeWidth={2.5} /> : null} {count}
-                  </span>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
+      )}
 
       <Card>
         <CardContent className="pt-6 space-y-3">
           <div className="flex flex-wrap gap-2 items-center">
-            <Input placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-[180px] shrink-0" />
-            <select className="h-10 rounded-lg border border-input bg-transparent px-3 text-sm font-medium shadow-sm w-[150px] shrink-0" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
-              <option value="">全部 Subject</option>
-              {subjects.map((s) => <option key={s.id} value={s.id}>{s.name_zh}</option>)}
-            </select>
-            <select className="h-10 rounded-lg border border-input bg-transparent px-3 text-sm font-medium shadow-sm w-[150px] shrink-0 disabled:opacity-50" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} disabled={!subjectId}>
-              <option value="">全部 Topic</option>
-              {topics.map((t) => <option key={t.id} value={t.id}>{t.name_zh}</option>)}
-            </select>
-            <select className="h-10 rounded-lg border border-input bg-transparent px-3 text-sm font-medium shadow-sm w-[140px] shrink-0" value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}>
-              <option value="created_at">按建立时间</option>
-              <option value="activity">按名称</option>
-              <option value="exercise_number">按编号</option>
-              <option value="subject">按 Subject</option>
-              <option value="topic">按 Topic</option>
-            </select>
-            <button
-              type="button" onClick={() => setSortOrder((o) => (o === "asc" ? "desc" : "asc"))}
-              className="h-10 rounded-lg border border-input bg-transparent px-3 text-sm font-medium shadow-sm shrink-0 hover:bg-muted transition-colors"
-              title={sortOrder === "asc" ? "升序" : "降序"}
-            >
-              {sortOrder === "asc" ? "↑ 升序" : "↓ 降序"}
-            </button>
+            <Input
+              placeholder={viewMode === "types" ? "搜 Activity 名称/编号（跨类型直接找）..." : "Search..."}
+              value={search} onChange={(e) => setSearch(e.target.value)} className="w-[220px] shrink-0"
+            />
+            {viewMode === "list" && (
+              <>
+                <select className="h-10 rounded-lg border border-input bg-transparent px-3 text-sm font-medium shadow-sm w-[150px] shrink-0" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+                  <option value="">全部 Subject</option>
+                  {subjects.map((s) => <option key={s.id} value={s.id}>{s.name_zh}</option>)}
+                </select>
+                <select className="h-10 rounded-lg border border-input bg-transparent px-3 text-sm font-medium shadow-sm w-[150px] shrink-0 disabled:opacity-50" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} disabled={!subjectId}>
+                  <option value="">全部 Topic</option>
+                  {topics.map((t) => <option key={t.id} value={t.id}>{t.name_zh}</option>)}
+                </select>
+              </>
+            )}
+            {(viewMode === "list" || showingSearchAcrossTypes) && (
+              <>
+                <select className="h-10 rounded-lg border border-input bg-transparent px-3 text-sm font-medium shadow-sm w-[140px] shrink-0" value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}>
+                  <option value="created_at">按建立时间</option>
+                  <option value="activity">按名称</option>
+                  <option value="exercise_number">按编号</option>
+                  <option value="subject">按 Subject</option>
+                  <option value="topic">按 Topic</option>
+                </select>
+                <button
+                  type="button" onClick={() => setSortOrder((o) => (o === "asc" ? "desc" : "asc"))}
+                  className="h-10 rounded-lg border border-input bg-transparent px-3 text-sm font-medium shadow-sm shrink-0 hover:bg-muted transition-colors"
+                  title={sortOrder === "asc" ? "升序" : "降序"}
+                >
+                  {sortOrder === "asc" ? "↑ 升序" : "↓ 降序"}
+                </button>
+              </>
+            )}
             {(subjectId || categoryId || search) && (
               <Button size="sm" variant="ghost" onClick={() => { setSearch(""); setSubjectId(""); setCategoryId(""); }}>清空筛选</Button>
             )}
@@ -4282,7 +4939,28 @@ export default function CourseDesignerPage() {
         </CardContent>
       </Card>
 
-      {activities.length === 0 ? (
+      {viewMode === "types" && !showingSearchAcrossTypes ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {Object.entries(MODULE_LABELS).map(([mt, { label }]) => {
+            const c = MODULE_COLORS[mt] ?? FALLBACK_COLOR;
+            const Icon = MODULE_ICONS[mt];
+            const count = typeCounts?.[mt] ?? 0;
+            return (
+              <button
+                key={mt} type="button" onClick={() => openType(mt)}
+                className="text-left rounded-2xl bg-white border border-border shadow-sm hover:shadow-md transition-shadow p-4"
+                style={{ borderTopWidth: 4, borderTopColor: c.ring }}
+              >
+                <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-3" style={{ background: c.bg }}>
+                  {Icon ? <Icon size={22} strokeWidth={2} style={{ color: c.text }} /> : null}
+                </div>
+                <p className="font-semibold text-sm">{label}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{typeCounts === null ? "…" : `${count} 个 Activity`}</p>
+              </button>
+            );
+          })}
+        </div>
+      ) : activities.length === 0 ? (
         <Card><CardContent className="pt-6">
           <EmptyState title={search || subjectId ? "没有符合条件的 Activity" : "还没有 Activity"} description={search || subjectId ? "换个搜索词或筛选条件试试" : "点右上角 Add Activity 建第一个"} />
         </CardContent></Card>
@@ -4293,9 +4971,14 @@ export default function CourseDesignerPage() {
             {activities.map((a) => {
               const c = MODULE_COLORS[a.module_type] ?? FALLBACK_COLOR;
               const Icon = MODULE_ICONS[a.module_type];
+              // "返回设计器"用的是浏览器 history.back()，不需要额外带参数——
+              // 点"试玩"之前停留的网址就是 /course-designer?type=xxx（第二
+              // 层状态已经记在网址上了，见上面 openType/backToTypes），
+              // 浏览器返回自然就落回那个网址，第二层状态跟着一起还原。
               const previewHref =
                 a.module_type === "ppt_lecture" ? `/view/ppt?levelId=${a.id}`
                 : a.module_type === "video_lecture" ? `/view/video?levelId=${a.id}`
+                : a.module_type === "play_along" ? `/view/play-along?levelId=${a.id}`
                 : `/play/${a.id}?from=designer`;
               const topicNames = Array.from(new Set(a.topics.map((t) => t.topic_name_zh).filter(Boolean)));
               return (
@@ -4331,7 +5014,7 @@ export default function CourseDesignerPage() {
                     )}
                   </div>
                   <div className="flex items-center border-t border-border divide-x divide-border text-xs font-medium">
-                    <a href={previewHref} target="_blank" rel="noreferrer" className="flex-1 text-center py-2.5 text-primary hover:bg-primary/5 transition-colors">▶ 试玩</a>
+                    <a href={previewHref} className="flex-1 text-center py-2.5 text-primary hover:bg-primary/5 transition-colors">▶ 试玩</a>
                     <button type="button" onClick={() => { setEditingLevelId(a.id); setShowLevelModal(true); }} className="flex-1 text-center py-2.5 text-muted-foreground hover:bg-muted transition-colors">✎ 编辑</button>
                     <button type="button" onClick={() => handleDeleteLevel(a.id)} className="flex-1 text-center py-2.5 text-red-500 hover:bg-red-50 transition-colors">🗑 删除</button>
                   </div>
@@ -4353,9 +5036,9 @@ export default function CourseDesignerPage() {
       <AddLevelModal
         open={showLevelModal} onClose={() => { setShowLevelModal(false); setEditingLevelId(null); }}
         editingLevelId={editingLevelId}
-        onSaved={refresh}
+        presetModuleType={viewMode === "list" ? activeModuleType : null}
+        onSaved={handleModalSaved}
       />
     </div>
   );
 }
-

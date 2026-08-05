@@ -19,26 +19,35 @@ import MemoryGame, { type MemoryConfig, type MemoryResult } from "@/games/Memory
 import PatternGame, { type PatternConfig, type PatternResult } from "@/games/PatternGame";
 import WordProblemGame, { type WordProblemConfig, type WordProblemResult } from "@/games/WordProblemGame";
 import MazeGame, { type MazeConfig, type MazeResult } from "@/games/MazeGame";
+import NumberMazeGame, { type NumberMazeConfig, type NumberMazeResult } from "@/games/NumberMazeGame";
 import SudokuGame, { type SudokuConfig, type SudokuResult } from "@/games/SudokuGame";
 import LineMatchGame, { type LineMatchConfig, type LineMatchResult } from "@/games/LineMatchGame";
 import ColoringGame, { type ColoringConfig, type ColoringResult } from "@/games/ColoringGame";
+import StickerGame, { type StickerGameConfig, type StickerGameResult } from "@/games/StickerGame";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { PptReader } from "@/components/PptReader";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import toast from "react-hot-toast";
 
-type GameResult = CountingResult | SpotDiffResult | FocusTapResult | MemoryResult | PatternResult | WordProblemResult | MazeResult | SudokuResult | LineMatchResult | ColoringResult;
+type GameResult = CountingResult | SpotDiffResult | FocusTapResult | MemoryResult | PatternResult | WordProblemResult | MazeResult | NumberMazeResult | SudokuResult | LineMatchResult | ColoringResult | StickerGameResult;
 
 export default function LevelPlayerPage() {
   const { levelId } = useParams<{ levelId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  // "试玩"是课程设计器里开新分页打开的（target="_blank" + rel="noreferrer"），
-  // 这个新分页自己的浏览器历史是空的，没有"上一页"可以退，脚本也没办法
-  // 关掉不是自己打开的分页（浏览器的安全限制）——所以退出该去哪，没办法
-  // 靠"返回上一页"这种通用逻辑自动判断，只能靠链接自己带一个标记过来。
-  const exitTo = searchParams.get("from") === "designer" ? "/course-designer" : "/home";
+  // "试玩"现在是同一个分页内跳转过来的（课程设计器那边已经拿掉了
+  // target="_blank"），所以真的有"上一页"能退——直接用浏览器历史返回，
+  // 会自然带回点"试玩"之前的那个网址（比如 /course-designer?type=maze，
+  // 设计器那边把第二层状态记在网址上了，退回去状态也跟着还原，不用
+  // 这里额外传参数）。history.length<=1 这种情况（比如有人直接把这个
+  // 播放链接分享出去、没有从站内导航过来）没有上一页可退，才退回首页
+  // 兜底——跟 PptViewerPage/VideoViewerPage 那几个播放页是同一个逻辑。
+  function goBack() {
+    if (window.history.length > 1) { navigate(-1); return; }
+    navigate("/home");
+  }
+  const cameFromDesigner = searchParams.get("from") === "designer";
   const [level, setLevel] = useState<{
     module_type: string; title_i18n?: Record<string,string>; config: Record<string, unknown>;
     explanation_text?: string; explanation_image_url?: string; explanation_video_url?: string;
@@ -94,7 +103,7 @@ export default function LevelPlayerPage() {
   if (loading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">加载中...</div>;
   if (!level) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">找不到这个 Activity</div>;
 
-  const KNOWN_GAME_MODULES = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "sudoku", "line_match", "coloring"];
+  const KNOWN_GAME_MODULES = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "sticker_game"];
   const isLecture = level.module_type === "video_lecture" || level.module_type === "ppt_lecture";
   const isKnown = KNOWN_GAME_MODULES.includes(level.module_type) || isLecture;
   const config = level.config as { video_url?: string; slide_image_urls?: string[] };
@@ -104,7 +113,7 @@ export default function LevelPlayerPage() {
       <div className="max-w-6xl w-full mx-auto px-4 py-6">
         <div className="mb-4 flex items-center justify-between">
           <h1 className="text-xl font-bold text-[#0B1526]">{level.title_i18n?.zh ?? level.title_i18n?.en ?? "Activity"}</h1>
-          <Button variant="ghost" size="sm" onClick={() => navigate(exitTo)}>{exitTo === "/course-designer" ? "← 返回设计器" : "返回"}</Button>
+          <Button variant="ghost" size="sm" onClick={goBack}>{cameFromDesigner ? "← 返回设计器" : "返回"}</Button>
         </div>
 
         {/* 提示栏 */}
@@ -133,9 +142,11 @@ export default function LevelPlayerPage() {
           {level.module_type === "pattern" && <PatternGame config={level.config as unknown as PatternConfig} onComplete={handleComplete} />}
           {level.module_type === "word_problem" && levelId && <WordProblemGame levelId={levelId} config={level.config as unknown as WordProblemConfig} onComplete={handleComplete} />}
           {level.module_type === "maze" && <MazeGame config={level.config as unknown as MazeConfig} onComplete={handleComplete} />}
+          {level.module_type === "number_maze" && <NumberMazeGame config={level.config as unknown as NumberMazeConfig} onComplete={handleComplete} />}
           {level.module_type === "sudoku" && levelId && <SudokuGame levelId={levelId} config={level.config as unknown as SudokuConfig} onComplete={handleComplete} />}
           {level.module_type === "line_match" && levelId && <LineMatchGame levelId={levelId} config={level.config as unknown as LineMatchConfig} onComplete={handleComplete} />}
           {level.module_type === "coloring" && levelId && <ColoringGame levelId={levelId} config={level.config as unknown as ColoringConfig} onComplete={handleComplete} />}
+          {level.module_type === "sticker_game" && <StickerGame config={level.config as unknown as StickerGameConfig} onComplete={handleComplete} />}
 
           {level.module_type === "video_lecture" && (
             <VideoPlayer src={config.video_url ?? ""} onProgress={(sec, dur, completed) => handleLectureProgress(sec, dur, completed)} />
@@ -156,7 +167,7 @@ export default function LevelPlayerPage() {
             {(level.explanation_text || level.explanation_image_url || level.explanation_video_url) && (
               <Button variant="outline" onClick={() => setShowExplanation(true)}>📖 查看讲解</Button>
             )}
-            <Button onClick={() => navigate(exitTo)}>{exitTo === "/course-designer" ? "← 返回设计器" : "回首页"}</Button>
+            <Button onClick={goBack}>{cameFromDesigner ? "← 返回设计器" : "回首页"}</Button>
           </div>
         )}
 
