@@ -21,7 +21,7 @@ services:
       # 直接填容器名 postgres（不是IP、不是localhost），Docker 自己的
       # 内部DNS会把这个名字解析到正确的容器。
       - DATABASE_URL=postgresql://logiverse_user:Intrend1675@postgres:5432/logiverse
-      - JWT_SECRET=换成一串随便打的长字符（生产环境不要用弱密码/默认值）
+      - JWT_SECRET=x7k9mQ2pL5vN8rT3wY6zA1cF4hJ0sD9bE
       - PORT=4000
       - NODE_ENV=production
     volumes:
