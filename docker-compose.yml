@@ -20,8 +20,8 @@ services:
       # DB_PASSWORD/DB_NAME 这种，把下面这行拆开改成对应的。host 那段
       # 直接填容器名 postgres（不是IP、不是localhost），Docker 自己的
       # 内部DNS会把这个名字解析到正确的容器。
-      - DATABASE_URL=postgresql://logiverse_user:Intrend1675@postgres:5432/logiverse
-      - JWT_SECRET=x7k9mQ2pL5vN8rT3wY6zA1cF4hJ0sD9bE
+      - DATABASE_URL=postgresql://logiverse_user:改成你的密码@postgres:5432/logiverse
+      - JWT_SECRET=换成一串随便打的长字符（生产环境不要用弱密码/默认值）
       - PORT=4000
       - NODE_ENV=production
     volumes:
@@ -39,7 +39,7 @@ services:
         # 局域网内其它设备(手机等)要访问，这里必须填服务器的局域网IP，
         # 不能填 localhost——填 localhost 的话，手机打开网页去请求
         # localhost:4000，手机自己都没有在跑后端，请求会失败
-        VITE_API_URL: http://192.168.0.5:4001/api/v1
+        VITE_API_URL: https://api-logiverse.mybriw.com/api/v1
     ports:
       - "8080:80"   # 外面用8080，80被 Nginx Proxy Manager 占了
     restart: unless-stopped
