@@ -12,7 +12,7 @@ services:
       context: ./backend
       dockerfile: ../deploy/backend.Dockerfile   # 如果把 Dockerfile 直接放进 backend/ 目录里，这行删掉改成默认的就行
     ports:
-      - "4001:4000"
+      - "4001:4000"   # 外面用4001，容器内部还是4000（不用改后端代码）——4000被另一个relay-server进程占了
     environment:
       # ⚠️ 下面这几个变量名是我猜的常见写法，务必对照你本地开发用的那份
       # .env（跑 npm run dev 那个，backend/.env）核实实际的变量名——如果
@@ -39,9 +39,9 @@ services:
         # 局域网内其它设备(手机等)要访问，这里必须填服务器的局域网IP，
         # 不能填 localhost——填 localhost 的话，手机打开网页去请求
         # localhost:4000，手机自己都没有在跑后端，请求会失败
-        VITE_API_URL: http://192.168.0.5:4000/api/v1
+        VITE_API_URL: http://192.168.0.5:4001/api/v1
     ports:
-      - "80:80"
+      - "8080:80"   # 外面用8080，80被 Nginx Proxy Manager 占了
     restart: unless-stopped
     depends_on:
       - backend
