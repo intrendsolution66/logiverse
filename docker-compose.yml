@@ -12,7 +12,7 @@ services:
       context: ./backend
       dockerfile: ../deploy/backend.Dockerfile   # 如果把 Dockerfile 直接放进 backend/ 目录里，这行删掉改成默认的就行
     ports:
-      - "4000:4000"
+      - "4001:4000"
     environment:
       # ⚠️ 下面这几个变量名是我猜的常见写法，务必对照你本地开发用的那份
       # .env（跑 npm run dev 那个，backend/.env）核实实际的变量名——如果
