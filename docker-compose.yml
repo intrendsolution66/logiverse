@@ -1,0 +1,54 @@
+# docker-compose.yml
+#
+# Postgres 是另一个 docker-compose 项目(jc21/nginx-proxy-manager那一套)
+# 起的容器，在它自己的网络 postgres_default 上——不用碰宿主机的
+# pg_hba.conf 那些，直接让 backend 容器加入这个已经存在的网络，用容器名
+# "postgres" 当地址连，比连宿主机 IP/host.docker.internal 更干净可靠
+# （不依赖端口有没有对外开放，网络内部直接容器名互通）。
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../deploy/backend.Dockerfile   # 如果把 Dockerfile 直接放进 backend/ 目录里，这行删掉改成默认的就行
+    ports:
+      - "4000:4000"
+    environment:
+      # ⚠️ 下面这几个变量名是我猜的常见写法，务必对照你本地开发用的那份
+      # .env（跑 npm run dev 那个，backend/.env）核实实际的变量名——如果
+      # 你后端代码里用的不是 DATABASE_URL 而是分开的 DB_HOST/DB_USER/
+      # DB_PASSWORD/DB_NAME 这种，把下面这行拆开改成对应的。host 那段
+      # 直接填容器名 postgres（不是IP、不是localhost），Docker 自己的
+      # 内部DNS会把这个名字解析到正确的容器。
+      - DATABASE_URL=postgresql://logiverse_user:改成你的密码@postgres:5432/logiverse
+      - JWT_SECRET=换成一串随便打的长字符（生产环境不要用弱密码/默认值）
+      - PORT=4000
+      - NODE_ENV=production
+    volumes:
+      - uploads_data:/app/uploads
+    networks:
+      - default          # backend<->frontend自己这个项目内部用的网络（compose自动建的）
+      - postgres_default  # 加入已经存在的postgres网络，才能用容器名连到它
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../deploy/frontend.Dockerfile
+      args:
+        # 局域网内其它设备(手机等)要访问，这里必须填服务器的局域网IP，
+        # 不能填 localhost——填 localhost 的话，手机打开网页去请求
+        # localhost:4000，手机自己都没有在跑后端，请求会失败
+        VITE_API_URL: http://192.168.0.5:4000/api/v1
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+networks:
+  postgres_default:
+    external: true  # 不是这份compose自己建的，是postgres那个项目已经建好的，标成external让compose去"接上"而不是"新建一个同名的"
+
+volumes:
+  uploads_data:
