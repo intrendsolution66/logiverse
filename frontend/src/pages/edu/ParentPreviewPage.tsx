@@ -26,7 +26,7 @@ import { Button } from "@/components/ui/button";
 import { PlayCircle, Video, FileText, Puzzle } from "lucide-react";
 
 interface Programme { id: string; name_zh: string; name_en?: string }
-interface Subject { id: string; name_zh: string; programme_id: string }
+interface Subject { id: string; name_zh: string; programme_id?: string }
 interface GradeTier { id: string; code: string; name_i18n?: { zh?: string; en?: string } }
 interface Topic {
   id: string; name_zh: string; name_en?: string;

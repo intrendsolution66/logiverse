@@ -41,7 +41,7 @@ function SortHeader({ label, active, order, onClick }: { label: string; active: 
 
 export default function TopicBrowserPage() {
   const [programmes, setProgrammes] = useState<Array<{ id: string; code: string; name_zh: string; name_en?: string }>>([]);
-  const [subjects, setSubjects] = useState<Array<{ id: string; programme_id: string; code: string; name_zh: string; name_en?: string }>>([]);
+  const [subjects, setSubjects] = useState<Array<{ id: string; programme_id?: string; code: string; name_zh: string; name_en?: string }>>([]);
   const [topics, setTopics] = useState<Array<{ id: string; code: string; name_zh: string; name_en?: string; prefix: string; subject_id?: string }>>([]);
   const [programmeId, setProgrammeId] = useState("");
   const [subjectId, setSubjectId] = useState("");
