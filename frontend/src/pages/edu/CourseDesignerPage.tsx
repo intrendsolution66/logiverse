@@ -4087,12 +4087,17 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
                       <div className="flex items-center gap-4 flex-wrap pt-1">
                         <label className="flex items-center gap-1.5 text-xs text-muted-foreground">笔刷宽度
                           <input
-                            type="range" min={2} max={50} value={mazeBrushWidth}
+                            type="range" min={8} max={50} value={mazeBrushWidth}
                             onChange={(e) => setMazeBrushWidth(+e.target.value)}
                             className="w-24"
                           />
                           <span className="w-6 text-right">{mazeBrushWidth}</span>
                         </label>
+                        {mazeTool === "erase" && (
+                          <span className="text-xs text-amber-600" title="墙（没画到/被擦掉的部分）太细的话，游戏里球可能会直接穿过去——两条路径之间留的间隔建议不要小于笔刷宽度本身">
+                            💡 两条路径中间留的墙要够宽，太细容易被穿过
+                          </span>
+                        )}
                         {mazeTool === "paint" && (
                           <label className="flex items-center gap-1.5 text-xs text-muted-foreground" title="只是方便看清楚画了哪里，颜色本身不影响走不走得通">画笔颜色
                             <input type="color" value={mazePaintColor} onChange={(e) => setMazePaintColor(e.target.value)} className="w-7 h-7 rounded border border-border cursor-pointer p-0.5" />
