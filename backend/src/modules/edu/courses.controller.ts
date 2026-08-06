@@ -1252,6 +1252,73 @@ export async function listMyProgress(req: AuthRequest, res: Response): Promise<v
   } catch (err) { serverError(res, err); }
 }
 
+// ── 排行榜（全平台）──────────────────────────────────────────────────────────
+// 每个学生在这个 Activity 上玩过好几次（progress_records 每次都插入新行，
+// 见 submitProgress），排行榜按"每个学生自己的历史最佳一次"参与排名——
+// 不是每次尝试都占一个名次，不然刷分/多玩几次的人会把榜单刷满，失去
+// 排行榜的意义。排序依据：分数高优先，同分再比用时短优先（跟课程设计
+// 那边确认过的规则）。
+// 因为 Phase 1 还没有"assignment/班级"概念（见文件开头注释），这里就是
+// 名副其实的"全平台"——不按班级/课程分开。
+export async function getLevelLeaderboard(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { levelId } = req.params;
+    const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "20"), 10) || 20));
+
+    const { rows: ranked } = await query(
+      `WITH best_per_student AS (
+         SELECT DISTINCT ON (pr.student_id)
+           pr.student_id, pr.score, pr.max_score, pr.time_spent_seconds, pr.mistakes, pr.completed, pr.played_at
+         FROM edu.progress_records pr
+         WHERE pr.course_level_id = $1 AND pr.score IS NOT NULL
+         ORDER BY pr.student_id, pr.score DESC, pr.time_spent_seconds ASC NULLS LAST, pr.played_at ASC
+       )
+       SELECT bp.student_id, u.username, p.full_name_zh, p.full_name_en,
+              bp.score, bp.max_score, bp.time_spent_seconds, bp.mistakes, bp.completed, bp.played_at,
+              RANK() OVER (ORDER BY bp.score DESC, bp.time_spent_seconds ASC NULLS LAST) AS rank
+       FROM best_per_student bp
+       JOIN auth.users u ON u.id = bp.student_id
+       LEFT JOIN auth.user_profiles p ON p.user_id = u.id
+       ORDER BY rank ASC`,
+      [levelId]
+    );
+
+    const myEntry = ranked.find((r) => r.student_id === req.user!.sub) ?? null;
+    ok(res, { entries: ranked.slice(0, limit), my_rank: myEntry?.rank ?? null, total_players: ranked.length });
+  } catch (err) { serverError(res, err); }
+}
+
+// ── 我的记录（单个 Activity）─────────────────────────────────────────────────
+// 历史最佳一次 + 最近的完整历史列表，两者都要（跟课程设计那边确认过）。
+// "最佳"跟排行榜用同一套排序规则（分数高优先，同分比用时），这样两处
+// 显示的"最佳成绩"是同一个数字，不会前后矛盾。
+export async function getMyLevelRecords(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { levelId } = req.params;
+
+    const { rows: bestRows } = await query(
+      `SELECT score, max_score, time_spent_seconds, mistakes, completed, attempt_number, played_at
+       FROM edu.progress_records
+       WHERE student_id = $1 AND course_level_id = $2 AND score IS NOT NULL
+       ORDER BY score DESC, time_spent_seconds ASC NULLS LAST, played_at ASC
+       LIMIT 1`,
+      [req.user!.sub, levelId]
+    );
+
+    const { rows: historyRows } = await query(
+      `SELECT id, score, max_score, time_spent_seconds, mistakes, completed, attempt_number, played_at
+       FROM edu.progress_records
+       WHERE student_id = $1 AND course_level_id = $2
+       ORDER BY played_at DESC
+       LIMIT 20`,
+      [req.user!.sub, levelId]
+    );
+
+    ok(res, { best: bestRows[0] ?? null, history: historyRows });
+  } catch (err) { serverError(res, err); }
+}
+
+
 // operator 专用——全平台的学习记录总览，不像 listMyProgress(只能看自己)、
 // getChildProgress(家长只能看自己孩子)、getClassProgress(老师只能看自己
 // 班级) 那样受限于"是谁在查"，这里可以查任何学生、任何 Activity、任何

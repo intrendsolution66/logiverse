@@ -518,6 +518,25 @@ export const eduApi = {
     time_spent_seconds: number; mistakes: number; completed: boolean; extra_data?: object;
   }) => api.post(`/levels/${levelId}/progress`, b),
   myProgress: () => api.get("/progress/me").then(d<unknown[]>),
+  // 排行榜——全平台，每个学生只取自己的历史最佳一次参与排名（分数高
+  // 优先，同分比用时短优先）。my_rank 是当前登录者在这个 Activity 的
+  // 名次，即使名次不在 entries（top N）范围内也会算出来，不用另外再查。
+  getLevelLeaderboard: (levelId: string, limit?: number) =>
+    api.get(`/levels/${levelId}/leaderboard`, { params: limit ? { limit } : {} }).then(d<{
+      entries: Array<{
+        student_id: string; username: string; full_name_zh?: string; full_name_en?: string;
+        score: number; max_score: number; time_spent_seconds: number; mistakes: number; completed: boolean;
+        played_at: string; rank: number;
+      }>;
+      my_rank: number | null;
+      total_players: number;
+    }>),
+  // 自己的记录——历史最佳一次 + 最近20次的完整历史列表
+  getMyLevelRecords: (levelId: string) =>
+    api.get(`/levels/${levelId}/my-records`).then(d<{
+      best: { score: number; max_score: number; time_spent_seconds: number; mistakes: number; completed: boolean; attempt_number: number; played_at: string } | null;
+      history: Array<{ id: string; score: number; max_score: number; time_spent_seconds: number; mistakes: number; completed: boolean; attempt_number: number; played_at: string }>;
+    }>),
 
   // ── 家长预览 (订阅前，按课程分组的版本——目前前端还没接，先留着) ──────────
   listParentPreviewCourses: () => api.get("/parent-preview/courses").then(d<Array<{

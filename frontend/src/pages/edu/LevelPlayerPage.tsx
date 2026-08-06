@@ -60,6 +60,25 @@ export default function LevelPlayerPage() {
   const [audioPlaying, setAudioPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // 游戏类模块（不含讲义）的三段式生命周期——待机(没按开始，游戏组件根本
+  // 没挂载，不会跑任何计时器/交互) → 进行中(按了开始，游戏组件才真正
+  // mount) → 已结束(游戏内部自己的onComplete触发，但不自动退出，
+  // 停在这里等用户按"重玩"或"退出")。
+  // playKey 只在"重玩"时才 +1——靠改变 key 让 React 把游戏组件整个卸载
+  // 重新挂载，组件内部所有 useState 初始值重新跑一遍，等同全新开局，
+  // 不需要动任何一个游戏组件内部的代码。
+  const [playState, setPlayState] = useState<"idle" | "playing" | "finished">("idle");
+  const [playKey, setPlayKey] = useState(0);
+
+  // 切换到不同的 Activity（比如设计器里连续试玩了好几个）要整个重置，
+  // 不然会带着上一个 Activity 的"已结束"状态进到新的这个。
+  useEffect(() => {
+    setPlayState("idle");
+    setPlayKey(0);
+    setResult(null);
+    setLectureDone(false);
+  }, [levelId]);
+
   function toggleAudio() {
     const el = audioRef.current;
     if (!el) return;
@@ -76,6 +95,7 @@ export default function LevelPlayerPage() {
 
   async function handleComplete(r: GameResult) {
     setResult(r);
+    setPlayState("finished"); // 游戏内部自己判定完成，这里只是同步外层状态，不做任何跳转
     if (!levelId || !level) return;
     try {
       await eduApi.submitProgress(levelId, {
@@ -84,6 +104,46 @@ export default function LevelPlayerPage() {
       });
       toast.success("成绩已记录！");
     } catch { toast.error("成绩记录失败（网络问题），可以再试一次"); }
+  }
+
+  function handleStart() {
+    setPlayState("playing");
+  }
+
+  function handleReplay() {
+    setResult(null);
+    setPlayState("playing"); // 重玩直接重新开始，不用再经过待机封面
+    setPlayKey((k) => k + 1); // 换 key → 游戏组件整个重新挂载 → 全新开局
+  }
+
+  // ── 排行榜 / 自己的记录——都是打开弹窗那一刻才拉数据(懒加载)，不是一
+  // 进页面就查，游戏还没玩之前这两份数据用户大概率不会点开看，没必要
+  // 抢在最需要马上出结果的游戏加载之前占带宽。每次点开都重新拉一次，
+  // 所以"重玩"完再点开，看到的就是包含刚刚这一次在内的最新数据，不用
+  // 额外写"完成后主动刷新"这一段逻辑。
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showMyRecords, setShowMyRecords] = useState(false);
+  const [leaderboard, setLeaderboard] = useState<Awaited<ReturnType<typeof eduApi.getLevelLeaderboard>> | null>(null);
+  const [myRecords, setMyRecords] = useState<Awaited<ReturnType<typeof eduApi.getMyLevelRecords>> | null>(null);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [myRecordsLoading, setMyRecordsLoading] = useState(false);
+
+  async function openLeaderboard() {
+    setShowLeaderboard(true);
+    if (!levelId) return;
+    setLeaderboardLoading(true);
+    try { setLeaderboard(await eduApi.getLevelLeaderboard(levelId)); }
+    catch { toast.error("排行榜加载失败"); }
+    finally { setLeaderboardLoading(false); }
+  }
+
+  async function openMyRecords() {
+    setShowMyRecords(true);
+    if (!levelId) return;
+    setMyRecordsLoading(true);
+    try { setMyRecords(await eduApi.getMyLevelRecords(levelId)); }
+    catch { toast.error("记录加载失败"); }
+    finally { setMyRecordsLoading(false); }
   }
 
   async function handleLectureProgress(secondsWatchedOrIndex: number, durationOrTotal: number, completed: boolean) {
@@ -106,14 +166,34 @@ export default function LevelPlayerPage() {
   const KNOWN_GAME_MODULES = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "sticker_game"];
   const isLecture = level.module_type === "video_lecture" || level.module_type === "ppt_lecture";
   const isKnown = KNOWN_GAME_MODULES.includes(level.module_type) || isLecture;
+  // 只有真正的"游戏"套待机/开始/重玩/退出这套流程——讲义(video/ppt)
+  // 本身就有自己的播放条(暂停/进度条/翻页)，硬套一层"按开始才能看"的
+  // 封面只会多一次没必要的点击，不套用这套状态机。
+  const isGameModule = KNOWN_GAME_MODULES.includes(level.module_type);
   const config = level.config as { video_url?: string; slide_image_urls?: string[] };
 
   return (
     <div className="min-h-screen bg-[#F4F6FA]">
       <div className="max-w-6xl w-full mx-auto px-4 py-6">
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex items-center justify-between flex-wrap gap-2">
           <h1 className="text-xl font-bold text-[#0B1526]">{level.title_i18n?.zh ?? level.title_i18n?.en ?? "Activity"}</h1>
-          <Button variant="ghost" size="sm" onClick={goBack}>{cameFromDesigner ? "← 返回设计器" : "返回"}</Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {isGameModule && (
+              <>
+                <Button variant="outline" size="sm" onClick={openMyRecords}>📊 自己记录</Button>
+                <Button variant="outline" size="sm" onClick={openLeaderboard}>🏆 排行榜</Button>
+              </>
+            )}
+            {isGameModule && playState !== "idle" && (
+              <>
+                <Button variant="outline" size="sm" onClick={handleReplay}>🔄 重玩</Button>
+                <Button variant="outline" size="sm" onClick={goBack}>🚪 退出</Button>
+              </>
+            )}
+            {!(isGameModule && playState !== "idle") && (
+              <Button variant="ghost" size="sm" onClick={goBack}>{cameFromDesigner ? "← 返回设计器" : "返回"}</Button>
+            )}
+          </div>
         </div>
 
         {/* 提示栏 */}
@@ -135,39 +215,63 @@ export default function LevelPlayerPage() {
         )}
 
         <div className="bg-white rounded-2xl border border-border p-6">
-          {level.module_type === "counting" && <CountingGame config={level.config as unknown as CountingConfig} onComplete={handleComplete} />}
-          {level.module_type === "spot_diff" && <SpotDiffGame config={level.config as unknown as SpotDiffConfig} onComplete={handleComplete} />}
-          {level.module_type === "focus_tap" && <FocusTapGame config={level.config as unknown as FocusTapConfig} onComplete={handleComplete} />}
-          {level.module_type === "memory" && <MemoryGame config={level.config as unknown as MemoryConfig} onComplete={handleComplete} />}
-          {level.module_type === "pattern" && <PatternGame config={level.config as unknown as PatternConfig} onComplete={handleComplete} />}
-          {level.module_type === "word_problem" && levelId && <WordProblemGame levelId={levelId} config={level.config as unknown as WordProblemConfig} onComplete={handleComplete} />}
-          {level.module_type === "maze" && <MazeGame config={level.config as unknown as MazeConfig} onComplete={handleComplete} />}
-          {level.module_type === "number_maze" && <NumberMazeGame config={level.config as unknown as NumberMazeConfig} onComplete={handleComplete} />}
-          {level.module_type === "sudoku" && levelId && <SudokuGame levelId={levelId} config={level.config as unknown as SudokuConfig} onComplete={handleComplete} />}
-          {level.module_type === "line_match" && levelId && <LineMatchGame levelId={levelId} config={level.config as unknown as LineMatchConfig} onComplete={handleComplete} />}
-          {level.module_type === "coloring" && levelId && <ColoringGame levelId={levelId} config={level.config as unknown as ColoringConfig} onComplete={handleComplete} />}
-          {level.module_type === "sticker_game" && <StickerGame config={level.config as unknown as StickerGameConfig} onComplete={handleComplete} />}
-
-          {level.module_type === "video_lecture" && (
-            <VideoPlayer src={config.video_url ?? ""} onProgress={(sec, dur, completed) => handleLectureProgress(sec, dur, completed)} />
-          )}
-          {level.module_type === "ppt_lecture" && (
-            <PptReader slideUrls={config.slide_image_urls ?? []} onProgress={(idx, total, completed) => handleLectureProgress(idx, total, completed)} />
-          )}
-
-          {!isKnown && (
-            <div className="text-center text-muted-foreground p-6">
-              这个模块类型（{level.module_type}）还没有对应的引擎组件——Phase 2 会陆续补上。
+          {/* 待机封面——游戏组件在这个状态下压根没挂载，不会跑任何计时器
+              或交互，按"开始"之后才真正 mount 下面对应的游戏组件 */}
+          {isGameModule && playState === "idle" && (
+            <div className="text-center py-16 space-y-4">
+              <div className="text-5xl">🎮</div>
+              <p className="text-lg font-medium text-foreground">准备好了吗？</p>
+              <p className="text-sm text-muted-foreground">按下面的"开始"就可以进入游戏啦</p>
+              <Button size="lg" onClick={handleStart} className="text-lg font-semibold px-8">▶️ 开始</Button>
             </div>
+          )}
+
+          {(!isGameModule || playState !== "idle") && (
+            <>
+              {level.module_type === "counting" && <CountingGame key={playKey} config={level.config as unknown as CountingConfig} onComplete={handleComplete} />}
+              {level.module_type === "spot_diff" && <SpotDiffGame key={playKey} config={level.config as unknown as SpotDiffConfig} onComplete={handleComplete} />}
+              {level.module_type === "focus_tap" && <FocusTapGame key={playKey} config={level.config as unknown as FocusTapConfig} onComplete={handleComplete} />}
+              {level.module_type === "memory" && <MemoryGame key={playKey} config={level.config as unknown as MemoryConfig} onComplete={handleComplete} />}
+              {level.module_type === "pattern" && <PatternGame key={playKey} config={level.config as unknown as PatternConfig} onComplete={handleComplete} />}
+              {level.module_type === "word_problem" && levelId && <WordProblemGame key={playKey} levelId={levelId} config={level.config as unknown as WordProblemConfig} onComplete={handleComplete} />}
+              {level.module_type === "maze" && <MazeGame key={playKey} config={level.config as unknown as MazeConfig} onComplete={handleComplete} />}
+              {level.module_type === "number_maze" && <NumberMazeGame key={playKey} config={level.config as unknown as NumberMazeConfig} onComplete={handleComplete} />}
+              {level.module_type === "sudoku" && levelId && <SudokuGame key={playKey} levelId={levelId} config={level.config as unknown as SudokuConfig} onComplete={handleComplete} />}
+              {level.module_type === "line_match" && levelId && <LineMatchGame key={playKey} levelId={levelId} config={level.config as unknown as LineMatchConfig} onComplete={handleComplete} />}
+              {level.module_type === "coloring" && levelId && <ColoringGame key={playKey} levelId={levelId} config={level.config as unknown as ColoringConfig} onComplete={handleComplete} />}
+              {level.module_type === "sticker_game" && <StickerGame key={playKey} config={level.config as unknown as StickerGameConfig} onComplete={handleComplete} />}
+
+              {level.module_type === "video_lecture" && (
+                <VideoPlayer src={config.video_url ?? ""} onProgress={(sec, dur, completed) => handleLectureProgress(sec, dur, completed)} />
+              )}
+              {level.module_type === "ppt_lecture" && (
+                <PptReader slideUrls={config.slide_image_urls ?? []} onProgress={(idx, total, completed) => handleLectureProgress(idx, total, completed)} />
+              )}
+
+              {!isKnown && (
+                <div className="text-center text-muted-foreground p-6">
+                  这个模块类型（{level.module_type}）还没有对应的引擎组件——Phase 2 会陆续补上。
+                </div>
+              )}
+            </>
           )}
         </div>
 
-        {(result || (isLecture && lectureDone)) && (
+        {/* 讲义类：完成后照旧提供"查看讲解/回首页"。
+            游戏类：退出/重玩已经在上面标题栏常驻，这里完成后只多补一个
+            "查看讲解"（如果有的话），不重复放退出按钮，避免同一屏幕上
+            两个功能一样的按钮。 */}
+        {isLecture && lectureDone && (
           <div className="mt-4 text-center space-x-3">
             {(level.explanation_text || level.explanation_image_url || level.explanation_video_url) && (
               <Button variant="outline" onClick={() => setShowExplanation(true)}>📖 查看讲解</Button>
             )}
             <Button onClick={goBack}>{cameFromDesigner ? "← 返回设计器" : "回首页"}</Button>
+          </div>
+        )}
+        {isGameModule && playState === "finished" && (level.explanation_text || level.explanation_image_url || level.explanation_video_url) && (
+          <div className="mt-4 text-center">
+            <Button variant="outline" onClick={() => setShowExplanation(true)}>📖 查看讲解</Button>
           </div>
         )}
 
@@ -177,6 +281,68 @@ export default function LevelPlayerPage() {
             {level.explanation_image_url && <img src={level.explanation_image_url} alt="讲解图" className="w-full rounded-lg border border-border" />}
             {level.explanation_text && <p className="text-sm leading-relaxed whitespace-pre-wrap">{level.explanation_text}</p>}
           </div>
+        </Modal>
+
+        <Modal open={showLeaderboard} onClose={() => setShowLeaderboard(false)} title="🏆 全台的排行榜" size="md">
+          {leaderboardLoading ? (
+            <p className="text-center text-muted-foreground py-6">加载中...</p>
+          ) : !leaderboard || leaderboard.entries.length === 0 ? (
+            <p className="text-center text-muted-foreground py-6">还没有人玩过这个 Activity，快来当第一名！</p>
+          ) : (
+            <div className="space-y-2">
+              {leaderboard.my_rank && (
+                <p className="text-sm text-teal-700 bg-teal-50 rounded-lg px-3 py-2 mb-2">
+                  你目前排在第 {leaderboard.my_rank} 名（共 {leaderboard.total_players} 人）
+                </p>
+              )}
+              {leaderboard.entries.map((e) => {
+                // 用 rank（不是 student_id）判断"是不是我"——分数用时都
+                // 完全一样才会撞车，理论上有但概率极低，先不特别处理
+                const isMe = leaderboard.my_rank !== null && e.rank === leaderboard.my_rank;
+                const medal = e.rank === 1 ? "🥇" : e.rank === 2 ? "🥈" : e.rank === 3 ? "🥉" : `${e.rank}`;
+                return (
+                  <div key={e.student_id} className={`flex items-center justify-between rounded-xl px-3 py-2 ${isMe ? "bg-teal-50 ring-1 ring-teal-200" : "bg-muted/40"}`}>
+                    <div className="flex items-center gap-3">
+                      <span className="w-7 text-center font-semibold text-foreground">{medal}</span>
+                      <span className="text-sm font-medium text-foreground">{e.full_name_zh ?? e.full_name_en ?? e.username}{isMe ? "（我）" : ""}</span>
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {e.score}/{e.max_score} 分　⏱️ {e.time_spent_seconds.toFixed(1)}s
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Modal>
+
+        <Modal open={showMyRecords} onClose={() => setShowMyRecords(false)} title="📊 自己的记录" size="md">
+          {myRecordsLoading ? (
+            <p className="text-center text-muted-foreground py-6">加载中...</p>
+          ) : !myRecords || (!myRecords.best && myRecords.history.length === 0) ? (
+            <p className="text-center text-muted-foreground py-6">还没有玩过，快去试试看！</p>
+          ) : (
+            <div className="space-y-4">
+              {myRecords.best && (
+                <div className="rounded-xl bg-gradient-to-r from-teal-500 to-blue-600 text-white px-4 py-3">
+                  <p className="text-xs opacity-80 mb-1">历史最佳</p>
+                  <p className="text-lg font-semibold">{myRecords.best.score}/{myRecords.best.max_score} 分　⏱️ {myRecords.best.time_spent_seconds.toFixed(1)}s</p>
+                </div>
+              )}
+              {myRecords.history.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs text-muted-foreground">最近记录（第几次尝试 · 分数 · 用时）</p>
+                  {myRecords.history.map((h) => (
+                    <div key={h.id} className="flex items-center justify-between text-sm rounded-lg bg-muted/40 px-3 py-1.5">
+                      <span className="text-muted-foreground">第 {h.attempt_number} 次</span>
+                      <span className="text-foreground">{h.score}/{h.max_score} 分</span>
+                      <span className="text-muted-foreground">⏱️ {h.time_spent_seconds.toFixed(1)}s</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </Modal>
       </div>
     </div>
