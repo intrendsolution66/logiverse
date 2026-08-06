@@ -45,15 +45,21 @@ export async function listParentPreviewTopics(req: AuthRequest, res: Response): 
     if (subjectId) { params.push(subjectId); conditions.push(`s.id = $${params.length}`); }
     if (gradeTierId) { params.push(gradeTierId); conditions.push(`c.grade_tier_id = $${params.length}`); }
 
+    // 用 activity_topic_links 这个多对多关联表，不是 course_levels.
+    // category_id 那个旧的单一外键——现在建/编 Activity 走的是"可以同时
+    // 挂好几个 Topic"这条路，数据存在这张关联表里，老栏位大概率是空的，
+    // 之前这里用旧栏位查，符合条件的 Activity 一个都找不到，家长预览
+    // 才会一直是空的。
     const { rows } = await query(
       `SELECT ec.id, ec.name_zh, ec.name_en,
               s.id AS subject_id, s.name_zh AS subject_name_zh,
               p.id AS programme_id, p.name_zh AS programme_name_zh,
-              count(cl.id)::int AS activity_count
+              count(DISTINCT cl.id)::int AS activity_count
        FROM edu.exercise_categories ec
        JOIN edu.subjects s ON s.id = ec.subject_id
        JOIN edu.programmes p ON p.id = s.programme_id
-       JOIN edu.course_levels cl ON cl.category_id = ec.id
+       JOIN edu.activity_topic_links atl ON atl.category_id = ec.id
+       JOIN edu.course_levels cl ON cl.id = atl.course_level_id
        JOIN edu.courses c ON c.id = cl.course_id
        WHERE ${conditions.join(" AND ")}
        GROUP BY ec.id, ec.name_zh, ec.name_en, s.id, s.name_zh, p.id, p.name_zh
@@ -72,13 +78,14 @@ export async function listParentPreviewActivities(req: AuthRequest, res: Respons
     if (!categoryId) { badRequest(res, "category_id is required"); return; }
     const gradeTierId = typeof req.query.grade_tier_id === "string" ? req.query.grade_tier_id : "";
 
-    const conditions: string[] = ["cl.category_id = $1", "cl.parent_preview_enabled = true"];
+    const conditions: string[] = ["atl.category_id = $1", "cl.parent_preview_enabled = true"];
     const params: unknown[] = [categoryId];
     if (gradeTierId) { params.push(gradeTierId); conditions.push(`c.grade_tier_id = $${params.length}`); }
 
     const { rows } = await query(
-      `SELECT cl.id, cl.exercise_number, cl.title_i18n, cl.module_type, cl.difficulty, cl.duration_minutes
+      `SELECT DISTINCT cl.id, cl.exercise_number, cl.title_i18n, cl.module_type, cl.difficulty, cl.duration_minutes, cl.created_at
        FROM edu.course_levels cl
+       JOIN edu.activity_topic_links atl ON atl.course_level_id = cl.id
        JOIN edu.courses c ON c.id = cl.course_id
        WHERE ${conditions.join(" AND ")}
        ORDER BY cl.exercise_number NULLS LAST, cl.created_at ASC`,
