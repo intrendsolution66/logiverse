@@ -459,6 +459,7 @@ export const eduApi = {
     activity_type?: string; teaching_modes?: string[]; difficulty?: string;
     age_group_min?: number; age_group_max?: number; duration_minutes?: number;
     learning_outcomes?: string; skills_developed?: string[]; language?: string; tags?: string[];
+    parent_preview_enabled?: boolean; usage_contexts?: string[]; self_guided_programme_ids?: string[];
   }) =>
     api.post(`/courses/${courseId}/levels`, b),
   // 独立建 Activity，不需要先有 Course——底层是 POST /activities，跟
@@ -471,6 +472,7 @@ export const eduApi = {
     activity_type?: string; teaching_modes?: string[]; difficulty?: string;
     age_group_min?: number; age_group_max?: number; duration_minutes?: number;
     learning_outcomes?: string; skills_developed?: string[]; language?: string; tags?: string[];
+    parent_preview_enabled?: boolean; usage_contexts?: string[]; self_guided_programme_ids?: string[];
     course_id?: string;
   }) =>
     api.post(`/activities`, b),
@@ -491,6 +493,7 @@ export const eduApi = {
     activity_type?: string; teaching_modes?: string[]; difficulty?: string;
     age_group_min?: number; age_group_max?: number; duration_minutes?: number;
     learning_outcomes?: string; skills_developed?: string[]; language?: string; tags?: string[];
+    parent_preview_enabled?: boolean; usage_contexts?: string[]; self_guided_programme_ids?: string[];
   }>),
   updateLevel: (levelId: string, b: {
     title_i18n?: Record<string,string>; config?: object; explanation_text?: string; explanation_image_url?: string; explanation_video_url?: string;
@@ -498,6 +501,7 @@ export const eduApi = {
     activity_type?: string; teaching_modes?: string[]; difficulty?: string;
     age_group_min?: number; age_group_max?: number; duration_minutes?: number;
     learning_outcomes?: string; skills_developed?: string[]; language?: string; tags?: string[];
+    parent_preview_enabled?: boolean; usage_contexts?: string[]; self_guided_programme_ids?: string[];
   }) =>
     api.patch(`/levels/${levelId}`, b),
   deleteLevel: (levelId: string) => api.delete(`/levels/${levelId}`),
