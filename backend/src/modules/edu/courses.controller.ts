@@ -224,7 +224,7 @@ export async function listLevels(req: AuthRequest, res: Response): Promise<void>
       `SELECT cl.id, cl.course_id, cl.order_index, cl.module_type, cl.module_config_id,
               cl.title_i18n, cl.video_url_i18n, cl.ppt_url_i18n, cl.illustration_url, cl.points_reward,
               cl.exercise_number, cl.category_id, cl.group_id, cl.curriculum_type_id,
-              cl.activity_type, cl.difficulty, cl.tags, cl.parent_preview_enabled,
+              cl.activity_type, cl.difficulty, cl.tags, cl.parent_preview_enabled, cl.usage_contexts, cl.self_guided_programme_ids,
               ec.name_zh AS category_name_zh, eg.name_zh AS group_name_zh, ect.name_zh AS curriculum_type_name_zh,
               s.name_zh AS subject_name_zh, p.name_zh AS programme_name_zh
        FROM edu.course_levels cl
@@ -270,6 +270,24 @@ function normalizeSkillsList(input: unknown): string[] {
   return Array.from(new Set(cleaned)).slice(0, 10); // generous ceiling, just to stop an unbounded payload
 }
 
+// 跟 assets.controller.ts 里的 USAGE_CONTEXTS 白名单完全一致——两边概念
+// 是同一个东西，这里没有单独重新定义一份不同的白名单。
+const ACTIVITY_USAGE_CONTEXTS = ["in_person", "self_guided", "public_course"];
+function normalizeUsageContexts(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const cleaned = input.filter((c): c is string => typeof c === "string" && ACTIVITY_USAGE_CONTEXTS.includes(c));
+  return Array.from(new Set(cleaned));
+}
+// self_guided_programme_ids 只做"看起来像uuid"的粗略过滤，不在这里查
+// Programme 是否真的存在——course_levels 没有对 programme 表设外键约束
+// （数组栏位本来就没办法建外键），这个交给前端下拉选单本身保证只会传
+// 真实存在的 id，后端这层只挡明显不是uuid格式的脏数据。
+function normalizeProgrammeIds(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return Array.from(new Set(input.filter((id): id is string => typeof id === "string" && uuidPattern.test(id))));
+}
+
 export async function createLevel(req: AuthRequest, res: Response): Promise<void> {
   try {
     // courseId 现在是选填的——可以从路由参数来（POST /courses/:courseId/levels，
@@ -283,6 +301,7 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
       category_id, category_ids, group_id, curriculum_type_id, hint_text, audio_url,
       activity_type, teaching_modes, difficulty, age_group_min, age_group_max, duration_minutes,
       learning_outcomes, skills_developed, language, tags, parent_preview_enabled,
+      usage_contexts, self_guided_programme_ids,
     } = req.body as {
       module_type: string; order_index?: number; title_i18n?: object; config: Record<string, unknown>;
       explanation_text?: string; explanation_image_url?: string; explanation_video_url?: string;
@@ -295,6 +314,11 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
       age_group_min?: number; age_group_max?: number; duration_minutes?: number;
       learning_outcomes?: string; skills_developed?: string[]; language?: string; tags?: string[];
       parent_preview_enabled?: boolean;
+      // 使用场景——跟素材库 edu.assets.usage_contexts 同一个概念(实体课/
+      // self_guided/公开课，可多选)，搬到 Activity 上。self_guided_
+      // programme_ids 只有勾了 self_guided 才有意义，留空=不限制
+      // Programme，填了具体id才收窄。
+      usage_contexts?: string[]; self_guided_programme_ids?: string[];
     };
     if (!module_type) { badRequest(res, "module_type is required"); return; }
     // Topic 新建时不强制要求——可以先建 Activity，之后再透过 updateLevel
@@ -559,12 +583,12 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
            (course_id, order_index, module_type, module_config_id, title_i18n, created_by, explanation_text, explanation_image_url, explanation_video_url,
             category_id, group_id, curriculum_type_id, exercise_number, hint_text, audio_url,
             activity_type, teaching_modes, difficulty, age_group_min, age_group_max, duration_minutes, learning_outcomes, skills_developed, language, tags,
-            parent_preview_enabled)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+            parent_preview_enabled, usage_contexts, self_guided_programme_ids)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
          RETURNING id, course_id, order_index, module_type, module_config_id, title_i18n, explanation_text, explanation_image_url, explanation_video_url,
                    category_id, group_id, curriculum_type_id, exercise_number, hint_text, audio_url,
                    activity_type, teaching_modes, difficulty, age_group_min, age_group_max, duration_minutes, learning_outcomes, skills_developed, language, tags,
-                   parent_preview_enabled`,
+                   parent_preview_enabled, usage_contexts, self_guided_programme_ids`,
         [courseId, order_index ?? 0, module_type, configId, title_i18n ? JSON.stringify(title_i18n) : null, req.user!.sub,
          explanation_text ?? null, explanation_image_url ?? null, explanation_video_url ?? null,
          primaryCategoryId, group_id ?? null, curriculum_type_id ?? null, exerciseNumber,
@@ -572,7 +596,7 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
          activity_type ?? "game", teaching_modes ? JSON.stringify(teaching_modes) : "[]", difficulty ?? null,
          age_group_min ?? null, age_group_max ?? null, duration_minutes ?? null,
          learning_outcomes ?? null, JSON.stringify(normalizeSkillsList(skills_developed)), language ?? "universal", normalizeActivityTags(tags),
-         parent_preview_enabled === true]
+         parent_preview_enabled === true, normalizeUsageContexts(usage_contexts), normalizeProgrammeIds(self_guided_programme_ids)]
       );
       const newLevel = levelRows[0];
 
@@ -632,6 +656,7 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
       category_id, category_ids, group_id, curriculum_type_id, hint_text, audio_url,
       activity_type, teaching_modes, difficulty, age_group_min, age_group_max, duration_minutes,
       learning_outcomes, skills_developed, language, tags, parent_preview_enabled,
+      usage_contexts, self_guided_programme_ids,
     } = req.body as {
       title_i18n?: object; config?: Record<string, unknown>;
       explanation_text?: string; explanation_image_url?: string; explanation_video_url?: string;
@@ -641,6 +666,7 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
       age_group_min?: number; age_group_max?: number; duration_minutes?: number;
       learning_outcomes?: string; skills_developed?: string[]; language?: string; tags?: string[];
       parent_preview_enabled?: boolean;
+      usage_contexts?: string[]; self_guided_programme_ids?: string[];
     };
     // 注意：这里不像 createLevel 那样强制要求 Topic ——那个是"新建
     // Activity时必须先确定Topic"，这里如果本来就没有Topic（比如这个功能
@@ -869,7 +895,8 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
            language = COALESCE($17, language),
            teaching_modes = $18, skills_developed = $19, tags = $20,
            exercise_number = COALESCE($21, exercise_number),
-           parent_preview_enabled = COALESCE($22, parent_preview_enabled)
+           parent_preview_enabled = COALESCE($22, parent_preview_enabled),
+           usage_contexts = $23, self_guided_programme_ids = $24
          WHERE id = $1`,
         [
           levelId, title_i18n ? JSON.stringify(title_i18n) : null,
@@ -882,6 +909,7 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
           JSON.stringify(teaching_modes ?? []), JSON.stringify(normalizeSkillsList(skills_developed)), normalizeActivityTags(tags),
           newExerciseNumber,
           typeof parent_preview_enabled === "boolean" ? parent_preview_enabled : null,
+          normalizeUsageContexts(usage_contexts), normalizeProgrammeIds(self_guided_programme_ids),
         ]
       );
 
@@ -940,7 +968,7 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
               cl.explanation_text, cl.explanation_image_url, cl.explanation_video_url, cl.exercise_number,
               cl.hint_text, cl.audio_url,
               cl.activity_type, cl.teaching_modes, cl.difficulty, cl.age_group_min, cl.age_group_max,
-              cl.duration_minutes, cl.learning_outcomes, cl.skills_developed, cl.language, cl.tags, cl.parent_preview_enabled,
+              cl.duration_minutes, cl.learning_outcomes, cl.skills_developed, cl.language, cl.tags, cl.parent_preview_enabled, cl.usage_contexts, cl.self_guided_programme_ids,
               c.grade_tier_id AS course_grade_tier_id
        FROM edu.course_levels cl
        LEFT JOIN edu.courses c ON c.id = cl.course_id
@@ -1331,7 +1359,7 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
               cl.title_i18n, cl.explanation_text, cl.explanation_image_url, cl.explanation_video_url,
               cl.exercise_number, cl.hint_text, cl.audio_url, cl.category_id, cl.group_id, cl.curriculum_type_id,
               cl.activity_type, cl.teaching_modes, cl.difficulty, cl.age_group_min, cl.age_group_max,
-              cl.duration_minutes, cl.learning_outcomes, cl.skills_developed, cl.language, cl.tags, cl.parent_preview_enabled
+              cl.duration_minutes, cl.learning_outcomes, cl.skills_developed, cl.language, cl.tags, cl.parent_preview_enabled, cl.usage_contexts, cl.self_guided_programme_ids
        FROM edu.course_levels cl
        WHERE cl.id = $1`,
       [levelId]

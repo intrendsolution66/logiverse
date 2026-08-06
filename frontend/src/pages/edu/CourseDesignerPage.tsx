@@ -2194,6 +2194,14 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   const [activityLanguage, setActivityLanguage] = useState("universal");
   const [activityTagsInput, setActivityTagsInput] = useState(""); // comma-separated, capped at 3 on save
 
+  // 使用场景——跟素材库那个"实体课/Self-Guided/公开课"完全同一个概念，
+  // 搬到 Activity 上。勾了 self_guided 才需要选 Programme（不选=不限制，
+  // 所有 Programme 的学生都看得到；选了才收窄）。
+  const [usageContexts, setUsageContexts] = useState<string[]>([]);
+  const [selfGuidedProgrammeIds, setSelfGuidedProgrammeIds] = useState<string[]>([]);
+  const [allProgrammes, setAllProgrammes] = useState<Array<{ id: string; name_zh: string }>>([]);
+  useEffect(() => { taxonomyApi.listProgrammes().then(setAllProgrammes); }, []);
+
   useEffect(() => {
     if (!open) return;
     exerciseClassificationApi.listCategories().then(setCategories); // unfiltered — needed for the module_type→Topic auto-match below regardless of what Subject is currently picked
@@ -2654,6 +2662,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       setActivityType("game"); setTeachingModes([]); setDifficulty("");
       setAgeGroupMin(""); setAgeGroupMax(""); setDurationMinutes("");
       setLearningOutcomes(""); setSkillsInput(""); setActivityLanguage("universal"); setActivityTagsInput("");
+      setUsageContexts([]); setSelfGuidedProgrammeIds([]);
       setTheme("apple"); setMinVal(1); setMaxVal(10); setNumChoices(3); setTotalQuestions(5);
       setCountingMode("random"); setCountingScene(null); setCountingTargetTypes([]); setCountingQuestionText(""); setCustomQuestionText("");
       setGridSize(4);
@@ -2709,6 +2718,8 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       setSkillsInput((level.skills_developed ?? []).join("、"));
       setActivityLanguage(level.language ?? "universal");
       setActivityTagsInput((level.tags ?? []).join("、"));
+      setUsageContexts((level as { usage_contexts?: string[] }).usage_contexts ?? []);
+      setSelfGuidedProgrammeIds((level as { self_guided_programme_ids?: string[] }).self_guided_programme_ids ?? []);
 
       const cfg = level.config as Record<string, unknown>;
       // 通用读取——8个模块共用同一个栏位，这里统一处理一次，不用在每个
@@ -2989,6 +3000,8 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       skills_developed: skillsInput.split(/[,，、]/).map((s) => s.trim()).filter(Boolean),
       language: activityLanguage,
       tags: activityTagsInput.split(/[,，、]/).map((t) => t.trim()).filter(Boolean).slice(0, 3),
+      usage_contexts: usageContexts,
+      self_guided_programme_ids: usageContexts.includes("self_guided") ? selfGuidedProgrammeIds : [],
     };
     const fullPayload = { ...payload, ...activityMeta };
     if (editingLevelId) await eduApi.updateLevel(editingLevelId, fullPayload);
@@ -4621,6 +4634,40 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="pt-1 border-t border-border/60">
+            <p className="text-xs font-medium text-foreground mb-1.5">使用场景（可多选）</p>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { key: "in_person", label: "实体课" }, { key: "self_guided", label: "Self-Guided Learning" },
+                { key: "public_course", label: "公开课" },
+              ].map(({ key, label }) => (
+                <button
+                  key={key} type="button"
+                  onClick={() => setUsageContexts((uc) => uc.includes(key) ? uc.filter((c) => c !== key) : [...uc, key])}
+                  className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${usageContexts.includes(key) ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {usageContexts.includes("self_guided") && (
+              <div className="mt-2.5 pl-3 border-l-2 border-primary/30 space-y-1.5">
+                <p className="text-xs text-muted-foreground">开放给哪些 Programme 的学生（不选=不限制，所有 Programme 都看得到）</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {allProgrammes.map((p) => (
+                    <button
+                      key={p.id} type="button"
+                      onClick={() => setSelfGuidedProgrammeIds((ids) => ids.includes(p.id) ? ids.filter((id) => id !== p.id) : [...ids, p.id])}
+                      className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${selfGuidedProgrammeIds.includes(p.id) ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground"}`}
+                    >
+                      {p.name_zh}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap gap-4 items-end pt-1 border-t border-border/60">
