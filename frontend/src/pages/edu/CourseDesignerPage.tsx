@@ -2206,6 +2206,9 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   // 导致这个功能形同虚设——数据库里没有任何 Activity 被标记过，家长
   // 预览永远是空的。现在补上。
   const [parentPreviewEnabled, setParentPreviewEnabled] = useState(false);
+  // Activity 设计管理列表卡片用的封面图，跟 explanationImageUrl(讲解图，
+  // 学生答完题之后看的说明配图)是两个完全独立的字段，不要混用。
+  const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -2669,6 +2672,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       setLearningOutcomes(""); setSkillsInput(""); setActivityLanguage("universal"); setActivityTagsInput("");
       setUsageContexts([]); setSelfGuidedProgrammeIds([]);
       setParentPreviewEnabled(false);
+      setCoverImageUrl(null);
       setTheme("apple"); setMinVal(1); setMaxVal(10); setNumChoices(3); setTotalQuestions(5);
       setCountingMode("random"); setCountingScene(null); setCountingTargetTypes([]); setCountingQuestionText(""); setCustomQuestionText("");
       setGridSize(4);
@@ -2727,6 +2731,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       setUsageContexts((level as { usage_contexts?: string[] }).usage_contexts ?? []);
       setSelfGuidedProgrammeIds((level as { self_guided_programme_ids?: string[] }).self_guided_programme_ids ?? []);
       setParentPreviewEnabled((level as { parent_preview_enabled?: boolean }).parent_preview_enabled === true);
+      setCoverImageUrl((level as { cover_image_url?: string }).cover_image_url ?? null);
 
       const cfg = level.config as Record<string, unknown>;
       // 通用读取——8个模块共用同一个栏位，这里统一处理一次，不用在每个
@@ -3010,8 +3015,8 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       usage_contexts: usageContexts,
       self_guided_programme_ids: usageContexts.includes("self_guided") ? selfGuidedProgrammeIds : [],
       parent_preview_enabled: parentPreviewEnabled,
+      cover_image_url: coverImageUrl || undefined,
     };
-    console.log("🔍 saveLevel 即将发送，parentPreviewEnabled state 当前值：", parentPreviewEnabled, "  activityMeta.parent_preview_enabled：", activityMeta.parent_preview_enabled);
     const fullPayload = { ...payload, ...activityMeta };
     if (editingLevelId) await eduApi.updateLevel(editingLevelId, fullPayload);
     else await eduApi.createActivity(fullPayload);
@@ -4596,6 +4601,25 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             <Sparkles size={16} className="text-primary" /> Activity 属性
             <span className="text-xs font-normal text-muted-foreground">（选填）</span>
           </div>
+          <div>
+            <Label className="text-xs">卡片封面图（选填——列表卡片上显示的缩略图，跟"讲解图"是两回事）</Label>
+            <div className="flex items-center gap-3 mt-1">
+              {coverImageUrl ? (
+                <div className="relative w-24 h-24 rounded-lg border border-border shadow-sm overflow-hidden bg-muted/30 shrink-0">
+                  <img src={coverImageUrl} alt="封面图" className="w-full h-full object-cover" />
+                  <button
+                    type="button" onClick={() => setCoverImageUrl(null)}
+                    className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-[11px] flex items-center justify-center hover:bg-red-500"
+                  >✕</button>
+                </div>
+              ) : (
+                <div className="w-24 h-24 rounded-lg border border-dashed border-border flex items-center justify-center text-muted-foreground/50 shrink-0">
+                  <ImagePlus size={22} />
+                </div>
+              )}
+              <AssetPicker category="other" label={coverImageUrl ? "换一张" : "🗂️ 加一张封面图"} onSelect={setCoverImageUrl} />
+            </div>
+          </div>
           <div className="flex flex-wrap gap-2">
             <label className="flex items-center gap-1.5 text-sm">活动类型
               <select value={activityType} onChange={(e) => setActivityType(e.target.value)} className={MINI_SELECT_CLASS}>
@@ -4711,7 +4735,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             </div>
           </div>
           <label className="flex items-center gap-2 text-sm pt-1 border-t border-border/60">
-            <input type="checkbox" checked={parentPreviewEnabled} onChange={(e) => { console.log("🔍 家长预览勾选框被点击，新值：", e.target.checked); setParentPreviewEnabled(e.target.checked); }} />
+            <input type="checkbox" checked={parentPreviewEnabled} onChange={(e) => setParentPreviewEnabled(e.target.checked)} />
             开放给家长预览（家长订阅前，在"课程内容预览"页面能看到并试玩这个 Activity）
           </label>
         </div>
@@ -5049,12 +5073,22 @@ export default function CourseDesignerPage() {
                 : a.module_type === "play_along" ? `/view/play-along?levelId=${a.id}`
                 : `/play/${a.id}?from=designer`;
               const topicNames = Array.from(new Set(a.topics.map((t) => t.topic_name_zh).filter(Boolean)));
+              // cover_image_url / my_play_count 是这两天新加的栏位，主
+              // TS 类型定义可能还没跟上，用这个方式安全读取，不强求
+              // eduApi 的返回类型已经声明了这两个字段。
+              const cover = (a as { cover_image_url?: string }).cover_image_url;
+              const myPlays = (a as { my_play_count?: number }).my_play_count ?? 0;
               return (
                 <div
                   key={a.id}
                   className="group rounded-2xl bg-white border border-border shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col"
                   style={{ borderTopWidth: 4, borderTopColor: c.ring }}
                 >
+                  {cover && (
+                    <div className="w-full aspect-video bg-muted overflow-hidden">
+                      <img src={cover} alt="" className="w-full h-full object-cover" />
+                    </div>
+                  )}
                   <div className="p-4 flex-1 space-y-2.5">
                     <div className="flex items-start justify-between gap-2">
                       <div
@@ -5080,6 +5114,7 @@ export default function CourseDesignerPage() {
                     ) : (
                       <span className="text-[10px] text-muted-foreground/60">还没挂 Topic</span>
                     )}
+                    <p className="text-[10px] text-muted-foreground/70">你试玩过 {myPlays} 次</p>
                   </div>
                   <div className="flex items-center border-t border-border divide-x divide-border text-xs font-medium">
                     <a href={previewHref} className="flex-1 text-center py-2.5 text-primary hover:bg-primary/5 transition-colors">▶ 试玩</a>

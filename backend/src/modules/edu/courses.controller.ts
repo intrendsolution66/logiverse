@@ -224,7 +224,7 @@ export async function listLevels(req: AuthRequest, res: Response): Promise<void>
       `SELECT cl.id, cl.course_id, cl.order_index, cl.module_type, cl.module_config_id,
               cl.title_i18n, cl.video_url_i18n, cl.ppt_url_i18n, cl.illustration_url, cl.points_reward,
               cl.exercise_number, cl.category_id, cl.group_id, cl.curriculum_type_id,
-              cl.activity_type, cl.difficulty, cl.tags, cl.parent_preview_enabled, cl.usage_contexts, cl.self_guided_programme_ids,
+              cl.activity_type, cl.difficulty, cl.tags, cl.parent_preview_enabled, cl.usage_contexts, cl.self_guided_programme_ids, cl.cover_image_url,
               ec.name_zh AS category_name_zh, eg.name_zh AS group_name_zh, ect.name_zh AS curriculum_type_name_zh,
               s.name_zh AS subject_name_zh, p.name_zh AS programme_name_zh
        FROM edu.course_levels cl
@@ -301,7 +301,7 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
       category_id, category_ids, group_id, curriculum_type_id, hint_text, audio_url,
       activity_type, teaching_modes, difficulty, age_group_min, age_group_max, duration_minutes,
       learning_outcomes, skills_developed, language, tags, parent_preview_enabled,
-      usage_contexts, self_guided_programme_ids,
+      usage_contexts, self_guided_programme_ids, cover_image_url,
     } = req.body as {
       module_type: string; order_index?: number; title_i18n?: object; config: Record<string, unknown>;
       explanation_text?: string; explanation_image_url?: string; explanation_video_url?: string;
@@ -319,6 +319,9 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
       // programme_ids 只有勾了 self_guided 才有意义，留空=不限制
       // Programme，填了具体id才收窄。
       usage_contexts?: string[]; self_guided_programme_ids?: string[];
+      // Activity 设计管理列表卡片用的封面图，跟 explanation_image_url
+      // (讲解图，给学生看)是两回事。
+      cover_image_url?: string;
     };
     if (!module_type) { badRequest(res, "module_type is required"); return; }
     // Topic 新建时不强制要求——可以先建 Activity，之后再透过 updateLevel
@@ -583,12 +586,12 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
            (course_id, order_index, module_type, module_config_id, title_i18n, created_by, explanation_text, explanation_image_url, explanation_video_url,
             category_id, group_id, curriculum_type_id, exercise_number, hint_text, audio_url,
             activity_type, teaching_modes, difficulty, age_group_min, age_group_max, duration_minutes, learning_outcomes, skills_developed, language, tags,
-            parent_preview_enabled, usage_contexts, self_guided_programme_ids)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
+            parent_preview_enabled, usage_contexts, self_guided_programme_ids, cover_image_url)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
          RETURNING id, course_id, order_index, module_type, module_config_id, title_i18n, explanation_text, explanation_image_url, explanation_video_url,
                    category_id, group_id, curriculum_type_id, exercise_number, hint_text, audio_url,
                    activity_type, teaching_modes, difficulty, age_group_min, age_group_max, duration_minutes, learning_outcomes, skills_developed, language, tags,
-                   parent_preview_enabled, usage_contexts, self_guided_programme_ids`,
+                   parent_preview_enabled, usage_contexts, self_guided_programme_ids, cover_image_url`,
         [courseId, order_index ?? 0, module_type, configId, title_i18n ? JSON.stringify(title_i18n) : null, req.user!.sub,
          explanation_text ?? null, explanation_image_url ?? null, explanation_video_url ?? null,
          primaryCategoryId, group_id ?? null, curriculum_type_id ?? null, exerciseNumber,
@@ -596,7 +599,7 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
          activity_type ?? "game", teaching_modes ? JSON.stringify(teaching_modes) : "[]", difficulty ?? null,
          age_group_min ?? null, age_group_max ?? null, duration_minutes ?? null,
          learning_outcomes ?? null, JSON.stringify(normalizeSkillsList(skills_developed)), language ?? "universal", normalizeActivityTags(tags),
-         parent_preview_enabled === true, normalizeUsageContexts(usage_contexts), normalizeProgrammeIds(self_guided_programme_ids)]
+         parent_preview_enabled === true, normalizeUsageContexts(usage_contexts), normalizeProgrammeIds(self_guided_programme_ids), cover_image_url ?? null]
       );
       const newLevel = levelRows[0];
 
@@ -651,16 +654,12 @@ export const createActivity = createLevel;
 export async function updateLevel(req: AuthRequest, res: Response): Promise<void> {
   try {
     const { levelId } = req.params;
-    // 临时诊断用——直接印出后端收到的完整请求内容，看请求到底有没有到、
-    // 装的是什么。确认问题之后这几行可以拿掉。
-    console.log("🔍 updateLevel 收到的请求 levelId:", levelId);
-    console.log("🔍 updateLevel 收到的 req.body:", JSON.stringify(req.body, null, 2));
     const {
       title_i18n, config, explanation_text, explanation_image_url, explanation_video_url,
       category_id, category_ids, group_id, curriculum_type_id, hint_text, audio_url,
       activity_type, teaching_modes, difficulty, age_group_min, age_group_max, duration_minutes,
       learning_outcomes, skills_developed, language, tags, parent_preview_enabled,
-      usage_contexts, self_guided_programme_ids,
+      usage_contexts, self_guided_programme_ids, cover_image_url,
     } = req.body as {
       title_i18n?: object; config?: Record<string, unknown>;
       explanation_text?: string; explanation_image_url?: string; explanation_video_url?: string;
@@ -671,6 +670,7 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
       learning_outcomes?: string; skills_developed?: string[]; language?: string; tags?: string[];
       parent_preview_enabled?: boolean;
       usage_contexts?: string[]; self_guided_programme_ids?: string[];
+      cover_image_url?: string;
     };
     // 注意：这里不像 createLevel 那样强制要求 Topic ——那个是"新建
     // Activity时必须先确定Topic"，这里如果本来就没有Topic（比如这个功能
@@ -900,7 +900,7 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
            teaching_modes = $18, skills_developed = $19, tags = $20,
            exercise_number = COALESCE($21, exercise_number),
            parent_preview_enabled = COALESCE($22, parent_preview_enabled),
-           usage_contexts = $23, self_guided_programme_ids = $24
+           usage_contexts = $23, self_guided_programme_ids = $24, cover_image_url = $25
          WHERE id = $1`,
         [
           levelId, title_i18n ? JSON.stringify(title_i18n) : null,
@@ -914,6 +914,7 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
           newExerciseNumber,
           typeof parent_preview_enabled === "boolean" ? parent_preview_enabled : null,
           normalizeUsageContexts(usage_contexts), normalizeProgrammeIds(self_guided_programme_ids),
+          cover_image_url ?? null,
         ]
       );
 
@@ -972,7 +973,7 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
               cl.explanation_text, cl.explanation_image_url, cl.explanation_video_url, cl.exercise_number,
               cl.hint_text, cl.audio_url,
               cl.activity_type, cl.teaching_modes, cl.difficulty, cl.age_group_min, cl.age_group_max,
-              cl.duration_minutes, cl.learning_outcomes, cl.skills_developed, cl.language, cl.tags, cl.parent_preview_enabled, cl.usage_contexts, cl.self_guided_programme_ids,
+              cl.duration_minutes, cl.learning_outcomes, cl.skills_developed, cl.language, cl.tags, cl.parent_preview_enabled, cl.usage_contexts, cl.self_guided_programme_ids, cl.cover_image_url,
               c.grade_tier_id AS course_grade_tier_id
        FROM edu.course_levels cl
        LEFT JOIN edu.courses c ON c.id = cl.course_id
@@ -1363,7 +1364,7 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
               cl.title_i18n, cl.explanation_text, cl.explanation_image_url, cl.explanation_video_url,
               cl.exercise_number, cl.hint_text, cl.audio_url, cl.category_id, cl.group_id, cl.curriculum_type_id,
               cl.activity_type, cl.teaching_modes, cl.difficulty, cl.age_group_min, cl.age_group_max,
-              cl.duration_minutes, cl.learning_outcomes, cl.skills_developed, cl.language, cl.tags, cl.parent_preview_enabled, cl.usage_contexts, cl.self_guided_programme_ids
+              cl.duration_minutes, cl.learning_outcomes, cl.skills_developed, cl.language, cl.tags, cl.parent_preview_enabled, cl.usage_contexts, cl.self_guided_programme_ids, cl.cover_image_url
        FROM edu.course_levels cl
        WHERE cl.id = $1`,
       [levelId]
@@ -1592,11 +1593,20 @@ export async function listAllActivities(req: AuthRequest, res: Response): Promis
     const total = countRows[0]?.total ?? 0;
 
     params.push(limit, offset);
+    // student_id 参数放在 limit/offset 后面 push，所以下面SQL里三个
+    // 占位符的位置都要跟着往后挪一个——这里特意用 params.length 在
+    // "全部push完之后"才计算，不要在写SQL文字的时候用push之前的旧
+    // params.length，两者数字不一样，混着用位置会错位、可能会把
+    // student_id 的值当成offset用（相反也一样），SQL不会报错但结果
+    // 全错，比较隐蔽的一种bug。
+    params.push(req.user!.sub);
+    const limitIdx = params.length - 2, offsetIdx = params.length - 1, studentIdx = params.length;
     const { rows } = await query(
-      `SELECT cl.id, cl.course_id, cl.module_type, cl.title_i18n, cl.exercise_number, cl.created_at,
+      `SELECT cl.id, cl.course_id, cl.module_type, cl.title_i18n, cl.exercise_number, cl.created_at, cl.cover_image_url,
               c.title_i18n AS course_title_i18n,
               COALESCE(topics.topics, '[]'::json) AS topics,
-              topics.sort_topic_name, topics.sort_subject_name, topics.sort_programme_name
+              topics.sort_topic_name, topics.sort_subject_name, topics.sort_programme_name,
+              COALESCE(my_plays.play_count, 0)::int AS my_play_count
        ${joins}
        LEFT JOIN LATERAL (
          SELECT
@@ -1614,9 +1624,18 @@ export async function listAllActivities(req: AuthRequest, res: Response): Promis
          JOIN edu.programmes p ON p.id = s.programme_id
          WHERE atl.course_level_id = cl.id
        ) topics ON true
+       -- "登录者一共玩了几次"——只算当前这个人自己试玩过的次数，不是全部
+       -- 学生的累计次数，所以是按 student_id = 当前登录用户 过滤，不是
+       -- 单纯 count(*)。设计师/老师自己在"试玩"按钮点过几次，就会反映
+       -- 在这个数字上。
+       LEFT JOIN LATERAL (
+         SELECT count(*)::int AS play_count
+         FROM edu.progress_records pr
+         WHERE pr.course_level_id = cl.id AND pr.student_id = $${studentIdx}
+       ) my_plays ON true
        ${whereClause}
        ORDER BY ${ACTIVITY_SORT_COLUMNS[sortKey]} ${order} NULLS LAST
-       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
       params
     );
 
