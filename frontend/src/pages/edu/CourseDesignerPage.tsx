@@ -3011,6 +3011,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       self_guided_programme_ids: usageContexts.includes("self_guided") ? selfGuidedProgrammeIds : [],
       parent_preview_enabled: parentPreviewEnabled,
     };
+    console.log("🔍 saveLevel 即将发送，parentPreviewEnabled state 当前值：", parentPreviewEnabled, "  activityMeta.parent_preview_enabled：", activityMeta.parent_preview_enabled);
     const fullPayload = { ...payload, ...activityMeta };
     if (editingLevelId) await eduApi.updateLevel(editingLevelId, fullPayload);
     else await eduApi.createActivity(fullPayload);
@@ -4710,7 +4711,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             </div>
           </div>
           <label className="flex items-center gap-2 text-sm pt-1 border-t border-border/60">
-            <input type="checkbox" checked={parentPreviewEnabled} onChange={(e) => setParentPreviewEnabled(e.target.checked)} />
+            <input type="checkbox" checked={parentPreviewEnabled} onChange={(e) => { console.log("🔍 家长预览勾选框被点击，新值：", e.target.checked); setParentPreviewEnabled(e.target.checked); }} />
             开放给家长预览（家长订阅前，在"课程内容预览"页面能看到并试玩这个 Activity）
           </label>
         </div>
