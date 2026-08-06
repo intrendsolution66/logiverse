@@ -60,7 +60,7 @@ export async function listParentPreviewTopics(req: AuthRequest, res: Response): 
        JOIN edu.programmes p ON p.id = s.programme_id
        JOIN edu.activity_topic_links atl ON atl.category_id = ec.id
        JOIN edu.course_levels cl ON cl.id = atl.course_level_id
-       JOIN edu.courses c ON c.id = cl.course_id
+       LEFT JOIN edu.courses c ON c.id = cl.course_id
        WHERE ${conditions.join(" AND ")}
        GROUP BY ec.id, ec.name_zh, ec.name_en, s.id, s.name_zh, p.id, p.name_zh
        ORDER BY p.name_zh, s.name_zh, ec.name_zh`,
@@ -86,7 +86,7 @@ export async function listParentPreviewActivities(req: AuthRequest, res: Respons
       `SELECT DISTINCT cl.id, cl.exercise_number, cl.title_i18n, cl.module_type, cl.difficulty, cl.duration_minutes, cl.created_at
        FROM edu.course_levels cl
        JOIN edu.activity_topic_links atl ON atl.course_level_id = cl.id
-       JOIN edu.courses c ON c.id = cl.course_id
+       LEFT JOIN edu.courses c ON c.id = cl.course_id
        WHERE ${conditions.join(" AND ")}
        ORDER BY cl.exercise_number NULLS LAST, cl.created_at ASC`,
       params
