@@ -83,7 +83,7 @@ export async function listParentPreviewActivities(req: AuthRequest, res: Respons
     if (gradeTierId) { params.push(gradeTierId); conditions.push(`c.grade_tier_id = $${params.length}`); }
 
     const { rows } = await query(
-      `SELECT DISTINCT cl.id, cl.exercise_number, cl.title_i18n, cl.module_type, cl.difficulty, cl.duration_minutes, cl.created_at
+      `SELECT DISTINCT cl.id, cl.exercise_number, cl.title_i18n, cl.module_type, cl.difficulty, cl.duration_minutes, cl.created_at, cl.cover_image_url
        FROM edu.course_levels cl
        JOIN edu.activity_topic_links atl ON atl.course_level_id = cl.id
        LEFT JOIN edu.courses c ON c.id = cl.course_id

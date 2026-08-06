@@ -35,7 +35,7 @@ interface Topic {
 }
 interface Activity {
   id: string; exercise_number?: string; title_i18n?: { zh?: string; en?: string };
-  module_type: string; difficulty?: string; duration_minutes?: number;
+  module_type: string; difficulty?: string; duration_minutes?: number; cover_image_url?: string;
 }
 
 const MODULE_TYPE_LABEL: Record<string, string> = {
@@ -258,8 +258,10 @@ export default function ParentPreviewPage() {
                       style={{ borderTopColor: color.ring }}
                     >
                       <div className="p-4 flex-1">
-                        <div className="w-10 h-10 rounded-lg flex items-center justify-center mb-3" style={{ background: color.bg, color: color.text }}>
-                          {moduleIcon(a.module_type)}
+                        <div className="w-10 h-10 rounded-lg flex items-center justify-center mb-3 overflow-hidden" style={{ background: color.bg, color: color.text }}>
+                          {a.cover_image_url ? (
+                            <img src={a.cover_image_url} alt="" className="w-full h-full object-cover" />
+                          ) : moduleIcon(a.module_type)}
                         </div>
                         <p className="font-semibold truncate">{a.title_i18n?.zh ?? a.title_i18n?.en ?? "未命名"}</p>
                         <p className="text-xs text-muted-foreground mt-1">
@@ -287,5 +289,4 @@ export default function ParentPreviewPage() {
 }
 
 
- 
  
