@@ -651,6 +651,10 @@ export const createActivity = createLevel;
 export async function updateLevel(req: AuthRequest, res: Response): Promise<void> {
   try {
     const { levelId } = req.params;
+    // 临时诊断用——直接印出后端收到的完整请求内容，看请求到底有没有到、
+    // 装的是什么。确认问题之后这几行可以拿掉。
+    console.log("🔍 updateLevel 收到的请求 levelId:", levelId);
+    console.log("🔍 updateLevel 收到的 req.body:", JSON.stringify(req.body, null, 2));
     const {
       title_i18n, config, explanation_text, explanation_image_url, explanation_video_url,
       category_id, category_ids, group_id, curriculum_type_id, hint_text, audio_url,
