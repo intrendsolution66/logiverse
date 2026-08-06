@@ -38,6 +38,7 @@ import {
   listLevels, createLevel, createActivity, getLevel, getLevelForEdit, updateLevel, deleteLevel, checkSudoku, checkWordProblem, checkLineMatch, checkColoring, listAllActivities,
   submitProgress, listMyProgress, listAllProgressRecords,
   listGradeTiers, createGradeTier, updateGradeTier, deleteGradeTier,
+  getLevelLeaderboard, getMyLevelRecords
 } from "./courses.controller.js";
  
 // lessons.controller.js 那行加 updateLesson/deleteLesson：
@@ -160,7 +161,8 @@ router.post("/levels/:levelId/line-match-check", authenticate, checkLineMatch);
 router.post("/levels/:levelId/coloring-check", authenticate, checkColoring);
 router.post("/levels/:levelId/word-problem-check", authenticate, checkWordProblem);
 router.post("/levels/:levelId/progress",   authenticate, submitProgress);
-
+router.get("/levels/:levelId/leaderboard", authenticate, getLevelLeaderboard);
+router.get("/levels/:levelId/my-records", authenticate, getMyLevelRecords);
 router.get ("/progress/me",                authenticate, listMyProgress);
 router.get ("/admin/progress-records",       authenticate, authorize("classes.manage"), listAllProgressRecords);
 
