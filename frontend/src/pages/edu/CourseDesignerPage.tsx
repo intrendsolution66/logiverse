@@ -2201,6 +2201,11 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   const [selfGuidedProgrammeIds, setSelfGuidedProgrammeIds] = useState<string[]>([]);
   const [allProgrammes, setAllProgrammes] = useState<Array<{ id: string; name_zh: string }>>([]);
   useEffect(() => { taxonomyApi.listProgrammes().then(setAllProgrammes); }, []);
+  // 后端 course_levels.parent_preview_enabled 这个栏位其实早就存在（家长
+  // 预览那个页面一直在按它筛选），但设计器这边从来没做过对应的开关，
+  // 导致这个功能形同虚设——数据库里没有任何 Activity 被标记过，家长
+  // 预览永远是空的。现在补上。
+  const [parentPreviewEnabled, setParentPreviewEnabled] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -2663,6 +2668,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       setAgeGroupMin(""); setAgeGroupMax(""); setDurationMinutes("");
       setLearningOutcomes(""); setSkillsInput(""); setActivityLanguage("universal"); setActivityTagsInput("");
       setUsageContexts([]); setSelfGuidedProgrammeIds([]);
+      setParentPreviewEnabled(false);
       setTheme("apple"); setMinVal(1); setMaxVal(10); setNumChoices(3); setTotalQuestions(5);
       setCountingMode("random"); setCountingScene(null); setCountingTargetTypes([]); setCountingQuestionText(""); setCustomQuestionText("");
       setGridSize(4);
@@ -2720,6 +2726,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       setActivityTagsInput((level.tags ?? []).join("、"));
       setUsageContexts((level as { usage_contexts?: string[] }).usage_contexts ?? []);
       setSelfGuidedProgrammeIds((level as { self_guided_programme_ids?: string[] }).self_guided_programme_ids ?? []);
+      setParentPreviewEnabled((level as { parent_preview_enabled?: boolean }).parent_preview_enabled === true);
 
       const cfg = level.config as Record<string, unknown>;
       // 通用读取——8个模块共用同一个栏位，这里统一处理一次，不用在每个
@@ -3002,6 +3009,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       tags: activityTagsInput.split(/[,，、]/).map((t) => t.trim()).filter(Boolean).slice(0, 3),
       usage_contexts: usageContexts,
       self_guided_programme_ids: usageContexts.includes("self_guided") ? selfGuidedProgrammeIds : [],
+      parent_preview_enabled: parentPreviewEnabled,
     };
     const fullPayload = { ...payload, ...activityMeta };
     if (editingLevelId) await eduApi.updateLevel(editingLevelId, fullPayload);
@@ -4701,6 +4709,10 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               <Input placeholder="如：入门、森林、冬天" value={activityTagsInput} onChange={(e) => setActivityTagsInput(e.target.value)} />
             </div>
           </div>
+          <label className="flex items-center gap-2 text-sm pt-1 border-t border-border/60">
+            <input type="checkbox" checked={parentPreviewEnabled} onChange={(e) => setParentPreviewEnabled(e.target.checked)} />
+            开放给家长预览（家长订阅前，在"课程内容预览"页面能看到并试玩这个 Activity）
+          </label>
         </div>
         </div>
 
