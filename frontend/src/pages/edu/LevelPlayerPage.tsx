@@ -180,14 +180,14 @@ export default function LevelPlayerPage() {
           <div className="flex items-center gap-2 flex-wrap">
             {isGameModule && (
               <>
-                <Button variant="outline" size="sm" onClick={openMyRecords}>📊 自己记录</Button>
-                <Button variant="outline" size="sm" onClick={openLeaderboard}>🏆 排行榜</Button>
+                <Button type="button" variant="outline" size="sm" onClick={openMyRecords}>📊 自己记录</Button>
+                <Button type="button" variant="outline" size="sm" onClick={openLeaderboard}>🏆 排行榜</Button>
               </>
             )}
             {isGameModule && playState !== "idle" && (
               <>
-                <Button variant="outline" size="sm" onClick={handleReplay}>🔄 重玩</Button>
-                <Button variant="outline" size="sm" onClick={goBack}>🚪 退出</Button>
+                <Button type="button" variant="outline" size="sm" onClick={handleReplay}>🔄 重玩</Button>
+                <Button type="button" variant="outline" size="sm" onClick={goBack}>🚪 退出</Button>
               </>
             )}
             {!(isGameModule && playState !== "idle") && (
@@ -222,7 +222,7 @@ export default function LevelPlayerPage() {
               <div className="text-5xl">🎮</div>
               <p className="text-lg font-medium text-foreground">准备好了吗？</p>
               <p className="text-sm text-muted-foreground">按下面的"开始"就可以进入游戏啦</p>
-              <Button size="lg" onClick={handleStart} className="text-lg font-semibold px-8">▶️ 开始</Button>
+              <Button type="button" size="lg" onClick={handleStart} className="text-lg font-semibold px-8">▶️ 开始</Button>
             </div>
           )}
 
@@ -286,13 +286,13 @@ export default function LevelPlayerPage() {
         <Modal open={showLeaderboard} onClose={() => setShowLeaderboard(false)} title="🏆 全台的排行榜" size="md">
           {leaderboardLoading ? (
             <p className="text-center text-muted-foreground py-6">加载中...</p>
-          ) : !leaderboard || leaderboard.entries.length === 0 ? (
+          ) : !leaderboard?.entries?.length ? (
             <p className="text-center text-muted-foreground py-6">还没有人玩过这个 Activity，快来当第一名！</p>
           ) : (
             <div className="space-y-2">
               {leaderboard.my_rank && (
                 <p className="text-sm text-teal-700 bg-teal-50 rounded-lg px-3 py-2 mb-2">
-                  你目前排在第 {leaderboard.my_rank} 名（共 {leaderboard.total_players} 人）
+                  你目前排在第 {leaderboard.my_rank} 名（共 {leaderboard.total_players ?? leaderboard.entries.length} 人）
                 </p>
               )}
               {leaderboard.entries.map((e) => {
@@ -307,7 +307,7 @@ export default function LevelPlayerPage() {
                       <span className="text-sm font-medium text-foreground">{e.full_name_zh ?? e.full_name_en ?? e.username}{isMe ? "（我）" : ""}</span>
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {e.score}/{e.max_score} 分　⏱️ {e.time_spent_seconds.toFixed(1)}s
+                      {e.score}/{e.max_score} 分　⏱️ {Number(e.time_spent_seconds ?? 0).toFixed(1)}s
                     </div>
                   </div>
                 );
@@ -319,24 +319,24 @@ export default function LevelPlayerPage() {
         <Modal open={showMyRecords} onClose={() => setShowMyRecords(false)} title="📊 自己的记录" size="md">
           {myRecordsLoading ? (
             <p className="text-center text-muted-foreground py-6">加载中...</p>
-          ) : !myRecords || (!myRecords.best && myRecords.history.length === 0) ? (
+          ) : !myRecords?.best && !myRecords?.history?.length ? (
             <p className="text-center text-muted-foreground py-6">还没有玩过，快去试试看！</p>
           ) : (
             <div className="space-y-4">
               {myRecords.best && (
                 <div className="rounded-xl bg-gradient-to-r from-teal-500 to-blue-600 text-white px-4 py-3">
                   <p className="text-xs opacity-80 mb-1">历史最佳</p>
-                  <p className="text-lg font-semibold">{myRecords.best.score}/{myRecords.best.max_score} 分　⏱️ {myRecords.best.time_spent_seconds.toFixed(1)}s</p>
+                  <p className="text-lg font-semibold">{myRecords.best.score}/{myRecords.best.max_score} 分　⏱️ {Number(myRecords.best.time_spent_seconds ?? 0).toFixed(1)}s</p>
                 </div>
               )}
-              {myRecords.history.length > 0 && (
+              {!!myRecords?.history?.length && (
                 <div className="space-y-1.5">
                   <p className="text-xs text-muted-foreground">最近记录（第几次尝试 · 分数 · 用时）</p>
                   {myRecords.history.map((h) => (
                     <div key={h.id} className="flex items-center justify-between text-sm rounded-lg bg-muted/40 px-3 py-1.5">
                       <span className="text-muted-foreground">第 {h.attempt_number} 次</span>
                       <span className="text-foreground">{h.score}/{h.max_score} 分</span>
-                      <span className="text-muted-foreground">⏱️ {h.time_spent_seconds.toFixed(1)}s</span>
+                      <span className="text-muted-foreground">⏱️ {Number(h.time_spent_seconds ?? 0).toFixed(1)}s</span>
                     </div>
                   ))}
                 </div>
