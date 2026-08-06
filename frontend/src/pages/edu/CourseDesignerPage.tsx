@@ -5084,18 +5084,17 @@ export default function CourseDesignerPage() {
                   className="group rounded-2xl bg-white border border-border shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col"
                   style={{ borderTopWidth: 4, borderTopColor: c.ring }}
                 >
-                  {cover && (
-                    <div className="w-full aspect-video bg-muted overflow-hidden">
-                      <img src={cover} alt="" className="w-full h-full object-cover" />
-                    </div>
-                  )}
                   <div className="p-4 flex-1 space-y-2.5">
                     <div className="flex items-start justify-between gap-2">
                       <div
-                        className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
+                        className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 overflow-hidden"
                         style={{ background: c.bg }}
                       >
-                        {Icon ? <Icon size={22} strokeWidth={2} style={{ color: c.text }} /> : null}
+                        {cover ? (
+                          <img src={cover} alt="" className="w-full h-full object-cover" />
+                        ) : Icon ? (
+                          <Icon size={22} strokeWidth={2} style={{ color: c.text }} />
+                        ) : null}
                       </div>
                       {a.exercise_number && (
                         <span className="text-[10px] font-mono text-muted-foreground bg-muted rounded-full px-2 py-1 whitespace-nowrap">{a.exercise_number}</span>
