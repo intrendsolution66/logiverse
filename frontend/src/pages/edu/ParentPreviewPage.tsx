@@ -36,6 +36,7 @@ interface Topic {
 interface Activity {
   id: string; exercise_number?: string; title_i18n?: { zh?: string; en?: string };
   module_type: string; difficulty?: string; duration_minutes?: number; cover_image_url?: string;
+  my_play_count?: number; total_play_count?: number; created_at?: string;
 }
 
 const MODULE_TYPE_LABEL: Record<string, string> = {
@@ -248,26 +249,48 @@ export default function ParentPreviewPage() {
             ) : activities.length === 0 ? (
               <p className="text-center text-muted-foreground py-16">这个 Topic 下暂时没有开放预览的内容</p>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {activities.map((a) => {
                   const color = MODULE_COLORS[a.module_type] ?? FALLBACK_COLOR;
+                  const publishedDate = a.created_at ? new Date(a.created_at).toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }) : null;
                   return (
                     <div
                       key={a.id}
                       className="bg-white rounded-xl border-t-4 border-x border-b border-border overflow-hidden flex flex-col"
                       style={{ borderTopColor: color.ring }}
                     >
-                      <div className="p-4 flex-1">
-                        <div className="w-10 h-10 rounded-lg flex items-center justify-center mb-3 overflow-hidden" style={{ background: color.bg, color: color.text }}>
-                          {a.cover_image_url ? (
-                            <img src={a.cover_image_url} alt="" className="w-full h-full object-cover" />
-                          ) : moduleIcon(a.module_type)}
+                      <div className="p-3 flex-1 flex gap-3">
+                        {/* 左边：图标+标题+类型 */}
+                        <div className="w-20 shrink-0 space-y-1.5">
+                          <div className="w-10 h-10 rounded-lg flex items-center justify-center overflow-hidden" style={{ background: color.bg, color: color.text }}>
+                            {a.cover_image_url ? (
+                              <img src={a.cover_image_url} alt="" className="w-full h-full object-cover" />
+                            ) : moduleIcon(a.module_type)}
+                          </div>
+                          <p className="font-semibold text-sm truncate">{a.title_i18n?.zh ?? a.title_i18n?.en ?? "未命名"}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {MODULE_TYPE_LABEL[a.module_type] ?? a.module_type}
+                          </p>
                         </div>
-                        <p className="font-semibold truncate">{a.title_i18n?.zh ?? a.title_i18n?.en ?? "未命名"}</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {MODULE_TYPE_LABEL[a.module_type] ?? a.module_type}
-                          {a.duration_minutes ? ` · 约${a.duration_minutes}分钟` : ""}
-                        </p>
+
+                        {/* 右边：内容预览图 + 玩过次数/发布日期 */}
+                        <div className="flex-1 min-w-0 space-y-1.5">
+                          <div className="relative w-full aspect-[4/3] rounded-lg overflow-hidden bg-muted">
+                            {a.cover_image_url ? (
+                              <img src={a.cover_image_url} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-muted-foreground/40">
+                                {moduleIcon(a.module_type)}
+                              </div>
+                            )}
+                            <div className="absolute top-1 right-1 rounded-md bg-black/70 text-white text-[9px] leading-tight px-1.5 py-1 space-y-0.5">
+                              <p>总玩次数：{a.total_play_count ?? 0}</p>
+                              <p>你试玩过 {a.my_play_count ?? 0} 次</p>
+                            </div>
+                          </div>
+                          {publishedDate && <p className="text-[10px] text-muted-foreground/70 text-right">发布日期：{publishedDate}</p>}
+                          {a.duration_minutes && <p className="text-[10px] text-muted-foreground/70">约{a.duration_minutes}分钟</p>}
+                        </div>
                       </div>
                       <button
                         onClick={() => openActivity(a)}

@@ -1606,7 +1606,8 @@ export async function listAllActivities(req: AuthRequest, res: Response): Promis
               c.title_i18n AS course_title_i18n,
               COALESCE(topics.topics, '[]'::json) AS topics,
               topics.sort_topic_name, topics.sort_subject_name, topics.sort_programme_name,
-              COALESCE(my_plays.play_count, 0)::int AS my_play_count
+              COALESCE(my_plays.play_count, 0)::int AS my_play_count,
+              COALESCE(total_plays.play_count, 0)::int AS total_play_count
        ${joins}
        LEFT JOIN LATERAL (
          SELECT
@@ -1633,6 +1634,13 @@ export async function listAllActivities(req: AuthRequest, res: Response): Promis
          FROM edu.progress_records pr
          WHERE pr.course_level_id = cl.id AND pr.student_id = $${studentIdx}
        ) my_plays ON true
+       -- "总玩次数"——所有人加起来玩过几次，不分是谁，这个才是真的
+       -- count(*)，不加 student_id 过滤。
+       LEFT JOIN LATERAL (
+         SELECT count(*)::int AS play_count
+         FROM edu.progress_records pr
+         WHERE pr.course_level_id = cl.id
+       ) total_plays ON true
        ${whereClause}
        ORDER BY ${ACTIVITY_SORT_COLUMNS[sortKey]} ${order} NULLS LAST
        LIMIT $${limitIdx} OFFSET $${offsetIdx}`,

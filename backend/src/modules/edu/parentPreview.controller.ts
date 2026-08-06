@@ -83,13 +83,23 @@ export async function listParentPreviewActivities(req: AuthRequest, res: Respons
     if (gradeTierId) { params.push(gradeTierId); conditions.push(`c.grade_tier_id = $${params.length}`); }
 
     const { rows } = await query(
-      `SELECT DISTINCT cl.id, cl.exercise_number, cl.title_i18n, cl.module_type, cl.difficulty, cl.duration_minutes, cl.created_at, cl.cover_image_url
+      `SELECT DISTINCT cl.id, cl.exercise_number, cl.title_i18n, cl.module_type, cl.difficulty, cl.duration_minutes, cl.created_at, cl.cover_image_url,
+              COALESCE(my_plays.play_count, 0)::int AS my_play_count,
+              COALESCE(total_plays.play_count, 0)::int AS total_play_count
        FROM edu.course_levels cl
        JOIN edu.activity_topic_links atl ON atl.course_level_id = cl.id
        LEFT JOIN edu.courses c ON c.id = cl.course_id
+       LEFT JOIN LATERAL (
+         SELECT count(*)::int AS play_count FROM edu.progress_records pr
+         WHERE pr.course_level_id = cl.id AND pr.student_id = $${params.length + 1}
+       ) my_plays ON true
+       LEFT JOIN LATERAL (
+         SELECT count(*)::int AS play_count FROM edu.progress_records pr
+         WHERE pr.course_level_id = cl.id
+       ) total_plays ON true
        WHERE ${conditions.join(" AND ")}
        ORDER BY cl.exercise_number NULLS LAST, cl.created_at ASC`,
-      params
+      [...params, req.user!.sub]
     );
     ok(res, rows);
   } catch (err) { serverError(res, err); }

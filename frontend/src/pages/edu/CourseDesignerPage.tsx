@@ -4825,6 +4825,7 @@ interface ActivityRow {
   id: string; course_id: string; module_type: string; title_i18n?: Record<string,string>;
   exercise_number?: string; created_at: string;
   course_title_i18n?: Record<string,string>;
+  cover_image_url?: string; my_play_count?: number; total_play_count?: number;
   // 一个 Activity 现在可以同时挂好几个 Topic（多对多），不再是单一的
   // programme_name_zh/subject_name_zh/topic_name_zh 那几个字段。
   topics: Array<{
@@ -5073,19 +5074,19 @@ export default function CourseDesignerPage() {
                 : a.module_type === "play_along" ? `/view/play-along?levelId=${a.id}`
                 : `/play/${a.id}?from=designer`;
               const topicNames = Array.from(new Set(a.topics.map((t) => t.topic_name_zh).filter(Boolean)));
-              // cover_image_url / my_play_count 是这两天新加的栏位，主
-              // TS 类型定义可能还没跟上，用这个方式安全读取，不强求
-              // eduApi 的返回类型已经声明了这两个字段。
-              const cover = (a as { cover_image_url?: string }).cover_image_url;
-              const myPlays = (a as { my_play_count?: number }).my_play_count ?? 0;
+              const cover = a.cover_image_url;
+              const myPlays = a.my_play_count ?? 0;
+              const totalPlays = a.total_play_count ?? 0;
+              const publishedDate = a.created_at ? new Date(a.created_at).toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }) : null;
               return (
                 <div
                   key={a.id}
                   className="group rounded-2xl bg-white border border-border shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col"
                   style={{ borderTopWidth: 4, borderTopColor: c.ring }}
                 >
-                  <div className="p-4 flex-1 space-y-2.5">
-                    <div className="flex items-start justify-between gap-2">
+                  <div className="p-3 flex-1 flex gap-3">
+                    {/* 左边：图标+标题+类型+Topic，比右边窄 */}
+                    <div className="w-24 shrink-0 space-y-1.5">
                       <div
                         className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 overflow-hidden"
                         style={{ background: c.bg }}
@@ -5096,24 +5097,39 @@ export default function CourseDesignerPage() {
                           <Icon size={22} strokeWidth={2} style={{ color: c.text }} />
                         ) : null}
                       </div>
-                      {a.exercise_number && (
-                        <span className="text-[10px] font-mono text-muted-foreground bg-muted rounded-full px-2 py-1 whitespace-nowrap">{a.exercise_number}</span>
+                      <p className="font-semibold text-sm leading-snug line-clamp-2">{a.title_i18n?.zh ?? a.title_i18n?.en ?? a.module_type}</p>
+                      <p className="text-[11px] font-medium" style={{ color: c.text }}>{MODULE_LABELS[a.module_type]?.label ?? a.module_type}</p>
+                      {topicNames.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {topicNames.slice(0, 1).map((t) => (
+                            <span key={t} className="text-[10px] bg-muted text-muted-foreground rounded-full px-1.5 py-0.5 truncate max-w-full">{t}</span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground/60">还没挂 Topic</span>
                       )}
                     </div>
-                    <div>
-                      <p className="font-semibold text-sm leading-snug line-clamp-2">{a.title_i18n?.zh ?? a.title_i18n?.en ?? a.module_type}</p>
-                      <p className="text-[11px] font-medium mt-0.5" style={{ color: c.text }}>{MODULE_LABELS[a.module_type]?.label ?? a.module_type}</p>
-                    </div>
-                    {topicNames.length > 0 ? (
-                      <div className="flex flex-wrap gap-1">
-                        {topicNames.map((t) => (
-                          <span key={t} className="text-[10px] bg-muted text-muted-foreground rounded-full px-2 py-0.5">{t}</span>
-                        ))}
+
+                    {/* 右边：内容预览图 + 玩过次数/发布日期 */}
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      <div className="relative w-full aspect-[4/3] rounded-lg overflow-hidden bg-muted">
+                        {cover ? (
+                          <img src={cover} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-muted-foreground/40">
+                            {Icon ? <Icon size={28} strokeWidth={1.5} /> : null}
+                          </div>
+                        )}
+                        <div className="absolute top-1 right-1 rounded-md bg-black/70 text-white text-[9px] leading-tight px-1.5 py-1 space-y-0.5">
+                          <p>总玩次数：{totalPlays}</p>
+                          <p>你试玩过 {myPlays} 次</p>
+                        </div>
+                        {a.exercise_number && (
+                          <span className="absolute bottom-1 left-1 text-[9px] font-mono text-white bg-black/60 rounded px-1.5 py-0.5">{a.exercise_number}</span>
+                        )}
                       </div>
-                    ) : (
-                      <span className="text-[10px] text-muted-foreground/60">还没挂 Topic</span>
-                    )}
-                    <p className="text-[10px] text-muted-foreground/70">你试玩过 {myPlays} 次</p>
+                      {publishedDate && <p className="text-[10px] text-muted-foreground/70 text-right">发布日期：{publishedDate}</p>}
+                    </div>
                   </div>
                   <div className="flex items-center border-t border-border divide-x divide-border text-xs font-medium">
                     <a href={previewHref} className="flex-1 text-center py-2.5 text-primary hover:bg-primary/5 transition-colors">▶ 试玩</a>
