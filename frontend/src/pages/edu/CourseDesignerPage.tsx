@@ -2292,7 +2292,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   // 数独）共用同一个"自定义题目句子"栏位——一次只编辑一个 Activity，共用
   // 一个 state 就够了，不用给每个模块各开一个。counting 自己已经有独立的
   // 一套（上面那个 countingQuestionText），这里不重复。
-  const CUSTOM_QUESTION_MODULES = ["spot_diff", "focus_tap", "memory", "pattern", "maze", "coloring", "line_match", "sudoku"];
+  const CUSTOM_QUESTION_MODULES = ["spot_diff", "focus_tap", "memory", "pattern", "maze", "coloring", "line_match", "sudoku", "shape_count"];
   const [customQuestionText, setCustomQuestionText] = useState("");
 
   // focus_tap fields (grid mode only for now)
@@ -2330,6 +2330,10 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   const [cubeFreeRotateSize, setCubeFreeRotateSize] = useState(3);      // Stage4 结构大小(固定难度，不自适应)
   const [cubeFreeRotateMinSec, setCubeFreeRotateMinSec] = useState(5);  // Stage4 每个结构至少看几秒
   const [shapeAskType, setShapeAskType] = useState<"square" | "rectangle" | "both">("both"); // 平面数方块 问正方形/长方形/都问
+  // shape_count 的 custom 布局——跟focus_tap的grid/custom是同一个套路，
+  // grid沿用现成的公式生成模式，custom是设计师自己画/摆的单题场景。
+  const [shapeCountLayout, setShapeCountLayout] = useState<"grid" | "custom">("grid");
+  const [shapeCountScene, setShapeCountScene] = useState<StructuredSceneOutput | null>(null);
 
   // word_problem fields
   const [wpCategories, setWpCategories] = useState<string[]>(["chicken_rabbit"]);
@@ -2862,6 +2866,27 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         setCubeStackStartingLevel((cfg.starting_level as number) ?? 1);
         setTotalQuestions((cfg.total_questions as number) ?? 5);
         setShapeAskType((cfg.ask_type as "square" | "rectangle" | "both") ?? "both");
+        const scLayout = ((cfg.layout as string) ?? "grid") as "grid" | "custom";
+        setShapeCountLayout(scLayout);
+        if (scLayout === "custom") {
+          const scShapes = (cfg.shapes as Array<{ shape: "rect" | "ellipse" | "line" | "triangle"; x: number; y: number; w: number; h: number; rotation: number; fillColor: string; fillEnabled: boolean; borderColor: string; borderEnabled: boolean; borderWidth: number; radius?: number; opacity?: number }>) ?? [];
+          const scObjects = (cfg.objects as Array<{ image_url: string; x: number; y: number; w: number; h: number; rotation: number; object_type?: string; flip_x?: boolean; flip_y?: boolean; opacity?: number }>) ?? [];
+          setShapeCountScene({
+            bgUrl: (cfg.bg_image_url as string) ?? null,
+            objects: scObjects.map((o) => ({
+              imageUrl: o.image_url, x: o.x * GAME_CANVAS_W, y: o.y * GAME_CANVAS_H,
+              w: o.w, h: o.h, rotation: o.rotation, objectType: o.object_type, flipX: o.flip_x, flipY: o.flip_y, opacity: o.opacity,
+            })),
+            texts: [],
+            shapes: scShapes.map((s) => ({
+              shape: s.shape, x: s.x * GAME_CANVAS_W, y: s.y * GAME_CANVAS_H, w: s.w, h: s.h, rotation: s.rotation,
+              fillColor: s.fillColor, fillEnabled: s.fillEnabled, borderColor: s.borderColor, borderEnabled: s.borderEnabled,
+              borderWidth: s.borderWidth, radius: s.radius, opacity: s.opacity,
+            })),
+          });
+        } else {
+          setShapeCountScene(null);
+        }
       } else if (level.module_type === "word_problem") {
         setWpCategories((cfg.categories as string[]) ?? ["chicken_rabbit"]);
         setWpAnswerMode(((cfg.answer_mode as string) ?? "select") as "select" | "input");
@@ -3294,16 +3319,46 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           config: { starting_level: cubeStackStartingLevel, total_questions: totalQuestions, timer_mode: "stopwatch" },
         });
       } else if (moduleType === "shape_count") {
-        await saveLevel({
-          module_type: "shape_count",
-          title_i18n: { zh: levelTitle || "数方块(平面图形)", en: levelTitle || "Shape Count" },
-          explanation_text: explanationText || undefined,
-          explanation_image_url: explanationImageUrl || undefined,
-          explanation_video_url: explanationVideoUrl || undefined,
-          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
-          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-          config: { ask_type: shapeAskType, starting_level: cubeStackStartingLevel, total_questions: totalQuestions, timer_mode: "stopwatch" },
-        });
+        if (shapeCountLayout === "custom") {
+          if (!shapeCountScene?.bgUrl && !shapeCountScene?.shapes?.length && !shapeCountScene?.objects.length) {
+            toast.error("请至少加一个背景图、形状或物件");
+            return;
+          }
+          await saveLevel({
+            module_type: "shape_count",
+            title_i18n: { zh: levelTitle || "数方块(平面图形)", en: levelTitle || "Shape Count" },
+            explanation_text: explanationText || undefined,
+            explanation_image_url: explanationImageUrl || undefined,
+            explanation_video_url: explanationVideoUrl || undefined,
+            hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+            category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+            config: {
+              layout: "custom", bg_image_url: shapeCountScene?.bgUrl ?? undefined,
+              shapes: (shapeCountScene?.shapes ?? []).map((s) => ({
+                shape: s.shape, x: s.x / GAME_CANVAS_W, y: s.y / GAME_CANVAS_H, w: s.w, h: s.h, rotation: s.rotation,
+                fillColor: s.fillColor, fillEnabled: s.fillEnabled, borderColor: s.borderColor, borderEnabled: s.borderEnabled,
+                borderWidth: s.borderWidth, radius: s.radius, opacity: s.opacity,
+              })),
+              objects: (shapeCountScene?.objects ?? []).map((o) => ({
+                image_url: o.imageUrl, x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H, w: o.w, h: o.h, rotation: o.rotation,
+                object_type: o.objectType || undefined, flip_x: o.flipX, flip_y: o.flipY, opacity: o.opacity,
+              })),
+              timer_mode: "stopwatch",
+              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+            },
+          });
+        } else {
+          await saveLevel({
+            module_type: "shape_count",
+            title_i18n: { zh: levelTitle || "数方块(平面图形)", en: levelTitle || "Shape Count" },
+            explanation_text: explanationText || undefined,
+            explanation_image_url: explanationImageUrl || undefined,
+            explanation_video_url: explanationVideoUrl || undefined,
+            hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+            category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+            config: { layout: "grid", ask_type: shapeAskType, starting_level: cubeStackStartingLevel, total_questions: totalQuestions, timer_mode: "stopwatch" },
+          });
+        }
       } else if (moduleType === "word_problem") {
         if (wpCategories.length === 0) { toast.error("请至少选一种题型"); return; }
         await saveLevel({
@@ -4205,23 +4260,58 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         )}
 
         {moduleType === "shape_count" && (
-          <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3 text-sm">
-            <div className="flex gap-3 flex-wrap items-center">
-              <label className="flex items-center gap-1.5">问哪种
-                <select value={shapeAskType} onChange={(e) => setShapeAskType(e.target.value as "square" | "rectangle" | "both")} className={MINI_INPUT_CLASS}>
-                  <option value="both">正方形+长方形都问</option>
-                  <option value="square">只问正方形</option>
-                  <option value="rectangle">只问长方形</option>
-                </select>
-              </label>
-              <label className="flex items-center gap-1.5">起始难度等级
-                <input type="number" min={1} max={10} value={cubeStackStartingLevel} onChange={(e) => setCubeStackStartingLevel(Math.min(10, Math.max(1, +e.target.value)))} className={MINI_INPUT_CLASS} />
-              </label>
-              <label className="flex items-center gap-1.5">题数 <input type="number" value={totalQuestions} onChange={(e) => setTotalQuestions(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
+          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Square size={16} className="text-primary" /> 数方块(平面图形) · 内容设置
             </div>
-            <p className="text-xs text-muted-foreground">
-              经典"数格子图里有几个正方形/长方形"题型——网格是现场画的，答案是公式算出来的，不需要准备任何素材图。长方形题会提醒学生"正方形也算长方形的一种"。
-            </p>
+            <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
+              {(["grid", "custom"] as const).map((m) => (
+                <button
+                  key={m} type="button" onClick={() => setShapeCountLayout(m)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    shapeCountLayout === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {m === "grid" ? "🔲 网格模式" : "🖼️ 自定义画图"}
+                </button>
+              ))}
+            </div>
+
+            {shapeCountLayout === "grid" ? (
+              <div className="space-y-3 pt-1 border-t border-border/60">
+                <div className="flex gap-3 flex-wrap items-center">
+                  <label className="flex items-center gap-1.5">问哪种
+                    <select value={shapeAskType} onChange={(e) => setShapeAskType(e.target.value as "square" | "rectangle" | "both")} className={MINI_INPUT_CLASS}>
+                      <option value="both">正方形+长方形都问</option>
+                      <option value="square">只问正方形</option>
+                      <option value="rectangle">只问长方形</option>
+                    </select>
+                  </label>
+                  <label className="flex items-center gap-1.5">起始难度等级
+                    <input type="number" min={1} max={10} value={cubeStackStartingLevel} onChange={(e) => setCubeStackStartingLevel(Math.min(10, Math.max(1, +e.target.value)))} className={MINI_INPUT_CLASS} />
+                  </label>
+                  <label className="flex items-center gap-1.5">题数 <input type="number" value={totalQuestions} onChange={(e) => setTotalQuestions(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  经典"数格子图里有几个正方形/长方形"题型——网格是现场画的，答案是公式算出来的，不需要准备任何素材图。长方形题会提醒学生"正方形也算长方形的一种"。
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3 pt-1 border-t border-border/60">
+                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+                  选背景图（选填）、用画笔工具画方形/圆形/三角形（可以互相重叠），也可以上传物件图片、在"类型"里打上 square/circle/triangle 其中一个标签让它算进对应类型。学生玩的时候要分别数出"正方形/圆形/三角形"各有几个——单题，不循环。
+                </p>
+                <SceneEditor
+                  structuredMode presetModuleType="shape_count"
+                  onSaveStructured={setShapeCountScene} initial={shapeCountScene ?? undefined}
+                />
+                {shapeCountScene && (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                    ✓ 场景已确认（{(shapeCountScene.shapes?.length ?? 0)} 个形状、{shapeCountScene.objects.length} 个物件），可以点上面"完成"重新调整
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
 

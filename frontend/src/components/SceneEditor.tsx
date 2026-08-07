@@ -72,7 +72,7 @@ const MODULE_OPTIONS = [
   { value: "maze", label: "🧭 迷宫" }, { value: "spot_diff", label: "🔍 找不同之处" },
   { value: "focus_tap", label: "🎯 专注力点数字" }, { value: "memory", label: "🃏 Memory配对" },
   { value: "counting", label: "🔢 点点数数" }, { value: "pattern", label: "🧩 找规律" },
-  { value: "word_problem", label: "📝 应用题" },
+  { value: "word_problem", label: "📝 应用题" }, { value: "shape_count", label: "🔲 数方块(平面图形)" },
 ];
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
@@ -223,6 +223,17 @@ export interface StructuredSceneOutput {
   // 保持可交互（学生要能填空），所以走跟 objects/texts 一样的结构化
   // 导出，不是扁平化 PNG 的那条路。
   grids?: Array<{ x: number; y: number; w: number; h: number; rotation: number; rows: number; cols: number; cells: { value: string; blank: boolean; answer?: string; pathStep?: number }[][]; lineColor: string; givenColor: string; blankBg: string; bgColor: string; bgEnabled: boolean; opacity?: number }>;
+  // 形状（画方形/圆形/三角形等）——之前一直是"烤进背景图"那条路(跟
+  // 画笔涂鸦一样处理)，只有需要"这个游戏要把形状当成独立可数的物件"
+  // (比如数方块/圆形/三角形一共有几个，形状还可能互相重叠)才会用到
+  // 这个字段，一般用途(纯装饰性的形状，比如给拼图场景加个边框)还是走
+  // 烤进背景图那条路，不进这个数组——见 handleSaveStructured 里的判断。
+  shapes?: Array<{
+    shape: "rect" | "ellipse" | "line" | "triangle";
+    x: number; y: number; w: number; h: number; rotation: number;
+    fillColor: string; fillEnabled: boolean; borderColor: string; borderEnabled: boolean; borderWidth: number;
+    radius?: number; opacity?: number;
+  }>;
 }
 
 export default function SceneEditor({ presetCategory, presetModuleType, onSaved, structuredMode, onSaveStructured, initial }: {
@@ -250,7 +261,15 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
       rows: g.rows, cols: g.cols, cells: g.cells, lineColor: g.lineColor, givenColor: g.givenColor, blankBg: g.blankBg,
       bgColor: g.bgColor ?? "#ffffff", bgEnabled: g.bgEnabled ?? false, opacity: g.opacity,
     }));
-    return [...objectLayers, ...textLayers, ...gridLayers];
+    // 形状——之前的版本里形状从来不会出现在initial.shapes里(因为之前
+    // 一直被烤进bgUrl)，这里只是让"重新打开一个已经用新逻辑存过的
+    // 自定义场景"能正确还原，旧数据(没有shapes字段)自然走??[]的空数组。
+    const shapeLayers: ShapeLayer[] = (initial.shapes ?? []).map((s) => ({
+      id: uid(), type: "shape", shape: s.shape, x: s.x, y: s.y, w: s.w, h: s.h, rotation: s.rotation,
+      fillColor: s.fillColor, fillEnabled: s.fillEnabled, borderColor: s.borderColor, borderEnabled: s.borderEnabled,
+      borderWidth: s.borderWidth, radius: s.radius, opacity: s.opacity,
+    }));
+    return [...objectLayers, ...textLayers, ...gridLayers, ...shapeLayers];
   });
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [tool, setTool] = useState<Tool>("select");
@@ -892,8 +911,13 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   // 原本的背景URL（或null），不用无端把一张普通图片重新编码一遍。
   function bakeBackgroundWithDecorations(): string | null {
     const bg = background; // 存一个本地引用，下面全用这个——直接反复用 state 变量 background 在这种 if 判断组合下，TS 会把它错误收窄成 never，改用普通局部变量就不会有这个问题
-    const hasShapes = layers.some((l) => l.type === "shape");
-    if (!bg && strokes.length === 0 && !hasShapes) return null; // 这个分支里 bg 已经确定是 null 了，不用再判断一次
+    // 形状不再在这里烤——这个函数现在只有 handleSaveStructured 一个调用
+    // 方，形状在那边被单独抽成结构化数据保留(见 handleSaveStructured)，
+    // 不能连带在这里又画进背景图，不然会变成"背景图里一份、structured
+    // shapes数组里又一份"的重复。非结构化的保存路径(handleSave)走的是
+    // canvasRef.current.toDataURL() 直接截live画布，形状照常会画在那张
+    // 图里，不受这个改动影响。
+    if (!bg && strokes.length === 0) return null; // 这个分支里 bg 已经确定是 null 了，不用再判断一次
 
     const off = document.createElement("canvas");
     off.width = W; off.height = H;
@@ -919,27 +943,6 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
       octx.restore();
     });
 
-    layers.filter((l): l is ShapeLayer => l.type === "shape").forEach((l) => {
-      const b = objectBounds(l);
-      octx.save();
-      octx.translate(l.x, l.y); octx.rotate(deg2rad(l.rotation ?? 0)); octx.translate(-l.x, -l.y);
-      octx.globalAlpha = (l.opacity ?? 100) / 100;
-      if (l.shape === "line") {
-        octx.beginPath();
-        octx.moveTo(b.x, l.y); octx.lineTo(b.x + b.w, l.y);
-        octx.lineCap = "round";
-        octx.strokeStyle = l.borderColor; octx.lineWidth = Math.max(1, l.borderWidth); octx.stroke();
-      } else {
-        if (l.shape === "ellipse") { octx.beginPath(); octx.ellipse(l.x, l.y, b.w / 2, b.h / 2, 0, 0, Math.PI * 2); }
-        else if (l.shape === "triangle") { trianglePath(octx, b); }
-        else if (l.radius && l.radius > 0) { roundedRectPath(octx, b.x, b.y, b.w, b.h, l.radius); }
-        else { octx.beginPath(); octx.rect(b.x, b.y, b.w, b.h); }
-        if (l.fillEnabled) { octx.fillStyle = l.fillColor; octx.fill(); }
-        if (l.borderEnabled && l.borderWidth > 0) { octx.strokeStyle = l.borderColor; octx.lineWidth = l.borderWidth; octx.stroke(); }
-      }
-      octx.restore();
-    });
-
     return off.toDataURL("image/png");
   }
 
@@ -950,10 +953,16 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
       .map((l) => ({ text: l.text, x: l.x, y: l.y, fontSize: l.fontSize, color: l.color, fontFamily: l.fontFamily, rotation: l.rotation ?? 0, bold: l.bold || undefined, italic: l.italic || undefined, underline: l.underline || undefined }));
     const grids = layers.filter((l): l is GridLayer => l.type === "grid")
       .map((l) => ({ x: l.x, y: l.y, w: l.w, h: l.h, rotation: l.rotation ?? 0, rows: l.rows, cols: l.cols, cells: l.cells, lineColor: l.lineColor, givenColor: l.givenColor, blankBg: l.blankBg, bgColor: l.bgColor, bgEnabled: l.bgEnabled, opacity: l.opacity }));
+    // 结构化模式下形状不再烤进背景图(见 bakeBackgroundWithDecorations
+    // 的改动)——保持成独立数据，运行时才有办法把每个形状当成一个可数
+    // 的物件(比如数方块/圆形/三角形，形状还可能互相重叠)，不是死死画
+    // 进一张图里数不出来。
+    const shapes = layers.filter((l): l is ShapeLayer => l.type === "shape")
+      .map((l) => ({ shape: l.shape, x: l.x, y: l.y, w: l.w, h: l.h, rotation: l.rotation ?? 0, fillColor: l.fillColor, fillEnabled: l.fillEnabled, borderColor: l.borderColor, borderEnabled: l.borderEnabled, borderWidth: l.borderWidth, radius: l.radius, opacity: l.opacity }));
     onSaveStructured?.({
       bgUrl: bakeBackgroundWithDecorations(),
       bgBounds: background ? { x: background.x, y: background.y, w: background.w, h: background.h } : undefined,
-      objects, texts, grids,
+      objects, texts, grids, shapes,
     });
   }
 
@@ -974,14 +983,21 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   }
 
   // structuredMode下按类型汇总的物件数量——给设计师一个直观的"每种放了几个"
-  // 的反馈，不用自己数。未标类型的算进"未分类"。
+  // 的反馈，不用自己数。未标类型的物件算进"未分类"；形状按shape种类
+  // 自动归类(rect→正方形、ellipse→圆形、triangle→三角形)，line不算进
+  // 计数(直线通常是装饰用的分隔线，不是"要数的物件")。
+  const SHAPE_TYPE_LABEL: Record<string, string> = { rect: "正方形", ellipse: "圆形", triangle: "三角形" };
   const typeCounts = (() => {
     if (!structuredMode) return null;
     const counts: Record<string, number> = {};
     layers.forEach((l) => {
-      if (l.type !== "object") return;
-      const key = l.objectType?.trim() || "未分类";
-      counts[key] = (counts[key] ?? 0) + 1;
+      if (l.type === "object") {
+        const key = l.objectType?.trim() || "未分类";
+        counts[key] = (counts[key] ?? 0) + 1;
+      } else if (l.type === "shape" && l.shape !== "line") {
+        const key = SHAPE_TYPE_LABEL[l.shape] ?? l.shape;
+        counts[key] = (counts[key] ?? 0) + 1;
+      }
     });
     return counts;
   })();
@@ -1444,7 +1460,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
 
           {structuredMode && typeCounts && (
             <div className="text-xs font-medium text-primary bg-primary/10 rounded-lg px-2.5 py-2">
-              🔢 共 {layers.filter((l) => l.type === "object").length} 个物件
+              🔢 共 {layers.filter((l) => l.type === "object" || (l.type === "shape" && l.shape !== "line")).length} 个物件/形状
               {Object.keys(typeCounts).length > 0 && (
                 <>：{Object.entries(typeCounts).map(([k, v]) => `${k}×${v}`).join("、")}</>
               )}
