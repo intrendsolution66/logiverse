@@ -480,17 +480,42 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
           [cfg.bg_image_url, cfg.region_mask_url, JSON.stringify(regions), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
         );
         configId = cfgRows[0].id;
-      } else if (module_type === "line_match") { // authored content: every pair IS the puzzle, same as maze/sudoku — no random-generation mode
-        const pairs = cfg.pairs as Array<{ left: { type: string; content: string }; right: { type: string; content: string } }> | undefined;
-        if (!pairs?.length) throw new Error("至少要有1组配对");
-        if (pairs.some((p) => !p.left?.content || !p.right?.content)) throw new Error("每一组配对，左右两边都要填内容");
-        const { rows: cfgRows } = await client.query(
-          `INSERT INTO edu.line_match_configs (pairs, shuffle_right, timer_mode, time_limit, question_i18n)
-           VALUES ($1,$2,$3,$4,$5)
-           RETURNING id`,
-          [JSON.stringify(pairs), cfg.shuffle_right ?? true, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
-        );
-        configId = cfgRows[0].id;
+      } else if (module_type === "line_match") {
+        // 架构升级——从"一一对应的pairs数组"换成左右各一份物件清单+多对
+        // 多连线(list布局)，或者物件自由摆放按pair_key分组连线(scene布局)。
+        // 判定这次改成client端直接核对(见 LineMatchGame.tsx 头部说明)，
+        // 不再是"服务器藏答案"那一套，所以这里不用像sudoku那样拆分给
+        // 学生/设计师两种不同视角，两边看到的是同一份数据。
+        const layout = (cfg.layout as string) === "scene" ? "scene" : "list";
+        if (layout === "scene") {
+          const objects = cfg.objects as Array<{ image_url: string; x: number; y: number; w: number; h: number; rotation: number; pair_key?: string; flip_x?: boolean; flip_y?: boolean; opacity?: number }> | undefined;
+          if (!objects?.length) throw new Error("自定义画面模式至少要摆1个物件");
+          const byKey = new Map<string, number>();
+          objects.forEach((o) => { const k = (o.pair_key ?? "").trim(); byKey.set(k, (byKey.get(k) ?? 0) + 1); });
+          if (byKey.has("")) throw new Error("每个物件都要填「配对标记」，不能留空");
+          const solo = [...byKey.entries()].filter(([, c]) => c < 2).map(([k]) => k);
+          if (solo.length > 0) throw new Error(`配对标记「${solo.join("、")}」只有1个物件，至少要2个才能连线`);
+          const { rows: cfgRows } = await client.query(
+            `INSERT INTO edu.line_match_configs (layout, bg_image_url, objects, timer_mode, time_limit, question_i18n)
+             VALUES ($1,$2,$3,$4,$5,$6)
+             RETURNING id`,
+            [layout, cfg.bg_image_url ?? null, JSON.stringify(objects), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+          );
+          configId = cfgRows[0].id;
+        } else {
+          const leftItems = cfg.left_items as Array<{ id: string; type: string; content: string }> | undefined;
+          const rightItems = cfg.right_items as Array<{ id: string; type: string; content: string }> | undefined;
+          const edges = cfg.edges as Array<{ leftId: string; rightId: string }> | undefined;
+          if (!leftItems?.length || !rightItems?.length) throw new Error("左右两边至少各要有1个物件，内容不能空着");
+          if (!edges?.length) throw new Error("至少要连1条线");
+          const { rows: cfgRows } = await client.query(
+            `INSERT INTO edu.line_match_configs (layout, left_items, right_items, edges, shuffle_right, timer_mode, time_limit, question_i18n)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+             RETURNING id`,
+            [layout, JSON.stringify(leftItems), JSON.stringify(rightItems), JSON.stringify(edges), cfg.shuffle_right ?? true, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+          );
+          configId = cfgRows[0].id;
+        }
       } else if (module_type === "ppt_lecture") { // 讲义类，不是游戏：一份转好的幻灯片图片清单，没有对错判断
         const slideUrls = cfg.slide_image_urls as string[] | undefined;
         if (!slideUrls?.length) throw new Error("请先上传并转换 PPT，至少要有1页幻灯片");
@@ -675,10 +700,6 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
 
     created(res, result);
   } catch (err) {
-    // TEMP DEBUG — 排查 cube_layer_count 等新模块建Activity时的500报错用，
-    // serverError() 在production模式下不会把详细报错传给前端，这行确保
-    // 不管什么模式都会打进后端日志里。确认原因、修好之后记得把这行删掉。
-    console.error("[createLevel] error:", err);
     // same distinction updateLevel uses — a validation throw new
     // Error(...) from one of the per-module checks above should reach the
     // user as a clear 400, not get swallowed into "Internal server error"
@@ -862,13 +883,31 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
             [module_config_id, cfg.bg_image_url, cfg.region_mask_url, JSON.stringify(regions), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
           );
         } else if (module_type === "line_match") {
-          const pairs = cfg.pairs as Array<{ left: { type: string; content: string }; right: { type: string; content: string } }> | undefined;
-          if (!pairs?.length) throw new Error("至少要有1组配对");
-          if (pairs.some((p) => !p.left?.content || !p.right?.content)) throw new Error("每一组配对，左右两边都要填内容");
-          await client.query(
-            `UPDATE edu.line_match_configs SET pairs=$2, shuffle_right=$3, timer_mode=$4, time_limit=$5, question_i18n=$6 WHERE id=$1`,
-            [module_config_id, JSON.stringify(pairs), cfg.shuffle_right ?? true, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
-          );
+          const layout = (cfg.layout as string) === "scene" ? "scene" : "list";
+          if (layout === "scene") {
+            const objects = cfg.objects as Array<{ image_url: string; x: number; y: number; w: number; h: number; rotation: number; pair_key?: string; flip_x?: boolean; flip_y?: boolean; opacity?: number }> | undefined;
+            if (!objects?.length) throw new Error("自定义画面模式至少要摆1个物件");
+            const byKey = new Map<string, number>();
+            objects.forEach((o) => { const k = (o.pair_key ?? "").trim(); byKey.set(k, (byKey.get(k) ?? 0) + 1); });
+            if (byKey.has("")) throw new Error("每个物件都要填「配对标记」，不能留空");
+            const solo = [...byKey.entries()].filter(([, c]) => c < 2).map(([k]) => k);
+            if (solo.length > 0) throw new Error(`配对标记「${solo.join("、")}」只有1个物件，至少要2个才能连线`);
+            await client.query(
+              // 切layout的话把另一边(list那几栏)清掉，避免留着旧数据混淆
+              `UPDATE edu.line_match_configs SET layout=$2, bg_image_url=$3, objects=$4, left_items=NULL, right_items=NULL, edges=NULL, timer_mode=$5, time_limit=$6, question_i18n=$7 WHERE id=$1`,
+              [module_config_id, layout, cfg.bg_image_url ?? null, JSON.stringify(objects), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+            );
+          } else {
+            const leftItems = cfg.left_items as Array<{ id: string; type: string; content: string }> | undefined;
+            const rightItems = cfg.right_items as Array<{ id: string; type: string; content: string }> | undefined;
+            const edges = cfg.edges as Array<{ leftId: string; rightId: string }> | undefined;
+            if (!leftItems?.length || !rightItems?.length) throw new Error("左右两边至少各要有1个物件，内容不能空着");
+            if (!edges?.length) throw new Error("至少要连1条线");
+            await client.query(
+              `UPDATE edu.line_match_configs SET layout=$2, left_items=$3, right_items=$4, edges=$5, bg_image_url=NULL, objects=NULL, shuffle_right=$6, timer_mode=$7, time_limit=$8, question_i18n=$9 WHERE id=$1`,
+              [module_config_id, layout, JSON.stringify(leftItems), JSON.stringify(rightItems), JSON.stringify(edges), cfg.shuffle_right ?? true, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+            );
+          }
         } else if (module_type === "ppt_lecture") {
           const slideUrls = cfg.slide_image_urls as string[] | undefined;
           if (!slideUrls?.length) throw new Error("请先上传并转换 PPT，至少要有1页幻灯片");
@@ -1039,7 +1078,6 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
     // function (surface the message, it's meant to be read) from a real
     // database error (which has a `.code` property from pg — those stay
     // generic 500s, same as everywhere else)
-    console.error("[updateLevel] error:", err); // TEMP DEBUG — 见createLevel同款注释，排查完记得删
     if (err instanceof Error && !("code" in err)) { badRequest(res, err.message); return; }
     serverError(res, err);
   }
@@ -1255,34 +1293,23 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
       );
       config = cfgRows[0] ?? null;
     } else if (level.module_type === "line_match") {
+      // 不再隐藏配对关系——这版connect-the-dots改成client端直接判定(见
+      // LineMatchGame.tsx头部说明)，edges/pair_key本来就要直接发给前端
+      // 才能玩，跟贴纸游戏/数字迷宫是同一个"休闲游戏，不用防作弊"的安全
+      // 等级，不是疏忽漏掉隐藏逻辑。scene/list两种布局原样透传；pairs是
+      // 旧数据(没有layout概念)，前端 normalizeListData() 自己会转换。
       const { rows: cfgRows } = await query(
-        `SELECT pairs, shuffle_right, timer_mode, time_limit, question_i18n FROM edu.line_match_configs WHERE id = $1`,
+        `SELECT layout, left_items, right_items, edges, pairs, shuffle_right, bg_image_url, objects, timer_mode, time_limit, question_i18n FROM edu.line_match_configs WHERE id = $1`,
         [level.module_config_id]
       );
       const row = cfgRows[0];
       if (row) {
-        // 隐藏的配对关系 — the left↔right pairing must never reach the
-        // client in a form where matching IDs/indices give it away (open
-        // devtools, see left[2] and right[2] both carry the same index,
-        // done). Left items keep their natural pair_index as id — the
-        // left column isn't shuffled and isn't secret on its own. Right
-        // items get shuffled into random display order with a plain
-        // sequential id UNRELATED to pair_index, and no pair_index field
-        // at all. Checking later happens by re-deriving the answer from
-        // the stored `pairs` array server-side (checkLineMatch), not by
-        // trusting any client-supplied index.
-        type Pair = { left: { type: string; content: string }; right: { type: string; content: string } };
-        const pairs = row.pairs as Pair[];
-        const leftItems = pairs.map((p, i) => ({ id: i, type: p.left.type, content: p.left.content }));
-        const rightOrder = pairs.map((_, i) => i);
-        if (row.shuffle_right) {
-          for (let i = rightOrder.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [rightOrder[i], rightOrder[j]] = [rightOrder[j], rightOrder[i]];
-          }
-        }
-        const rightItems = rightOrder.map((pairIdx, displayIdx) => ({ id: `r${displayIdx}`, type: pairs[pairIdx].right.type, content: pairs[pairIdx].right.content }));
-        config = { left_items: leftItems, right_items: rightItems, timer_mode: row.timer_mode, time_limit: row.time_limit, question_i18n: row.question_i18n };
+        config = row.layout === "scene"
+          ? { layout: "scene", bg_image_url: row.bg_image_url, objects: row.objects, timer_mode: row.timer_mode, time_limit: row.time_limit, question_i18n: row.question_i18n }
+          : {
+              layout: "list", left_items: row.left_items, right_items: row.right_items, edges: row.edges, pairs: row.pairs,
+              shuffle_right: row.shuffle_right, timer_mode: row.timer_mode, time_limit: row.time_limit, question_i18n: row.question_i18n,
+            };
       } else {
         config = null;
       }
@@ -1696,11 +1723,12 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
       );
       config = cfgRows[0] ?? null;
     } else if (level.module_type === "line_match") {
-      // 设计者视角要看完整原始配对（pairs 数组本身，左右两边都带内容，
-      // 没有shuffle、没有隐藏），跟 getLevel 那个学生视角刻意拆开的做法
-      // 不一样——设计者本来就需要知道正确答案才能编辑。
+      // 不再需要跟学生视角分开处理——client端判定之后两边看到的就是
+      // 同一份数据，这里直接把所有栏位原样给前端，CourseDesignerPage.tsx
+      // 自己认得 layout/left_items/right_items/edges/objects/pairs 这些
+      // 字段该怎么读。
       const { rows: cfgRows } = await query(
-        `SELECT pairs, shuffle_right, timer_mode, time_limit, question_i18n FROM edu.line_match_configs WHERE id = $1`,
+        `SELECT layout, left_items, right_items, edges, pairs, shuffle_right, bg_image_url, objects, timer_mode, time_limit, question_i18n FROM edu.line_match_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
@@ -1912,15 +1940,13 @@ export async function listAllActivities(req: AuthRequest, res: Response): Promis
   } catch (err) { serverError(res, err); }
 }
 
-// ── 连线配对: server-side answer checking ──────────────────────────────────────
-// Same reasoning as checkSudoku/checkWordProblem — the correct left↔right
-// pairing never reaches the client via getLevel (see that branch's
-// comment), so validating what a student matched has to happen here,
-// against the real edu.line_match_configs.pairs array. The student submits
-// which left pair_index they connected to which right CONTENT (not an
-// opaque right-side id, since no session persists that id's meaning
-// between requests — see getLevel's line_match branch for why content is
-// the stable, checkable thing here instead).
+// ── 连线配对: server-side answer checking (DEPRECATED，前端已经不再调用) ─────────
+// 架构升级之后(见 LineMatchGame.tsx 头部说明)，连线配对改成client端直接
+// 判定——edges/pair_key 直接经 getLevel 发给前端，不再隐藏，所以也不需要
+// 这个API核对答案了。这个函数还留着(没删)，但它读的是旧的 `pairs` 栏位，
+// 对新格式的Activity(用了left_items/edges/objects的)不会返回正确结果——
+// 不影响现在的运行时，因为前端压根不会再调用它，纯粹留着以防万一以后
+// 又要走回"server端藏答案"这条路，需要的话再回来更新这里的逻辑。
 export async function checkLineMatch(req: AuthRequest, res: Response): Promise<void> {
   try {
     const { levelId } = req.params;
