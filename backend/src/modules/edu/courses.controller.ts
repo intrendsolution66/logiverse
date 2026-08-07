@@ -675,6 +675,10 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
 
     created(res, result);
   } catch (err) {
+    // TEMP DEBUG — 排查 cube_layer_count 等新模块建Activity时的500报错用，
+    // serverError() 在production模式下不会把详细报错传给前端，这行确保
+    // 不管什么模式都会打进后端日志里。确认原因、修好之后记得把这行删掉。
+    console.error("[createLevel] error:", err);
     // same distinction updateLevel uses — a validation throw new
     // Error(...) from one of the per-module checks above should reach the
     // user as a clear 400, not get swallowed into "Internal server error"
@@ -1035,6 +1039,7 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
     // function (surface the message, it's meant to be read) from a real
     // database error (which has a `.code` property from pg — those stay
     // generic 500s, same as everywhere else)
+    console.error("[updateLevel] error:", err); // TEMP DEBUG — 见createLevel同款注释，排查完记得删
     if (err instanceof Error && !("code" in err)) { badRequest(res, err.message); return; }
     serverError(res, err);
   }
