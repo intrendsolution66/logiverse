@@ -330,7 +330,7 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
     const categoryIds = Array.from(new Set((category_ids && category_ids.length ? category_ids : (category_id ? [category_id] : [])).filter(Boolean)));
     const primaryCategoryId = categoryIds[0] ?? null; // 旧栏位/编号生成还是要挑一个"主"分类，用第一个
 
-    const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "ppt_lecture", "video_lecture", "play_along", "sticker_game", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count", "clock"];
+    const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "ppt_lecture", "video_lecture", "play_along", "sticker_game", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count", "clock", "latin_square"];
     if (!SUPPORTED.includes(module_type)) {
       badRequest(res, `Unsupported module_type: ${module_type} (supported: ${SUPPORTED.join(", ")})`);
       return;
@@ -656,6 +656,14 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
           `INSERT INTO edu.clock_configs (starting_level, total_questions, mode, timer_mode, time_limit)
            VALUES ($1,$2,$3,$4,$5) RETURNING id`,
           [startingLevel, cfg.total_questions ?? 5, cfg.mode ?? "both", cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "latin_square") { // 图形排排看——生成参数，没有素材图/隐藏答案
+        const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.latin_square_configs (starting_level, total_questions, theme, timer_mode, time_limit)
+           VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+          [startingLevel, cfg.total_questions ?? 5, cfg.theme ?? "shape", cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
         );
         configId = cfgRows[0].id;
       } else if (module_type === "cube_stack") { // 生成参数，不是authored内容——没有素材图/隐藏答案，题目运行时现场生成
@@ -1045,6 +1053,12 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
             `UPDATE edu.clock_configs SET starting_level=$2, total_questions=$3, mode=$4, timer_mode=$5, time_limit=$6 WHERE id=$1`,
             [module_config_id, startingLevel, cfg.total_questions ?? 5, cfg.mode ?? "both", cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
           );
+        } else if (module_type === "latin_square") {
+          const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+          await client.query(
+            `UPDATE edu.latin_square_configs SET starting_level=$2, total_questions=$3, theme=$4, timer_mode=$5, time_limit=$6 WHERE id=$1`,
+            [module_config_id, startingLevel, cfg.total_questions ?? 5, cfg.theme ?? "shape", cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+          );
         } else if (module_type === "cube_stack") {
           const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
           await client.query(
@@ -1409,6 +1423,12 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
     } else if (level.module_type === "clock") {
       const { rows: cfgRows } = await query(
         `SELECT starting_level, total_questions, mode, timer_mode, time_limit FROM edu.clock_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "latin_square") {
+      const { rows: cfgRows } = await query(
+        `SELECT starting_level, total_questions, theme, timer_mode, time_limit FROM edu.latin_square_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
@@ -1825,6 +1845,12 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
     } else if (level.module_type === "clock") {
       const { rows: cfgRows } = await query(
         `SELECT starting_level, total_questions, mode, timer_mode, time_limit FROM edu.clock_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "latin_square") {
+      const { rows: cfgRows } = await query(
+        `SELECT starting_level, total_questions, theme, timer_mode, time_limit FROM edu.latin_square_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
