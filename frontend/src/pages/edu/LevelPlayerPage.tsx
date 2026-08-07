@@ -31,13 +31,14 @@ import CubeFreeRotateGame, { type CubeFreeRotateConfig, type CubeFreeRotateResul
 import CubeBuildGame, { type CubeBuildConfig, type CubeBuildResult } from "@/games/CubeBuildGame";
 import CubeThreeViewGame, { type CubeThreeViewConfig, type CubeThreeViewResult } from "@/games/CubeThreeViewGame";
 import ShapeCountGame, { type ShapeCountConfig, type ShapeCountResult } from "@/games/ShapeCountGame";
+import ClockGame, { type ClockConfig, type ClockResult } from "@/games/ClockGame";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { PptReader } from "@/components/PptReader";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import toast from "react-hot-toast";
 
-type GameResult = CountingResult | SpotDiffResult | FocusTapResult | MemoryResult | PatternResult | WordProblemResult | MazeResult | NumberMazeResult | SudokuResult | LineMatchResult | ColoringResult | StickerGameResult | CubeStackResult | CubeLayerCountResult | CubeFindHiddenResult | CubeFreeRotateResult | CubeBuildResult | CubeThreeViewResult | ShapeCountResult;
+type GameResult = CountingResult | SpotDiffResult | FocusTapResult | MemoryResult | PatternResult | WordProblemResult | MazeResult | NumberMazeResult | SudokuResult | LineMatchResult | ColoringResult | StickerGameResult | CubeStackResult | CubeLayerCountResult | CubeFindHiddenResult | CubeFreeRotateResult | CubeBuildResult | CubeThreeViewResult | ShapeCountResult | ClockResult;
 
 export default function LevelPlayerPage() {
   const { levelId } = useParams<{ levelId: string }>();
@@ -174,7 +175,7 @@ export default function LevelPlayerPage() {
   if (loading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">加载中...</div>;
   if (!level) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">找不到这个 Activity</div>;
 
-  const KNOWN_GAME_MODULES = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "sticker_game", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count"];
+  const KNOWN_GAME_MODULES = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "sticker_game", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count", "clock"];
   const isLecture = level.module_type === "video_lecture" || level.module_type === "ppt_lecture";
   const isKnown = KNOWN_GAME_MODULES.includes(level.module_type) || isLecture;
   // 只有真正的"游戏"套待机/开始/重玩/退出这套流程——讲义(video/ppt)
@@ -258,6 +259,7 @@ export default function LevelPlayerPage() {
               {level.module_type === "cube_build" && <CubeBuildGame key={playKey} config={level.config as unknown as CubeBuildConfig} onComplete={handleComplete} />}
               {level.module_type === "cube_three_view" && <CubeThreeViewGame key={playKey} config={level.config as unknown as CubeThreeViewConfig} onComplete={handleComplete} />}
               {level.module_type === "shape_count" && <ShapeCountGame key={playKey} config={level.config as unknown as ShapeCountConfig} onComplete={handleComplete} />}
+              {level.module_type === "clock" && <ClockGame key={playKey} config={level.config as unknown as ClockConfig} onComplete={handleComplete} />}
 
               {level.module_type === "video_lecture" && (
                 <VideoPlayer src={config.video_url ?? ""} onProgress={(sec, dur, completed) => handleLectureProgress(sec, dur, completed)} />

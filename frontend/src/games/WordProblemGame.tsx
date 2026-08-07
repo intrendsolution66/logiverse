@@ -13,7 +13,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { eduApi } from "@/api";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
 
-export type WordProblemCategory = "chicken_rabbit" | "meeting_point" | "cow_grass" | "concentration" | "queue_position" | "queue_count";
+export type WordProblemCategory = "chicken_rabbit" | "meeting_point" | "cow_grass" | "concentration" | "queue_position" | "queue_count" | "time_calc";
 
 export interface WordProblemConfig {
   categories: WordProblemCategory[];
@@ -30,6 +30,7 @@ export interface WordProblemConfig {
   queue_total_min?: number; queue_total_max?: number; // 排队序数: 队伍总人数范围
   queue_front_min?: number; queue_front_max?: number; // 排队人数: 前面人数范围
   queue_back_min?: number; queue_back_max?: number; // 排队人数: 后面人数范围
+  time_dur_h_min?: number; time_dur_h_max?: number; // 时间计算: 经过的小时数范围
   timer_mode: "stopwatch" | "countdown";
   time_limit?: number | null;
   // 自定义题目 (authored) — one specific problem the designer wrote, not
@@ -97,7 +98,16 @@ interface QueueCountQuestion {
   text: string; question: string; answer: number; unit: string;
   front: number; back: number; total: number; askWhich: "total" | "front" | "back";
 }
-type Question = ChickenRabbitQuestion | MeetingPointQuestion | CowGrassQuestion | ConcentrationQuestion | QueuePositionQuestion | QueueCountQuestion;
+// 时间计算——起点+经过时长=终点，三个量随机挑两个当已知条件，问第三个。
+// 答案统一存成"从0点开始算的分钟数"(0~1439)，方便跟QueueCount一样用
+// 单一数字比较；作答UI是"小时+分钟"两个独立的调整器，不是直接打数字。
+interface TimeCalcQuestion {
+  category: "time_calc";
+  text: string; question: string; answer: number; // 分钟数(0~1439)，答案语义由askWhich决定(是几点、还是经过多久)
+  askWhich: "end" | "start" | "duration";
+  startH: number; startM: number; durH: number; durM: number; endH: number; endM: number;
+}
+type Question = ChickenRabbitQuestion | MeetingPointQuestion | CowGrassQuestion | ConcentrationQuestion | QueuePositionQuestion | QueueCountQuestion | TimeCalcQuestion;
 
 function divisorsOf(n: number): number[] {
   const divs: number[] = [];
@@ -223,6 +233,49 @@ function genQueueCount(cfg: WordProblemConfig): QueueCountQuestion {
   };
 }
 
+// 时间计算——起点+经过时长(小时+分钟) = 终点，随机挑其中两个当已知条件，
+// 问第三个。经过时长故意生成成"分钟数不是0"，避免出现"经过0分钟"这种
+// 没意义的题目；跨夜(比如23点开始、经过3小时变成第二天2点)是允许的，
+// 用 %(24*60) 处理，不特意回避，这本来就是时间计算该学会的情况。
+function genTimeCalc(cfg: WordProblemConfig): TimeCalcQuestion {
+  const startH = randInt(0, 23);
+  const startM = randInt(0, 11) * 5;
+  const durH = randInt(cfg.time_dur_h_min ?? 0, cfg.time_dur_h_max ?? 3);
+  let durM = randInt(0, 11) * 5;
+  if (durH === 0 && durM === 0) durM = randInt(1, 11) * 5; // 经过时长不能是0
+
+  const startTotal = startH * 60 + startM;
+  const durTotal = durH * 60 + durM;
+  const endTotal = (startTotal + durTotal) % (24 * 60);
+  const endH = Math.floor(endTotal / 60), endM = endTotal % 60;
+
+  const pick = Math.random();
+  const askWhich: "end" | "start" | "duration" = pick < 1 / 3 ? "end" : pick < 2 / 3 ? "start" : "duration";
+
+  if (askWhich === "end") {
+    return {
+      category: "time_calc",
+      text: `小明 <b>${startH}点${startM}分</b> 开始做一件事，做了 <b>${durH}小时${durM}分钟</b>。`,
+      question: "他几点做完？",
+      answer: endTotal, askWhich, startH, startM, durH, durM, endH, endM,
+    };
+  }
+  if (askWhich === "start") {
+    return {
+      category: "time_calc",
+      text: `小明做一件事用了 <b>${durH}小时${durM}分钟</b>，做完的时候是 <b>${endH}点${endM}分</b>。`,
+      question: "他是几点开始做的？",
+      answer: startTotal, askWhich, startH, startM, durH, durM, endH, endM,
+    };
+  }
+  return {
+    category: "time_calc",
+    text: `小明 <b>${startH}点${startM}分</b> 开始做一件事，<b>${endH}点${endM}分</b> 做完。`,
+    question: "他一共用了多长时间？",
+    answer: durTotal, askWhich, startH, startM, durH, durM, endH, endM,
+  };
+}
+
 function genChickenRabbit(cfg: WordProblemConfig): ChickenRabbitQuestion {
   const c = randInt(cfg.chicken_min, cfg.chicken_max);
   const r = randInt(cfg.chicken_min, cfg.chicken_max);
@@ -269,6 +322,7 @@ const GENERATORS: Record<WordProblemCategory, (cfg: WordProblemConfig) => Questi
   concentration: genConcentration,
   queue_position: genQueuePosition,
   queue_count: genQueueCount,
+  time_calc: genTimeCalc,
 };
 
 // ── Interactive UI: 鸡兔同笼 ───────────────────────────────────────────────────
@@ -584,6 +638,55 @@ function QueueCountInteractive({ q, onSubmit, disabled }: {
   );
 }
 
+// ── Interactive UI: 时间计算 ───────────────────────────────────────────────────
+// 小时/分钟各一个独立的调整器，不是打一个数字——askWhich==='duration'时
+// 标签换成"经过了几小时几分钟"，其余两种(问几点开始/几点做完)标签是
+// "几点几分"，UI结构一样，只是文字和数值范围(小时0-23还是0-12这种上限)
+// 不一样。分钟固定按5分钟一格调整(题目本身生成的分钟数就是5的倍数，
+// 调整器跟着用同样的粒度，不会出现"调不到正确答案"这种情况)。
+function TimeCalcInteractive({ q, onSubmit, disabled }: {
+  q: TimeCalcQuestion; onSubmit: (val: number) => void; disabled: boolean;
+}) {
+  const [h, setH] = useState(0);
+  const [m, setM] = useState(0);
+  const isDuration = q.askWhich === "duration";
+  const hourLabel = isDuration ? "小时" : "点";
+  const maxHour = isDuration ? 23 : 23;
+  const guessTotal = h * 60 + m;
+  const matched = guessTotal === q.answer;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-center gap-6 flex-wrap">
+        <div className="flex items-center gap-2">
+          <button disabled={disabled} onClick={() => setH((v) => Math.max(0, v - 1))} className="w-10 h-10 rounded-lg border-2 border-border bg-card text-lg font-semibold disabled:opacity-50">−</button>
+          <span className="w-16 text-center text-2xl font-bold">{h}{hourLabel}</span>
+          <button disabled={disabled} onClick={() => setH((v) => Math.min(maxHour, v + 1))} className="w-10 h-10 rounded-lg border-2 border-border bg-card text-lg font-semibold disabled:opacity-50">+</button>
+        </div>
+        <div className="flex items-center gap-2">
+          <button disabled={disabled} onClick={() => setM((v) => Math.max(0, v - 5))} className="w-10 h-10 rounded-lg border-2 border-border bg-card text-lg font-semibold disabled:opacity-50">−</button>
+          <span className="w-20 text-center text-2xl font-bold">{m}{isDuration ? "分钟" : "分"}</span>
+          <button disabled={disabled} onClick={() => setM((v) => Math.min(55, v + 5))} className="w-10 h-10 rounded-lg border-2 border-border bg-card text-lg font-semibold disabled:opacity-50">+</button>
+        </div>
+      </div>
+
+      <p className="text-center text-sm font-medium">
+        <span className={matched ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}>
+          你选的是 {h}{hourLabel}{m}{isDuration ? "分钟" : "分"}{matched ? "　✓" : ""}
+        </span>
+      </p>
+
+      <button
+        onClick={() => onSubmit(guessTotal)}
+        disabled={disabled}
+        className="block mx-auto text-lg font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground disabled:opacity-50 transition-colors"
+      >
+        确认答案
+      </button>
+    </div>
+  );
+}
+
 // ── 自定义题目 (authored) ────────────────────────────────────────────────────────
 // A single fixed problem the designer wrote — background/objects/text are
 // illustrative (same data shape SceneEditor's structured mode produces for
@@ -758,6 +861,14 @@ function RandomWordProblemGame({ config, onComplete }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [elapsed]);
 
+  // time_calc的answer是"从0点起算的分钟数"，不是给人看的数字——答错时
+  // 提示语要转回"H点M分"或"H小时M分钟"这种人看得懂的格式，不能直接照
+  // 其他题型那样拼"数字+单位"。
+  function formatTimeAnswer(q: TimeCalcQuestion): string {
+    const h = Math.floor(q.answer / 60), m = q.answer % 60;
+    return q.askWhich === "duration" ? `${h}小时${m}分钟` : `${h}点${m}分`;
+  }
+
   function submitAnswer(val: number) {
     if (answered || finished || !question) return;
     setAnswered(true);
@@ -766,7 +877,8 @@ function RandomWordProblemGame({ config, onComplete }: {
       setStatus({ msg: "🎉 答对了！", kind: "good" });
     } else {
       setMistakeCount((m) => m + 1);
-      setStatus({ msg: `答案是 ${question.answer} ${question.unit}`, kind: "bad" });
+      const answerText = question.category === "time_calc" ? formatTimeAnswer(question) : `${question.answer} ${question.unit}`;
+      setStatus({ msg: `答案是 ${answerText}`, kind: "bad" });
     }
     setTimeout(nextQuestion, 1600);
   }
@@ -809,8 +921,10 @@ function RandomWordProblemGame({ config, onComplete }: {
         <ConcentrationInteractive q={question} onSubmit={submitAnswer} disabled={answered} />
       ) : question.category === "queue_position" ? (
         <QueuePositionInteractive q={question} onSubmit={submitAnswer} disabled={answered} />
-      ) : (
+      ) : question.category === "queue_count" ? (
         <QueueCountInteractive q={question} onSubmit={submitAnswer} disabled={answered} />
+      ) : (
+        <TimeCalcInteractive q={question} onSubmit={submitAnswer} disabled={answered} />
       )}
 
       {status.msg && (

@@ -8,7 +8,7 @@
 // existing scale instead of ad-hoc inline styles.
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Boxes, Rows3, Eye, RotateCw, Hammer, Frame, Square, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
+import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Boxes, Rows3, Eye, RotateCw, Hammer, Frame, Square, Clock, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { eduApi, lessonsApi, exerciseClassificationApi, taxonomyApi } from "@/api";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
@@ -63,6 +63,7 @@ const MODULE_LABELS: Record<string, { emoji: string; label: string }> = {
   cube_build:       { emoji: "🏗️", label: "立体方块-自己搭积木" },
   cube_three_view:  { emoji: "📐", label: "立体方块-三视图" },
   shape_count:      { emoji: "🔲", label: "数方块(平面图形)" },
+  clock:            { emoji: "🕐", label: "认钟表" },
 };
 
 // 每个游戏类型一个专属色系——像玩具架上的游戏卡带，一眼就能从颜色分辨
@@ -91,6 +92,7 @@ const MODULE_COLORS: Record<string, { bg: string; text: string; ring: string }> 
   cube_build:       { bg: "#FEF3C7", text: "#92400E", ring: "#F59E0B" },
   cube_three_view:  { bg: "#F3E8FF", text: "#6B21A8", ring: "#C084FC" },
   shape_count:      { bg: "#DBEAFE", text: "#1E40AF", ring: "#60A5FA" },
+  clock:            { bg: "#ECFCCB", text: "#3F6212", ring: "#84CC16" },
 };
 const FALLBACK_COLOR = { bg: "#F1F5F9", text: "#334155", ring: "#94A3B8" };
 
@@ -103,7 +105,7 @@ const MODULE_ICONS: Record<string, LucideIcon> = {
   line_match: Link2, coloring: Palette, ppt_lecture: Presentation, video_lecture: Film,
   play_along: Music2, sticker_game: Sticker, cube_stack: Boxes,
   cube_layer_count: Rows3, cube_find_hidden: Eye, cube_free_rotate: RotateCw,
-  cube_build: Hammer, cube_three_view: Frame, shape_count: Square,
+  cube_build: Hammer, cube_three_view: Frame, shape_count: Square, clock: Clock,
 };
 
 function readAsDataURL(file: File): Promise<string> {
@@ -2144,7 +2146,7 @@ function PlayAlongMarkerEditor({ pages, audioUrl, markers, setMarkers, currentPa
 // 里用 typeof moduleType 反过来引用它自己（TS 处理不了这种循环引用，
 // 会报 "implicitly has type any"）。这两个地方（下面 useState 的初始值、
 // presetModuleType 转型）都要用这个命名类型，不要图省事写 typeof。
-type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game" | "cube_stack" | "cube_layer_count" | "cube_find_hidden" | "cube_free_rotate" | "cube_build" | "cube_three_view" | "shape_count";
+type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game" | "cube_stack" | "cube_layer_count" | "cube_find_hidden" | "cube_free_rotate" | "cube_build" | "cube_three_view" | "shape_count" | "clock";
 
 function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleType }: {
   open: boolean; onClose: () => void; editingLevelId?: string | null; onSaved: () => void;
@@ -2334,6 +2336,9 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   // grid沿用现成的公式生成模式，custom是设计师自己画/摆的单题场景。
   const [shapeCountLayout, setShapeCountLayout] = useState<"grid" | "custom">("grid");
   const [shapeCountScene, setShapeCountScene] = useState<StructuredSceneOutput | null>(null);
+  // clock fields — starting_level/total_questions复用cubeStackStartingLevel/
+  // totalQuestions这两个共用state(同一套1-10自适应难度语义)，mode是独有的
+  const [clockMode, setClockMode] = useState<"read" | "set" | "both">("both");
 
   // word_problem fields
   const [wpCategories, setWpCategories] = useState<string[]>(["chicken_rabbit"]);
@@ -2887,6 +2892,10 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         } else {
           setShapeCountScene(null);
         }
+      } else if (level.module_type === "clock") {
+        setCubeStackStartingLevel((cfg.starting_level as number) ?? 1);
+        setTotalQuestions((cfg.total_questions as number) ?? 5);
+        setClockMode((cfg.mode as "read" | "set" | "both") ?? "both");
       } else if (level.module_type === "word_problem") {
         setWpCategories((cfg.categories as string[]) ?? ["chicken_rabbit"]);
         setWpAnswerMode(((cfg.answer_mode as string) ?? "select") as "select" | "input");
@@ -3359,6 +3368,17 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             config: { layout: "grid", ask_type: shapeAskType, starting_level: cubeStackStartingLevel, total_questions: totalQuestions, timer_mode: "stopwatch" },
           });
         }
+      } else if (moduleType === "clock") {
+        await saveLevel({
+          module_type: "clock",
+          title_i18n: { zh: levelTitle || "认钟表", en: levelTitle || "Clock" },
+          explanation_text: explanationText || undefined,
+          explanation_image_url: explanationImageUrl || undefined,
+          explanation_video_url: explanationVideoUrl || undefined,
+          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: { starting_level: cubeStackStartingLevel, total_questions: totalQuestions, mode: clockMode, timer_mode: "stopwatch" },
+        });
       } else if (moduleType === "word_problem") {
         if (wpCategories.length === 0) { toast.error("请至少选一种题型"); return; }
         await saveLevel({
@@ -4315,6 +4335,27 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           </div>
         )}
 
+        {moduleType === "clock" && (
+          <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3 text-sm">
+            <div className="flex gap-3 flex-wrap items-center">
+              <label className="flex items-center gap-1.5">模式
+                <select value={clockMode} onChange={(e) => setClockMode(e.target.value as "read" | "set" | "both")} className={MINI_INPUT_CLASS}>
+                  <option value="both">读钟表+拨钟表都出</option>
+                  <option value="read">只出"读钟表"</option>
+                  <option value="set">只出"拨钟表"</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-1.5">起始难度等级
+                <input type="number" min={1} max={10} value={cubeStackStartingLevel} onChange={(e) => setCubeStackStartingLevel(Math.min(10, Math.max(1, +e.target.value)))} className={MINI_INPUT_CLASS} />
+              </label>
+              <label className="flex items-center gap-1.5">题数 <input type="number" value={totalQuestions} onChange={(e) => setTotalQuestions(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              没有素材图要准备，钟面是现场画的SVG。难度决定分钟的刻度粒度——等级1-3只有整点，4-6到半点，7-8到一刻钟，9-10任意5分钟。"读钟表"看钟面说出几点几分，"拨钟表"看数字时间调整钟面指针，两者会跟着答对/答错自动升降难度。
+            </p>
+          </div>
+        )}
+
         {moduleType === "word_problem" && (
           <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3 text-sm">
             <div>
@@ -4327,6 +4368,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
                   { key: "concentration", label: "🧂 浓度问题" },
                   { key: "queue_position", label: "🧍 排队序数" },
                   { key: "queue_count", label: "🧍‍♂️ 排队人数" },
+                  { key: "time_calc", label: "🕐 时间计算" },
                 ].map(({ key, label }) => (
                   <button
                     key={key} type="button"

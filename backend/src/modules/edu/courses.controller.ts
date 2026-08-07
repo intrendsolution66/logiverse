@@ -330,7 +330,7 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
     const categoryIds = Array.from(new Set((category_ids && category_ids.length ? category_ids : (category_id ? [category_id] : [])).filter(Boolean)));
     const primaryCategoryId = categoryIds[0] ?? null; // 旧栏位/编号生成还是要挑一个"主"分类，用第一个
 
-    const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "ppt_lecture", "video_lecture", "play_along", "sticker_game", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count"];
+    const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "ppt_lecture", "video_lecture", "play_along", "sticker_game", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count", "clock"];
     if (!SUPPORTED.includes(module_type)) {
       badRequest(res, `Unsupported module_type: ${module_type} (supported: ${SUPPORTED.join(", ")})`);
       return;
@@ -629,12 +629,33 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
           [startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
         );
         configId = cfgRows[0].id;
-      } else if (module_type === "shape_count") { // 平面数方块(数正方形/长方形)
+      } else if (module_type === "shape_count") { // 平面数方块(数正方形/长方形，或自定义画图)
+        const layout = (cfg.layout as string) === "custom" ? "custom" : "grid";
+        if (layout === "custom") {
+          const shapes = (cfg.shapes as unknown[]) ?? [];
+          const objects = (cfg.objects as unknown[]) ?? [];
+          if (!cfg.bg_image_url && shapes.length === 0 && objects.length === 0) throw new Error("自定义画图模式至少要加一个背景图、形状或物件");
+          const { rows: cfgRows } = await client.query(
+            `INSERT INTO edu.shape_count_configs (layout, bg_image_url, shapes, objects, timer_mode, time_limit, question_i18n)
+             VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+            [layout, cfg.bg_image_url ?? null, JSON.stringify(shapes), JSON.stringify(objects), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+          );
+          configId = cfgRows[0].id;
+        } else {
+          const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+          const { rows: cfgRows } = await client.query(
+            `INSERT INTO edu.shape_count_configs (layout, ask_type, starting_level, total_questions, timer_mode, time_limit)
+             VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+            [layout, cfg.ask_type ?? "both", startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+          );
+          configId = cfgRows[0].id;
+        }
+      } else if (module_type === "clock") { // 认钟表——生成参数，没有素材图/隐藏答案
         const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
         const { rows: cfgRows } = await client.query(
-          `INSERT INTO edu.shape_count_configs (ask_type, starting_level, total_questions, timer_mode, time_limit)
+          `INSERT INTO edu.clock_configs (starting_level, total_questions, mode, timer_mode, time_limit)
            VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-          [cfg.ask_type ?? "both", startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+          [startingLevel, cfg.total_questions ?? 5, cfg.mode ?? "both", cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
         );
         configId = cfgRows[0].id;
       } else if (module_type === "cube_stack") { // 生成参数，不是authored内容——没有素材图/隐藏答案，题目运行时现场生成
@@ -1002,10 +1023,27 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
             [module_config_id, startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
           );
         } else if (module_type === "shape_count") {
+          const layout = (cfg.layout as string) === "custom" ? "custom" : "grid";
+          if (layout === "custom") {
+            const shapes = (cfg.shapes as unknown[]) ?? [];
+            const objects = (cfg.objects as unknown[]) ?? [];
+            if (!cfg.bg_image_url && shapes.length === 0 && objects.length === 0) throw new Error("自定义画图模式至少要加一个背景图、形状或物件");
+            await client.query(
+              `UPDATE edu.shape_count_configs SET layout=$2, bg_image_url=$3, shapes=$4, objects=$5, ask_type='both', starting_level=1, total_questions=5, timer_mode=$6, time_limit=$7, question_i18n=$8 WHERE id=$1`,
+              [module_config_id, layout, cfg.bg_image_url ?? null, JSON.stringify(shapes), JSON.stringify(objects), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+            );
+          } else {
+            const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+            await client.query(
+              `UPDATE edu.shape_count_configs SET layout=$2, ask_type=$3, starting_level=$4, total_questions=$5, timer_mode=$6, time_limit=$7, bg_image_url=NULL, shapes=NULL, objects=NULL WHERE id=$1`,
+              [module_config_id, layout, cfg.ask_type ?? "both", startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+            );
+          }
+        } else if (module_type === "clock") {
           const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
           await client.query(
-            `UPDATE edu.shape_count_configs SET ask_type=$2, starting_level=$3, total_questions=$4, timer_mode=$5, time_limit=$6 WHERE id=$1`,
-            [module_config_id, cfg.ask_type ?? "both", startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+            `UPDATE edu.clock_configs SET starting_level=$2, total_questions=$3, mode=$4, timer_mode=$5, time_limit=$6 WHERE id=$1`,
+            [module_config_id, startingLevel, cfg.total_questions ?? 5, cfg.mode ?? "both", cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
           );
         } else if (module_type === "cube_stack") {
           const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
@@ -1360,8 +1398,17 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
       );
       config = cfgRows[0] ?? null;
     } else if (level.module_type === "shape_count") {
+      // 没有藏答案这回事(不管grid还是custom布局)——grid的答案是公式算的，
+      // custom的答案是shapes/objects数组本身，client端直接判定，安全
+      // 等级跟贴纸游戏/数字迷宫一致，两种布局字段都直接给前端就行。
       const { rows: cfgRows } = await query(
-        `SELECT ask_type, starting_level, total_questions, timer_mode, time_limit FROM edu.shape_count_configs WHERE id = $1`,
+        `SELECT layout, ask_type, starting_level, total_questions, bg_image_url, shapes, objects, timer_mode, time_limit, question_i18n FROM edu.shape_count_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "clock") {
+      const { rows: cfgRows } = await query(
+        `SELECT starting_level, total_questions, mode, timer_mode, time_limit FROM edu.clock_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
@@ -1771,7 +1818,13 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
       config = cfgRows[0] ?? null;
     } else if (level.module_type === "shape_count") {
       const { rows: cfgRows } = await query(
-        `SELECT ask_type, starting_level, total_questions, timer_mode, time_limit FROM edu.shape_count_configs WHERE id = $1`,
+        `SELECT layout, ask_type, starting_level, total_questions, bg_image_url, shapes, objects, timer_mode, time_limit, question_i18n FROM edu.shape_count_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "clock") {
+      const { rows: cfgRows } = await query(
+        `SELECT starting_level, total_questions, mode, timer_mode, time_limit FROM edu.clock_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
