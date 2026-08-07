@@ -20,10 +20,28 @@
 // same onClick-per-mesh technique already used for the optional "mark as
 // counted" highlight in Stage 1/4 — here the click has real judgement
 // consequences instead of being a free scratch-mark).
+//
+// i18n: zh/en/ms 已支持 — 见 frontend/src/lib/gameLocale.ts
 
 import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from "react";
 import { Canvas, type ThreeEvent } from "@react-three/fiber";
 import { OrbitControls, Edges } from "@react-three/drei";
+import { type Locale, type Dict, t, questionProgress } from "@/lib/gameLocale";
+
+const LOCAL: Record<string, Dict> = {
+  find_prompt:    { zh: "转一转，找出被挡住看不见的方块（还差 {n} 个）", en: "Rotate to find the hidden cube(s) ({n} left)", ms: "Putar untuk cari kiub tersembunyi ({n} lagi)" },
+  drag_hint:      { zh: "拖动旋转视角　滚轮缩放　点击你觉得\"这里应该有一个\"的方块（最多猜错 {max} 次，还有 {left} 次机会）", en: "Drag to rotate, scroll to zoom, click where you think a cube is hidden (up to {max} wrong guesses, {left} left)", ms: "Seret untuk putar, skrol untuk zum, klik tempat yang anda rasa ada kiub tersembunyi (sehingga {max} tekaan salah, {left} lagi)" },
+  found_all:      { zh: "🎉 全部找到了！难度提升一级", en: "🎉 Found them all! Level up", ms: "🎉 Semua dijumpai! Naik tahap" },
+  reveal_missed:  { zh: "橘色标出来的就是没找到的位置（难度降一级）", en: "The orange ones are the ones you missed (level down)", ms: "Yang berwarna oren ialah yang tidak dijumpai (tahap turun)" },
+  practice_done:  { zh: "答对 {c} / {n} 题", en: "{c} / {n} correct", ms: "{c} / {n} betul" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
 
 export interface CubeFindHiddenConfig {
   starting_level: number;    // 1-10，跟Stage1/2同一条自适应难度曲线
@@ -179,8 +197,8 @@ function FindHiddenScene({ heightMap, found, revealed, wrongFlashKey, onCubeClic
   );
 }
 
-export default function CubeFindHiddenGame({ config, onComplete }: {
-  config: CubeFindHiddenConfig; onComplete: (r: CubeFindHiddenResult) => void;
+export default function CubeFindHiddenGame({ config, onComplete, locale = "zh" }: {
+  config: CubeFindHiddenConfig; onComplete: (r: CubeFindHiddenResult) => void; locale?: Locale;
 }) {
   const hiddenTargets = Math.max(1, config.hidden_targets || 1);
 
@@ -276,7 +294,7 @@ export default function CubeFindHiddenGame({ config, onComplete }: {
     }
   }
 
-  const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
+  const timerLabel = config.timer_mode === "countdown" ? t("time_left", locale) : t("time_used", locale);
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
   const accuracy = correctCount + mistakeCount > 0 ? Math.round((correctCount / (correctCount + mistakeCount)) * 100) : 0;
   // 猜错3次公布答案时，把没找到的目标显示出来（找到的那些已经是found里的绿色了）
@@ -287,9 +305,9 @@ export default function CubeFindHiddenGame({ config, onComplete }: {
       <div className="text-center py-10">
         <div className="text-6xl">🕵️</div>
         <div className="text-xl font-semibold mt-3 text-foreground">
-          练习完成！答对 {correctCount} / {config.total_questions} 题
+          {t("practice_complete", locale)}{lt("practice_done", locale, { c: correctCount, n: config.total_questions })}
         </div>
-        <div className="text-sm text-muted-foreground mt-1">最长连对 {bestStreak} 题　结束时等级 Lv.{level}</div>
+        <div className="text-sm text-muted-foreground mt-1">{t("best_streak", locale)} {bestStreak}　{t("ending_level", locale)} Lv.{level}</div>
       </div>
     );
   }
@@ -299,12 +317,12 @@ export default function CubeFindHiddenGame({ config, onComplete }: {
   return (
     <div className="max-w-2xl mx-auto w-full">
       <div className="flex justify-between text-base font-medium text-muted-foreground mb-3 flex-wrap gap-1">
-        <span>第 {qIndex} / {config.total_questions} 题　Lv.{level}</span>
-        <span>✅ 正确率 {accuracy}%　🔥 连对 {streak}　⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
+        <span>{questionProgress(qIndex, config.total_questions, locale)}　Lv.{level}</span>
+        <span>✅ {t("accuracy", locale)} {accuracy}%　🔥 {t("streak", locale)} {streak}　⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
 
       <p className="text-center text-lg font-semibold text-foreground mb-2">
-        转一转，找出被挡住看不见的方块（还差 {puzzle.targets.size - found.size} 个）
+        {lt("find_prompt", locale, { n: puzzle.targets.size - found.size })}
       </p>
 
       <div className="h-[360px] bg-muted/40 rounded-2xl mb-2 overflow-hidden">
@@ -315,7 +333,7 @@ export default function CubeFindHiddenGame({ config, onComplete }: {
         </Canvas>
       </div>
       <p className="text-center text-xs text-muted-foreground mb-4">
-        🖱️ 拖动旋转视角　滚轮缩放　点击你觉得"这里应该有一个"的方块（最多猜错 {MAX_WRONG_GUESSES} 次，还有 {Math.max(0, MAX_WRONG_GUESSES - wrongGuesses)} 次机会）
+        🖱️ {lt("drag_hint", locale, { max: MAX_WRONG_GUESSES, left: Math.max(0, MAX_WRONG_GUESSES - wrongGuesses) })}
       </p>
 
       {answered && (
@@ -323,7 +341,7 @@ export default function CubeFindHiddenGame({ config, onComplete }: {
           outcome === "success" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400"
           : "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400"
         }`}>
-          {outcome === "success" ? "🎉 全部找到了！难度提升一级" : "橘色标出来的就是没找到的位置（难度降一级）"}
+          {outcome === "success" ? lt("found_all", locale) : lt("reveal_missed", locale)}
         </div>
       )}
 
@@ -333,7 +351,7 @@ export default function CubeFindHiddenGame({ config, onComplete }: {
             onClick={nextQuestion}
             className="text-lg font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground transition-colors"
           >
-            下一题
+            {t("next_question", locale)}
           </button>
         </div>
       )}

@@ -33,6 +33,7 @@ import CubeThreeViewGame, { type CubeThreeViewConfig, type CubeThreeViewResult }
 import ShapeCountGame, { type ShapeCountConfig, type ShapeCountResult } from "@/games/ShapeCountGame";
 import ClockGame, { type ClockConfig, type ClockResult } from "@/games/ClockGame";
 import LatinSquareGame, { type LatinSquareConfig, type LatinSquareResult } from "@/games/LatinSquareGame";
+import { useGameLocale, LOCALE_LABELS, ALL_LOCALES, I18N_READY_MODULES } from "@/lib/gameLocale";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { PptReader } from "@/components/PptReader";
 import { Button } from "@/components/ui/button";
@@ -78,6 +79,11 @@ export default function LevelPlayerPage() {
   // 不需要动任何一个游戏组件内部的代码。
   const [playState, setPlayState] = useState<"idle" | "playing" | "finished">("idle");
   const [playKey, setPlayKey] = useState(0);
+  // 游戏侧多语言——目前只有部分游戏(见I18N_READY_MODULES清单)真正接入了
+  // 翻译，这个hook本身对所有游戏都可用，但语言切换按钮只在当前这个
+  // module_type在清单里时才显示(见下面isI18nReady)，没接入的游戏不会
+  // 出现"按钮在但点了没反应"的半吊子体验。
+  const [locale, setLocale] = useGameLocale();
 
   // 切换到不同的 Activity（比如设计器里连续试玩了好几个）要整个重置，
   // 不然会带着上一个 Activity 的"已结束"状态进到新的这个。
@@ -183,6 +189,7 @@ export default function LevelPlayerPage() {
   // 本身就有自己的播放条(暂停/进度条/翻页)，硬套一层"按开始才能看"的
   // 封面只会多一次没必要的点击，不套用这套状态机。
   const isGameModule = KNOWN_GAME_MODULES.includes(level.module_type);
+  const isI18nReady = I18N_READY_MODULES.includes(level.module_type);
   const config = level.config as { video_url?: string; slide_image_urls?: string[] };
 
   return (
@@ -191,6 +198,21 @@ export default function LevelPlayerPage() {
         <div className="mb-4 flex items-center justify-between flex-wrap gap-2">
           <h1 className="text-xl font-bold text-[#0B1526]">{level.title_i18n?.zh ?? level.title_i18n?.en ?? "Activity"}</h1>
           <div className="flex items-center gap-2 flex-wrap">
+            {isI18nReady && (
+              <div className="flex items-center gap-0.5 bg-muted/50 p-0.5 rounded-lg">
+                {ALL_LOCALES.map((l) => (
+                  <button
+                    key={l} type="button" onClick={() => setLocale(l)}
+                    title={LOCALE_LABELS[l]}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                      locale === l ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {{ zh: "中文", en: "EN", ms: "BM" }[l]}
+                  </button>
+                ))}
+              </div>
+            )}
             {isGameModule && (
               <>
                 <Button type="button" variant="outline" size="sm" onClick={openMyRecords}>📊 自己记录</Button>
@@ -246,19 +268,19 @@ export default function LevelPlayerPage() {
               {level.module_type === "focus_tap" && <FocusTapGame key={playKey} config={level.config as unknown as FocusTapConfig} onComplete={handleComplete} />}
               {level.module_type === "memory" && <MemoryGame key={playKey} config={level.config as unknown as MemoryConfig} onComplete={handleComplete} />}
               {level.module_type === "pattern" && <PatternGame key={playKey} config={level.config as unknown as PatternConfig} onComplete={handleComplete} />}
-              {level.module_type === "word_problem" && levelId && <WordProblemGame key={playKey} levelId={levelId} config={level.config as unknown as WordProblemConfig} onComplete={handleComplete} />}
+              {level.module_type === "word_problem" && levelId && <WordProblemGame key={playKey} levelId={levelId} config={level.config as unknown as WordProblemConfig} onComplete={handleComplete} locale={locale} />}
               {level.module_type === "maze" && <MazeGame key={playKey} config={level.config as unknown as MazeConfig} onComplete={handleComplete} />}
               {level.module_type === "number_maze" && <NumberMazeGame key={playKey} config={level.config as unknown as NumberMazeConfig} onComplete={handleComplete} />}
               {level.module_type === "sudoku" && levelId && <SudokuGame key={playKey} levelId={levelId} config={level.config as unknown as SudokuConfig} onComplete={handleComplete} />}
               {level.module_type === "line_match" && levelId && <LineMatchGame key={playKey} levelId={levelId} config={level.config as unknown as LineMatchConfig} onComplete={handleComplete} />}
               {level.module_type === "coloring" && levelId && <ColoringGame key={playKey} levelId={levelId} config={level.config as unknown as ColoringConfig} onComplete={handleComplete} />}
               {level.module_type === "sticker_game" && <StickerGame key={playKey} config={level.config as unknown as StickerGameConfig} onComplete={handleComplete} />}
-              {level.module_type === "cube_stack" && <CubeStackGame key={playKey} config={level.config as unknown as CubeStackConfig} onComplete={handleComplete} />}
-              {level.module_type === "cube_layer_count" && <CubeLayerCountGame key={playKey} config={level.config as unknown as CubeLayerCountConfig} onComplete={handleComplete} />}
-              {level.module_type === "cube_find_hidden" && <CubeFindHiddenGame key={playKey} config={level.config as unknown as CubeFindHiddenConfig} onComplete={handleComplete} />}
-              {level.module_type === "cube_free_rotate" && <CubeFreeRotateGame key={playKey} config={level.config as unknown as CubeFreeRotateConfig} onComplete={handleComplete} />}
-              {level.module_type === "cube_build" && <CubeBuildGame key={playKey} config={level.config as unknown as CubeBuildConfig} onComplete={handleComplete} />}
-              {level.module_type === "cube_three_view" && <CubeThreeViewGame key={playKey} config={level.config as unknown as CubeThreeViewConfig} onComplete={handleComplete} />}
+              {level.module_type === "cube_stack" && <CubeStackGame key={playKey} config={level.config as unknown as CubeStackConfig} onComplete={handleComplete} locale={locale} />}
+              {level.module_type === "cube_layer_count" && <CubeLayerCountGame key={playKey} config={level.config as unknown as CubeLayerCountConfig} onComplete={handleComplete} locale={locale} />}
+              {level.module_type === "cube_find_hidden" && <CubeFindHiddenGame key={playKey} config={level.config as unknown as CubeFindHiddenConfig} onComplete={handleComplete} locale={locale} />}
+              {level.module_type === "cube_free_rotate" && <CubeFreeRotateGame key={playKey} config={level.config as unknown as CubeFreeRotateConfig} onComplete={handleComplete} locale={locale} />}
+              {level.module_type === "cube_build" && <CubeBuildGame key={playKey} config={level.config as unknown as CubeBuildConfig} onComplete={handleComplete} locale={locale} />}
+              {level.module_type === "cube_three_view" && <CubeThreeViewGame key={playKey} config={level.config as unknown as CubeThreeViewConfig} onComplete={handleComplete} locale={locale} />}
               {level.module_type === "shape_count" && <ShapeCountGame key={playKey} config={level.config as unknown as ShapeCountConfig} onComplete={handleComplete} />}
               {level.module_type === "clock" && <ClockGame key={playKey} config={level.config as unknown as ClockConfig} onComplete={handleComplete} />}
               {level.module_type === "latin_square" && <LatinSquareGame key={playKey} config={level.config as unknown as LatinSquareConfig} onComplete={handleComplete} />}

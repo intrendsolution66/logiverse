@@ -19,10 +19,35 @@
 // one-bucket behavior only kicks in if a designer configures something
 // tall enough to need it, so answering the question never becomes
 // open-ended tedium regardless of how the difficulty curve is tuned later.
+//
+// i18n: zh/en/ms 已支持 — 见 frontend/src/lib/gameLocale.ts
 
 import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from "react";
 import { Canvas, type ThreeEvent } from "@react-three/fiber";
 import { OrbitControls, Edges } from "@react-three/drei";
+import { type Locale, type Dict, t, questionProgress } from "@/lib/gameLocale";
+
+// 这个游戏专属的短语，只有这个Stage会用到，不进gameLocale.ts的COMMON
+// 词典，本地维护(每个游戏文件自成一体的既有惯例)。
+const LOCAL: Record<string, Dict> = {
+  layer_label:      { zh: "第 {i} 层", en: "Layer {i}", ms: "Lapisan {i}" },
+  layer_and_above:  { zh: "第 {i} 层及以上", en: "Layer {i} and above", ms: "Lapisan {i} ke atas" },
+  drag_hint:        { zh: "拖动旋转视角　滚轮缩放——从下往上，一层一层数", en: "Drag to rotate, scroll to zoom — count layer by layer from the bottom up", ms: "Seret untuk putar, skrol untuk zum — kira lapisan demi lapisan dari bawah" },
+  unit_count:       { zh: "个", en: "", ms: "" }, // 中文"个"这种量词，英文/马来文不需要，留空
+  correct_hint:     { zh: "（正确 {n}）", en: "(correct: {n})", ms: "(betul: {n})" },
+  running_total:    { zh: "目前合计：{n}", en: "Current total: {n}", ms: "Jumlah semasa: {n}" },
+  correct_total:    { zh: "（正确总数 {n}）", en: "(correct total: {n})", ms: "(jumlah betul: {n})" },
+  correct_all:      { zh: "🎉 每一层都数对了！难度提升一级", en: "🎉 Every layer correct! Level up", ms: "🎉 Semua lapisan betul! Naik tahap" },
+  wrong_some:       { zh: "有几层数得不对哦，看看下面标红的地方（难度降一级）", en: "Some layers are off — check the red ones below (level down)", ms: "Ada lapisan yang tersalah — lihat yang merah di bawah (tahap turun)" },
+  practice_done:    { zh: "答对 {c} / {n} 题", en: "{c} / {n} correct", ms: "{c} / {n} betul" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
 
 export interface CubeLayerCountConfig {
   starting_level: number;      // 1-10，跟Stage1同一条自适应难度曲线
@@ -76,14 +101,15 @@ function genPuzzle(level: number): Puzzle {
 
 // 把 layerCounts 按 max_split_layers 拆成"要填的输入格"——没超过上限就
 // 每层一格；超过的话，前面(max-1)层各自一格，剩下全部层合并成最后一格。
+// label现在要按locale生成，所以这个函数多接一个locale参数。
 interface InputBucket { label: string; trueValue: number }
-function buildBuckets(layerCounts: number[], maxSplit: number): InputBucket[] {
+function buildBuckets(layerCounts: number[], maxSplit: number, locale: Locale): InputBucket[] {
   if (layerCounts.length <= maxSplit) {
-    return layerCounts.map((v, i) => ({ label: `第 ${i + 1} 层`, trueValue: v }));
+    return layerCounts.map((v, i) => ({ label: lt("layer_label", locale, { i: i + 1 }), trueValue: v }));
   }
-  const individual = layerCounts.slice(0, maxSplit - 1).map((v, i) => ({ label: `第 ${i + 1} 层`, trueValue: v }));
+  const individual = layerCounts.slice(0, maxSplit - 1).map((v, i) => ({ label: lt("layer_label", locale, { i: i + 1 }), trueValue: v }));
   const restSum = layerCounts.slice(maxSplit - 1).reduce((a, b) => a + b, 0);
-  individual.push({ label: `第 ${maxSplit} 层及以上`, trueValue: restSum });
+  individual.push({ label: lt("layer_and_above", locale, { i: maxSplit }), trueValue: restSum });
   return individual;
 }
 
@@ -128,8 +154,8 @@ function LayerCountScene({ heightMap }: { heightMap: number[][] }) {
   );
 }
 
-export default function CubeLayerCountGame({ config, onComplete }: {
-  config: CubeLayerCountConfig; onComplete: (r: CubeLayerCountResult) => void;
+export default function CubeLayerCountGame({ config, onComplete, locale = "zh" }: {
+  config: CubeLayerCountConfig; onComplete: (r: CubeLayerCountResult) => void; locale?: Locale;
 }) {
   const maxSplit = Math.max(2, config.max_split_layers || 5);
 
@@ -165,7 +191,7 @@ export default function CubeLayerCountGame({ config, onComplete }: {
   const nextQuestion = useCallback(() => {
     if (qIndex >= config.total_questions) { finish(true); return; }
     const p = genPuzzle(levelRef.current);
-    const b = buildBuckets(p.layerCounts, maxSplit);
+    const b = buildBuckets(p.layerCounts, maxSplit, locale);
     setPuzzle(p);
     setBuckets(b);
     setInputs(b.map(() => ""));
@@ -174,7 +200,7 @@ export default function CubeLayerCountGame({ config, onComplete }: {
     setStatus({ msg: "", kind: "" });
     setQIndex((i) => i + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qIndex, maxSplit]);
+  }, [qIndex, maxSplit, locale]);
 
   useEffect(() => {
     startRef.current = Date.now();
@@ -212,16 +238,16 @@ export default function CubeLayerCountGame({ config, onComplete }: {
       setCorrectCount((c) => c + 1);
       setStreak((s) => { const next = s + 1; setBestStreak((b) => Math.max(b, next)); return next; });
       setLevel((lv) => Math.min(LEVEL_MAX, lv + 1));
-      setStatus({ msg: "🎉 每一层都数对了！难度提升一级", kind: "good" });
+      setStatus({ msg: lt("correct_all", locale), kind: "good" });
     } else {
       setMistakeCount((m) => m + 1);
       setStreak(0);
       setLevel((lv) => Math.max(1, lv - 1));
-      setStatus({ msg: "有几层数得不对哦，看看下面标红的地方（难度降一级）", kind: "bad" });
+      setStatus({ msg: lt("wrong_some", locale), kind: "bad" });
     }
   }
 
-  const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
+  const timerLabel = config.timer_mode === "countdown" ? t("time_left", locale) : t("time_used", locale);
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
   const accuracy = correctCount + mistakeCount > 0 ? Math.round((correctCount / (correctCount + mistakeCount)) * 100) : 0;
 
@@ -230,9 +256,9 @@ export default function CubeLayerCountGame({ config, onComplete }: {
       <div className="text-center py-10">
         <div className="text-6xl">🧊</div>
         <div className="text-xl font-semibold mt-3 text-foreground">
-          练习完成！答对 {correctCount} / {config.total_questions} 题
+          {t("practice_complete", locale)}{lt("practice_done", locale, { c: correctCount, n: config.total_questions })}
         </div>
-        <div className="text-sm text-muted-foreground mt-1">最长连对 {bestStreak} 题　结束时等级 Lv.{level}</div>
+        <div className="text-sm text-muted-foreground mt-1">{t("best_streak", locale)} {bestStreak}　{t("ending_level", locale)} Lv.{level}</div>
       </div>
     );
   }
@@ -242,8 +268,8 @@ export default function CubeLayerCountGame({ config, onComplete }: {
   return (
     <div className="max-w-2xl mx-auto w-full">
       <div className="flex justify-between text-base font-medium text-muted-foreground mb-3 flex-wrap gap-1">
-        <span>第 {qIndex} / {config.total_questions} 题　Lv.{level}</span>
-        <span>✅ 正确率 {accuracy}%　🔥 连对 {streak}　⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
+        <span>{questionProgress(qIndex, config.total_questions, locale)}　Lv.{level}</span>
+        <span>✅ {t("accuracy", locale)} {accuracy}%　🔥 {t("streak", locale)} {streak}　⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
 
       <div className="h-[320px] bg-muted/40 rounded-2xl mb-2 overflow-hidden">
@@ -253,7 +279,7 @@ export default function CubeLayerCountGame({ config, onComplete }: {
           </Suspense>
         </Canvas>
       </div>
-      <p className="text-center text-xs text-muted-foreground mb-4">🖱️ 拖动旋转视角　滚轮缩放——从下往上，一层一层数</p>
+      <p className="text-center text-xs text-muted-foreground mb-4">🖱️ {lt("drag_hint", locale)}</p>
 
       <div className="space-y-2 mb-4">
         {buckets.map((b, i) => {
@@ -274,8 +300,8 @@ export default function CubeLayerCountGame({ config, onComplete }: {
                   }`}
                   placeholder="?"
                 />
-                <span className="text-sm text-muted-foreground">个</span>
-                {showColor && !isCorrect && <span className="text-xs text-red-500">（正确 {b.trueValue}）</span>}
+                <span className="text-sm text-muted-foreground">{lt("unit_count", locale)}</span>
+                {showColor && !isCorrect && <span className="text-xs text-red-500">{lt("correct_hint", locale, { n: b.trueValue })}</span>}
               </div>
             </div>
           );
@@ -283,8 +309,8 @@ export default function CubeLayerCountGame({ config, onComplete }: {
       </div>
 
       <p className="text-center text-sm text-muted-foreground mb-4">
-        目前合计：<span className="font-semibold text-foreground">{runningTotal}</span> 个
-        {perLayerCorrect && <span> （正确总数 {puzzle.total} 个）</span>}
+        <span className="font-semibold text-foreground">{lt("running_total", locale, { n: runningTotal })}</span>
+        {perLayerCorrect && <span> {lt("correct_total", locale, { n: puzzle.total })}</span>}
       </p>
 
       <div className="flex justify-center">
@@ -294,14 +320,14 @@ export default function CubeLayerCountGame({ config, onComplete }: {
             disabled={!allFilled}
             className="text-lg font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground disabled:opacity-50 transition-colors"
           >
-            ✅ 提交
+            ✅ {t("submit", locale)}
           </button>
         ) : (
           <button
             onClick={nextQuestion}
             className="text-lg font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground transition-colors"
           >
-            下一题
+            {t("next_question", locale)}
           </button>
         )}
       </div>
@@ -317,3 +343,4 @@ export default function CubeLayerCountGame({ config, onComplete }: {
     </div>
   );
 }
+

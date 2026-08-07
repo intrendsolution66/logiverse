@@ -14,9 +14,32 @@
 // on this file's rendering. Building them here would mean shipping five
 // more untested things instead of the one thing this file does well.
 
+// i18n: zh/en/ms 已支持 — 试点游戏，见 frontend/src/lib/gameLocale.ts
+
 import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from "react";
 import { Canvas, type ThreeEvent } from "@react-three/fiber";
 import { OrbitControls, Edges } from "@react-three/drei";
+import { type Locale, type Dict, t, questionProgress } from "@/lib/gameLocale";
+
+// 这个游戏专属的短语——跟"提交"/"下一题"这种十几个游戏共用的不一样，
+// 只有CubeStack系列会用到，所以不放进gameLocale.ts的COMMON词典，放在
+// 这个文件本地维护(跟这个项目"每个游戏文件自成一体"的既有惯例一致)。
+const LOCAL: Record<string, Dict> = {
+  drag_hint:     { zh: "拖动旋转视角　滚轮缩放　点击方块可以标记已数过", en: "Drag to rotate, scroll to zoom, click a cube to mark it as counted", ms: "Seret untuk putar, skrol untuk zum, klik kiub untuk tanda sudah dikira" },
+  selected:      { zh: "已点选 {n} 个", en: "{n} selected", ms: "{n} dipilih" },
+  question_text: { zh: "一共有多少个方块？", en: "How many cubes are there in total?", ms: "Berapakah jumlah kiub semuanya?" },
+  wrong_hint:    { zh: "不对哦，看看下面逐层提示～（难度降一级）", en: "Not quite — check the layer-by-layer hint below (level down)", ms: "Kurang tepat — lihat petunjuk lapisan di bawah (tahap turun)" },
+  practiced:     { zh: "答对 {c} / {n} 题", en: "{c} / {n} correct", ms: "{c} / {n} betul" },
+  hint_title:    { zh: "逐层数一数：", en: "Count layer by layer:", ms: "Kira lapisan demi lapisan:" },
+  layer_line:    { zh: "第 {i} 层：{n} 个", en: "Layer {i}: {n}", ms: "Lapisan {i}: {n}" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
 
 export interface CubeStackConfig {
   starting_level: number;      // 1-10, where the adaptive curve begins (see LEVEL_MAX)
@@ -129,8 +152,8 @@ function CubeStackScene({ heightMap, highlighted, onToggleHighlight }: {
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
-export default function CubeStackGame({ config, onComplete }: {
-  config: CubeStackConfig; onComplete: (r: CubeStackResult) => void;
+export default function CubeStackGame({ config, onComplete, locale = "zh" }: {
+  config: CubeStackConfig; onComplete: (r: CubeStackResult) => void; locale?: Locale;
 }) {
   const [qIndex, setQIndex] = useState(0);
   const [level, setLevel] = useState(() => Math.min(LEVEL_MAX, Math.max(1, config.starting_level || 1)));
@@ -207,18 +230,18 @@ export default function CubeStackGame({ config, onComplete }: {
       setCorrectCount((c) => c + 1);
       setStreak((s) => { const next = s + 1; setBestStreak((b) => Math.max(b, next)); return next; });
       setLevel((lv) => Math.min(LEVEL_MAX, lv + 1)); // adaptive: correct → harder
-      setStatus({ msg: "🎉 答对了！难度提升一级", kind: "good" });
+      setStatus({ msg: `${t("correct_exclaim", locale)} ${t("level_up_msg", locale)}`, kind: "good" });
       setTimeout(nextQuestion, 1200);
     } else {
       setMistakeCount((m) => m + 1);
       setStreak(0);
       setLevel((lv) => Math.max(1, lv - 1)); // adaptive: wrong → easier
       setShowHint(true);
-      setStatus({ msg: "不对哦，看看下面逐层提示～（难度降一级）", kind: "bad" });
+      setStatus({ msg: lt("wrong_hint", locale), kind: "bad" });
     }
   }
 
-  const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
+  const timerLabel = config.timer_mode === "countdown" ? t("time_left", locale) : t("time_used", locale);
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
   const accuracy = correctCount + mistakeCount > 0 ? Math.round((correctCount / (correctCount + mistakeCount)) * 100) : 0;
 
@@ -227,9 +250,9 @@ export default function CubeStackGame({ config, onComplete }: {
       <div className="text-center py-10">
         <div className="text-6xl">🧊</div>
         <div className="text-xl font-semibold mt-3 text-foreground">
-          练习完成！答对 {correctCount} / {config.total_questions} 题
+          {t("practice_complete", locale)}{lt("practiced", locale, { c: correctCount, n: config.total_questions })}
         </div>
-        <div className="text-sm text-muted-foreground mt-1">最长连对 {bestStreak} 题　结束时等级 Lv.{level}</div>
+        <div className="text-sm text-muted-foreground mt-1">{t("best_streak", locale)} {bestStreak}　{t("ending_level", locale)} Lv.{level}</div>
       </div>
     );
   }
@@ -239,8 +262,8 @@ export default function CubeStackGame({ config, onComplete }: {
   return (
     <div className="max-w-2xl mx-auto w-full">
       <div className="flex justify-between text-base font-medium text-muted-foreground mb-3 flex-wrap gap-1">
-        <span>第 {qIndex} / {config.total_questions} 题　Lv.{level}</span>
-        <span>✅ 正确率 {accuracy}%　🔥 连对 {streak}　⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
+        <span>{questionProgress(qIndex, config.total_questions, locale)}　Lv.{level}</span>
+        <span>✅ {t("accuracy", locale)} {accuracy}%　🔥 {t("streak", locale)} {streak}　⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
 
       <div className="h-[360px] bg-muted/40 rounded-2xl mb-2 overflow-hidden">
@@ -250,12 +273,12 @@ export default function CubeStackGame({ config, onComplete }: {
           </Suspense>
         </Canvas>
       </div>
-      <p className="text-center text-xs text-muted-foreground mb-1">🖱️ 拖动旋转视角　滚轮缩放　点击方块可以标记已数过</p>
+      <p className="text-center text-xs text-muted-foreground mb-1">🖱️ {lt("drag_hint", locale)}</p>
       {highlighted.size > 0 && (
-        <p className="text-center text-xs text-emerald-600 dark:text-emerald-400 mb-3">已点选 {highlighted.size} 个</p>
+        <p className="text-center text-xs text-emerald-600 dark:text-emerald-400 mb-3">{lt("selected", locale, { n: highlighted.size })}</p>
       )}
 
-      <p className="text-center text-lg font-semibold text-foreground mb-3">一共有多少个方块？</p>
+      <p className="text-center text-lg font-semibold text-foreground mb-3">{lt("question_text", locale)}</p>
 
       <div className="flex gap-3 justify-center mb-3">
         <input
@@ -273,14 +296,14 @@ export default function CubeStackGame({ config, onComplete }: {
             disabled={typedAnswer === ""}
             className="text-lg font-semibold px-6 py-3 rounded-2xl bg-primary text-primary-foreground disabled:opacity-50 transition-colors"
           >
-            提交
+            {t("submit", locale)}
           </button>
         ) : (
           <button
             onClick={nextQuestion}
             className="text-lg font-semibold px-6 py-3 rounded-2xl bg-primary text-primary-foreground transition-colors"
           >
-            下一题
+            {t("next_question", locale)}
           </button>
         )}
       </div>
@@ -296,12 +319,12 @@ export default function CubeStackGame({ config, onComplete }: {
 
       {showHint && (
         <div className="bg-amber-50 dark:bg-amber-950/20 rounded-xl p-4 text-sm space-y-1">
-          <p className="font-medium text-foreground mb-2">逐层数一数：</p>
+          <p className="font-medium text-foreground mb-2">{lt("hint_title", locale)}</p>
           {puzzle.layerCounts.map((count, i) => (
-            <p key={i} className="text-muted-foreground">第 {i + 1} 层：{count} 个</p>
+            <p key={i} className="text-muted-foreground">{lt("layer_line", locale, { i: i + 1, n: count })}</p>
           ))}
           <p className="font-medium text-foreground pt-1 border-t border-border mt-2">
-            {puzzle.layerCounts.join(" + ")} = {puzzle.total} 个
+            {puzzle.layerCounts.join(" + ")} = {puzzle.total}
           </p>
         </div>
       )}

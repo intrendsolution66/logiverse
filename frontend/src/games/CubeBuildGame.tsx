@@ -24,10 +24,31 @@
 // TOP block of that column (can't reach into the middle of a stack — same
 // physical constraint as the heightMap model itself, a column is always a
 // solid stack from the ground up).
+//
+// i18n: zh/en/ms 已支持 — 见 frontend/src/lib/gameLocale.ts
 
 import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from "react";
 import { Canvas, type ThreeEvent } from "@react-three/fiber";
 import { OrbitControls, Edges } from "@react-three/drei";
+import { type Locale, type Dict, t, questionProgress } from "@/lib/gameLocale";
+
+const LOCAL: Record<string, Dict> = {
+  target_label:   { zh: "🎯 目标（照着这个搭）", en: "🎯 Target (build this)", ms: "🎯 Sasaran (bina ini)" },
+  build_label:    { zh: "🔨 你的搭建（已放 {placed} / 目标 {target} 块）", en: "🔨 Your build ({placed} / {target} blocks placed)", ms: "🔨 Binaan anda ({placed} / {target} blok diletakkan)" },
+  drag_hint:      { zh: "拖动旋转视角　滚轮缩放　点半透明的虚影方块加一块，点实心方块拿掉最上面一块", en: "Drag to rotate, scroll to zoom, click the ghost block to add one, click a solid block to remove the top one", ms: "Seret untuk putar, skrol untuk zum, klik blok lut sinar untuk tambah satu, klik blok pejal untuk buang yang paling atas" },
+  reset_button:   { zh: "🗑 清空重搭", en: "🗑 Clear and restart", ms: "🗑 Kosongkan dan mula semula" },
+  wrong_hint:     { zh: "上面搭建区里标红的柱子，就是高度跟目标对不上的地方", en: "The columns in red above are the ones with the wrong height", ms: "Tiang berwarna merah di atas ialah yang tingginya tidak tepat" },
+  correct_match:  { zh: "🎉 搭得一模一样！难度提升一级", en: "🎉 Perfect match! Level up", ms: "🎉 Sepadan sepenuhnya! Naik tahap" },
+  wrong_match:    { zh: "有几根柱子高度不对哦，红色标出来了（难度降一级）", en: "Some columns are the wrong height — marked in red (level down)", ms: "Ada tiang yang tingginya tersalah — ditanda merah (tahap turun)" },
+  practice_done:  { zh: "答对 {c} / {n} 题", en: "{c} / {n} correct", ms: "{c} / {n} betul" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
 
 export interface CubeBuildConfig {
   starting_level: number;    // 1-10，跟其他CubeStack系列同一条自适应难度曲线
@@ -167,8 +188,8 @@ function BuildScene({ heightMap, rows, cols, wrongCols, answered, onAdd, onRemov
   );
 }
 
-export default function CubeBuildGame({ config, onComplete }: {
-  config: CubeBuildConfig; onComplete: (r: CubeBuildResult) => void;
+export default function CubeBuildGame({ config, onComplete, locale = "zh" }: {
+  config: CubeBuildConfig; onComplete: (r: CubeBuildResult) => void; locale?: Locale;
 }) {
   const [qIndex, setQIndex] = useState(0);
   const [level, setLevel] = useState(() => Math.min(LEVEL_MAX, Math.max(1, config.starting_level || 1)));
@@ -260,18 +281,18 @@ export default function CubeBuildGame({ config, onComplete }: {
       setCorrectCount((c) => c + 1);
       setStreak((s) => { const next = s + 1; setBestStreak((b) => Math.max(b, next)); return next; });
       setLevel((lv) => Math.min(LEVEL_MAX, lv + 1));
-      setStatus({ msg: "🎉 搭得一模一样！难度提升一级", kind: "good" });
+      setStatus({ msg: lt("correct_match", locale), kind: "good" });
     } else {
       setMistakeCount((m) => m + 1);
       setStreak(0);
       setLevel((lv) => Math.max(1, lv - 1));
-      setStatus({ msg: "有几根柱子高度不对哦，红色标出来了（难度降一级）", kind: "bad" });
+      setStatus({ msg: lt("wrong_match", locale), kind: "bad" });
     }
   }
 
   const placedTotal = build.reduce((sum, row) => sum + row.reduce((a, b) => a + b, 0), 0);
   const targetTotal = target ? target.reduce((sum, row) => sum + row.reduce((a, b) => a + b, 0), 0) : 0;
-  const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
+  const timerLabel = config.timer_mode === "countdown" ? t("time_left", locale) : t("time_used", locale);
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
   const accuracy = correctCount + mistakeCount > 0 ? Math.round((correctCount / (correctCount + mistakeCount)) * 100) : 0;
 
@@ -280,9 +301,9 @@ export default function CubeBuildGame({ config, onComplete }: {
       <div className="text-center py-10">
         <div className="text-6xl">🏗️</div>
         <div className="text-xl font-semibold mt-3 text-foreground">
-          练习完成！答对 {correctCount} / {config.total_questions} 题
+          {t("practice_complete", locale)}{lt("practice_done", locale, { c: correctCount, n: config.total_questions })}
         </div>
-        <div className="text-sm text-muted-foreground mt-1">最长连对 {bestStreak} 题　结束时等级 Lv.{level}</div>
+        <div className="text-sm text-muted-foreground mt-1">{t("best_streak", locale)} {bestStreak}　{t("ending_level", locale)} Lv.{level}</div>
       </div>
     );
   }
@@ -292,11 +313,11 @@ export default function CubeBuildGame({ config, onComplete }: {
   return (
     <div className="max-w-2xl mx-auto w-full">
       <div className="flex justify-between text-base font-medium text-muted-foreground mb-3 flex-wrap gap-1">
-        <span>第 {qIndex} / {config.total_questions} 题　Lv.{level}</span>
-        <span>✅ 正确率 {accuracy}%　🔥 连对 {streak}　⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
+        <span>{questionProgress(qIndex, config.total_questions, locale)}　Lv.{level}</span>
+        <span>✅ {t("accuracy", locale)} {accuracy}%　🔥 {t("streak", locale)} {streak}　⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
 
-      <p className="text-center text-sm font-medium text-muted-foreground mb-1">🎯 目标（照着这个搭）</p>
+      <p className="text-center text-sm font-medium text-muted-foreground mb-1">{lt("target_label", locale)}</p>
       <div className="h-[190px] bg-violet-50 dark:bg-violet-950/20 rounded-2xl mb-3 overflow-hidden">
         <Canvas camera={{ position: [6, 5, 6], fov: 45 }}>
           <Suspense fallback={null}>
@@ -305,7 +326,7 @@ export default function CubeBuildGame({ config, onComplete }: {
         </Canvas>
       </div>
 
-      <p className="text-center text-sm font-medium text-muted-foreground mb-1">🔨 你的搭建（已放 {placedTotal} / 目标 {targetTotal} 块）</p>
+      <p className="text-center text-sm font-medium text-muted-foreground mb-1">{lt("build_label", locale, { placed: placedTotal, target: targetTotal })}</p>
       <div className="h-[320px] bg-muted/40 rounded-2xl mb-2 overflow-hidden">
         <Canvas camera={{ position: [6, 5, 6], fov: 45 }}>
           <Suspense fallback={null}>
@@ -317,7 +338,7 @@ export default function CubeBuildGame({ config, onComplete }: {
           </Suspense>
         </Canvas>
       </div>
-      <p className="text-center text-xs text-muted-foreground mb-4">🖱️ 拖动旋转视角　滚轮缩放　点半透明的虚影方块加一块，点实心方块拿掉最上面一块</p>
+      <p className="text-center text-xs text-muted-foreground mb-4">🖱️ {lt("drag_hint", locale)}</p>
 
       <div className="flex justify-center gap-3">
         {!answered ? (
@@ -326,14 +347,14 @@ export default function CubeBuildGame({ config, onComplete }: {
               onClick={resetBuild}
               className="text-lg font-semibold px-6 py-3 rounded-2xl border-2 border-border bg-card text-foreground transition-colors"
             >
-              🗑 清空重搭
+              {lt("reset_button", locale)}
             </button>
             <button
               onClick={submitAnswer}
               disabled={placedTotal === 0}
               className="text-lg font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground disabled:opacity-50 transition-colors"
             >
-              ✅ 提交
+              ✅ {t("submit", locale)}
             </button>
           </>
         ) : (
@@ -341,13 +362,13 @@ export default function CubeBuildGame({ config, onComplete }: {
             onClick={nextQuestion}
             className="text-lg font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground transition-colors"
           >
-            下一题
+            {t("next_question", locale)}
           </button>
         )}
       </div>
 
       {answered && wrongCols.size > 0 && (
-        <p className="text-center text-xs text-muted-foreground mt-2">上面搭建区里标红的柱子，就是高度跟目标对不上的地方</p>
+        <p className="text-center text-xs text-muted-foreground mt-2">{lt("wrong_hint", locale)}</p>
       )}
 
       {status.msg && (

@@ -13,10 +13,31 @@
 // convention (see e.g. the duplicated shuffle()/randInt() helpers across
 // every other game file), so this file has its own copy of the small cube
 // generation logic rather than reaching into CubeStackGame's internals.
+//
+// i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
+// question_i18n 这个字段是设计师自己填的authored题目文字，跟这套UI词典
+// 是两回事，这次没有扩展它加ms(维持原样zh/en两个key)，不在这次试点范围。
 
 import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from "react";
 import { Canvas, type ThreeEvent } from "@react-three/fiber";
 import { OrbitControls, Edges } from "@react-three/drei";
+import { type Locale, type Dict, t } from "@/lib/gameLocale";
+
+const LOCAL: Record<string, Dict> = {
+  shape_progress: { zh: "第 {i} / {n} 个结构", en: "Shape {i} / {n}", ms: "Bentuk {i} / {n}" },
+  drag_hint:      { zh: "拖动旋转视角　滚轮缩放　点击方块可以标记一下（不影响对错，纯粹帮助自己看）", en: "Drag to rotate, scroll to zoom, click a cube to mark it (doesn't affect scoring, just a visual aid)", ms: "Seret untuk putar, skrol untuk zum, klik kiub untuk tanda (tidak menjejaskan markah, cuma bantuan visual)" },
+  all_seen:       { zh: "都看完了！一共观察了 {n} 个立体结构", en: "All done! You observed {n} structures", ms: "Selesai! Anda telah memerhati {n} struktur" },
+  done_button:    { zh: "✅ 看完了", en: "✅ Done", ms: "✅ Selesai" },
+  next_shape:     { zh: "👉 下一个结构", en: "👉 Next shape", ms: "👉 Bentuk seterusnya" },
+  keep_looking:   { zh: "再转一转，{s}秒后可以继续", en: "Keep exploring — {s}s until you can continue", ms: "Terus meneroka — {s}s lagi sebelum boleh teruskan" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
 
 export interface CubeFreeRotateConfig {
   total_shapes: number;      // 依序看几个不同的结构
@@ -98,8 +119,8 @@ function FreeRotateScene({ heightMap, highlighted, onToggleHighlight }: {
   );
 }
 
-export default function CubeFreeRotateGame({ config, onComplete }: {
-  config: CubeFreeRotateConfig; onComplete: (r: CubeFreeRotateResult) => void;
+export default function CubeFreeRotateGame({ config, onComplete, locale = "zh" }: {
+  config: CubeFreeRotateConfig; onComplete: (r: CubeFreeRotateResult) => void; locale?: Locale;
 }) {
   const total = Math.max(1, config.total_shapes || 1);
   const minView = Math.max(0, config.min_view_seconds ?? 5);
@@ -169,7 +190,7 @@ export default function CubeFreeRotateGame({ config, onComplete }: {
     });
   }
 
-  const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
+  const timerLabel = config.timer_mode === "countdown" ? t("time_left", locale) : t("time_used", locale);
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
   const canAdvance = viewElapsed >= minView;
 
@@ -178,7 +199,7 @@ export default function CubeFreeRotateGame({ config, onComplete }: {
       <div className="text-center py-10">
         <div className="text-6xl">🔄</div>
         <div className="text-xl font-semibold mt-3 text-foreground">
-          都看完了！一共观察了 {total} 个立体结构
+          {lt("all_seen", locale, { n: total })}
         </div>
       </div>
     );
@@ -189,7 +210,7 @@ export default function CubeFreeRotateGame({ config, onComplete }: {
   return (
     <div className="max-w-2xl mx-auto w-full">
       <div className="flex justify-between text-base font-medium text-muted-foreground mb-3 flex-wrap gap-1">
-        <span>第 {shapeIndex + 1} / {total} 个结构</span>
+        <span>{lt("shape_progress", locale, { i: shapeIndex + 1, n: total })}</span>
         <span>⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
       {(config.question_i18n?.zh || config.question_i18n?.en) && (
@@ -203,7 +224,7 @@ export default function CubeFreeRotateGame({ config, onComplete }: {
           </Suspense>
         </Canvas>
       </div>
-      <p className="text-center text-xs text-muted-foreground mb-4">🖱️ 拖动旋转视角　滚轮缩放　点击方块可以标记一下（不影响对错，纯粹帮助自己看）</p>
+      <p className="text-center text-xs text-muted-foreground mb-4">🖱️ {lt("drag_hint", locale)}</p>
 
       <div className="flex justify-center">
         <button
@@ -211,7 +232,7 @@ export default function CubeFreeRotateGame({ config, onComplete }: {
           disabled={!canAdvance}
           className="text-lg font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground disabled:opacity-50 transition-colors"
         >
-          {canAdvance ? (shapeIndex + 1 >= total ? "✅ 看完了" : "👉 下一个结构") : `再转一转，${(minView - viewElapsed).toFixed(1)}秒后可以继续`}
+          {canAdvance ? (shapeIndex + 1 >= total ? lt("done_button", locale) : lt("next_shape", locale)) : lt("keep_looking", locale, { s: (minView - viewElapsed).toFixed(1) })}
         </button>
       </div>
     </div>
