@@ -225,7 +225,9 @@ export default function ParentPreviewPage() {
                       <div className="w-10 h-10 rounded-lg flex items-center justify-center mb-3" style={{ background: "#E0E7FF", color: "#4338CA" }}>
                         <FolderOpen className="w-5 h-5" />
                       </div>
-                      <p className="text-xs text-muted-foreground mb-1 truncate">{t.programme_name_zh} · {t.subject_name_zh}</p>
+                      <p className="text-xs text-muted-foreground mb-1 truncate">
+                        {t.id === "__uncategorized__" ? "暂未归类" : `${t.programme_name_zh} · ${t.subject_name_zh}`}
+                      </p>
                       <p className="font-semibold truncate">{t.name_zh}</p>
                       <p className="text-xs text-muted-foreground mt-1.5">{t.activity_count} 个可预览内容</p>
                     </div>
@@ -240,7 +242,9 @@ export default function ParentPreviewPage() {
               ← 返回 Topic 列表
             </button>
             <div className="mb-4">
-              <p className="text-xs text-muted-foreground">{selectedTopic.programme_name_zh} · {selectedTopic.subject_name_zh}</p>
+              <p className="text-xs text-muted-foreground">
+                {selectedTopic.id === "__uncategorized__" ? "暂未归类" : `${selectedTopic.programme_name_zh} · ${selectedTopic.subject_name_zh}`}
+              </p>
               <h2 className="text-lg font-semibold">{selectedTopic.name_zh}</h2>
             </div>
 
@@ -311,5 +315,7 @@ export default function ParentPreviewPage() {
   );
 }
 
+
+ 
 
  

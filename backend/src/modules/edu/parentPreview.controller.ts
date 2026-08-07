@@ -66,7 +66,46 @@ export async function listParentPreviewTopics(req: AuthRequest, res: Response): 
        ORDER BY p.name_zh, s.name_zh, ec.name_zh`,
       params
     );
-    ok(res, rows);
+
+    // "未分类"伪Topic——没挂任何Topic的Activity，之前在这个页面完全没有
+    // 入口能被看到(上面那条查询靠activity_topic_links这个JOIN，没挂
+    // Topic的行从JOIN那一步就消失了，不是被筛选条件排除)。这里额外查
+    // 一次"开了预览、但activity_topic_links里找不到它"的数量，有的话
+    // 追加一张卡片，前端点进去时用一个固定的特殊id(__uncategorized__)
+    // 请求，交给下面 listParentPreviewActivities 认得这个特殊值。
+    //
+    // 这个"未分类"分组天生没有subject/programme归属，所以只在没有主动
+    // 筛选programme_id/subject_id的时候才计算/显示——一旦家长自己选了
+    // 某个具体Programme或Subject，"未分类"内容不属于任何一个，不该出现
+    // 在筛选结果里(不然点进去会跟筛的条件对不上，家长会困惑)。
+    // grade_tier_id 筛选不受影响，照样套用(等级门槛跟Topic归属是两回事)。
+    let uncategorizedCount = 0;
+    if (!programmeId && !subjectId) {
+      const uncatConditions: string[] = [
+        "cl.parent_preview_enabled = true",
+        "NOT EXISTS (SELECT 1 FROM edu.activity_topic_links atl WHERE atl.course_level_id = cl.id)",
+      ];
+      const uncatParams: unknown[] = [];
+      if (gradeTierId) { uncatParams.push(gradeTierId); uncatConditions.push(`c.grade_tier_id = $${uncatParams.length}`); }
+      const { rows: uncatRows } = await query(
+        `SELECT count(*)::int AS activity_count
+         FROM edu.course_levels cl
+         LEFT JOIN edu.courses c ON c.id = cl.course_id
+         WHERE ${uncatConditions.join(" AND ")}`,
+        uncatParams
+      );
+      uncategorizedCount = uncatRows[0]?.activity_count ?? 0;
+    }
+
+    const result = uncategorizedCount > 0
+      ? [...rows, {
+          id: "__uncategorized__", name_zh: "未分类内容", name_en: "Uncategorized",
+          subject_id: "", subject_name_zh: "", programme_id: "", programme_name_zh: "",
+          activity_count: uncategorizedCount,
+        }]
+      : rows;
+
+    ok(res, result);
   } catch (err) { serverError(res, err); }
 }
 
@@ -77,6 +116,39 @@ export async function listParentPreviewActivities(req: AuthRequest, res: Respons
     const categoryId = typeof req.query.category_id === "string" ? req.query.category_id : "";
     if (!categoryId) { badRequest(res, "category_id is required"); return; }
     const gradeTierId = typeof req.query.grade_tier_id === "string" ? req.query.grade_tier_id : "";
+
+    if (categoryId === "__uncategorized__") {
+      // "未分类"伪Topic——查没有任何activity_topic_links行的Activity，
+      // 跟下面正常Topic那条查询刻意分开写（条件形状不一样，NOT EXISTS
+      // vs JOIN，硬凑成一条会更难读，两条各自简单更清楚）。
+      const conditions: string[] = [
+        "cl.parent_preview_enabled = true",
+        "NOT EXISTS (SELECT 1 FROM edu.activity_topic_links atl WHERE atl.course_level_id = cl.id)",
+      ];
+      const params: unknown[] = [];
+      if (gradeTierId) { params.push(gradeTierId); conditions.push(`c.grade_tier_id = $${params.length}`); }
+
+      const { rows } = await query(
+        `SELECT cl.id, cl.exercise_number, cl.title_i18n, cl.module_type, cl.difficulty, cl.duration_minutes, cl.created_at, cl.cover_image_url,
+                COALESCE(my_plays.play_count, 0)::int AS my_play_count,
+                COALESCE(total_plays.play_count, 0)::int AS total_play_count
+         FROM edu.course_levels cl
+         LEFT JOIN edu.courses c ON c.id = cl.course_id
+         LEFT JOIN LATERAL (
+           SELECT count(*)::int AS play_count FROM edu.progress_records pr
+           WHERE pr.course_level_id = cl.id AND pr.student_id = $${params.length + 1}
+         ) my_plays ON true
+         LEFT JOIN LATERAL (
+           SELECT count(*)::int AS play_count FROM edu.progress_records pr
+           WHERE pr.course_level_id = cl.id
+         ) total_plays ON true
+         WHERE ${conditions.join(" AND ")}
+         ORDER BY cl.exercise_number NULLS LAST, cl.created_at ASC`,
+        [...params, req.user!.sub]
+      );
+      ok(res, rows);
+      return;
+    }
 
     const conditions: string[] = ["atl.category_id = $1", "cl.parent_preview_enabled = true"];
     const params: unknown[] = [categoryId];
