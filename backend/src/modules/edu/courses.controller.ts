@@ -330,7 +330,7 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
     const categoryIds = Array.from(new Set((category_ids && category_ids.length ? category_ids : (category_id ? [category_id] : [])).filter(Boolean)));
     const primaryCategoryId = categoryIds[0] ?? null; // 旧栏位/编号生成还是要挑一个"主"分类，用第一个
 
-    const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "ppt_lecture", "video_lecture", "play_along", "sticker_game"];
+    const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "ppt_lecture", "video_lecture", "play_along", "sticker_game", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count"];
     if (!SUPPORTED.includes(module_type)) {
       badRequest(res, `Unsupported module_type: ${module_type} (supported: ${SUPPORTED.join(", ")})`);
       return;
@@ -563,6 +563,62 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
            VALUES ($1,$2,$3,$4,$5)
            RETURNING id`,
           [cfg.bg_image_url, JSON.stringify(objects), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "cube_layer_count") { // Stage2 逐层计数
+        const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.cube_layer_count_configs (starting_level, total_questions, max_split_layers, timer_mode, time_limit)
+           VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+          [startingLevel, cfg.total_questions ?? 5, cfg.max_split_layers ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "cube_find_hidden") { // Stage3 找隐藏方块
+        const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.cube_find_hidden_configs (starting_level, total_questions, hidden_targets, timer_mode, time_limit)
+           VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+          [startingLevel, cfg.total_questions ?? 5, cfg.hidden_targets ?? 1, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "cube_free_rotate") { // Stage4 自由旋转观察
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.cube_free_rotate_configs (total_shapes, shape_size, min_view_seconds, timer_mode, time_limit)
+           VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+          [cfg.total_shapes ?? 3, cfg.shape_size ?? 3, cfg.min_view_seconds ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "cube_build") { // Stage5 自己搭积木
+        const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.cube_build_configs (starting_level, total_questions, timer_mode, time_limit)
+           VALUES ($1,$2,$3,$4) RETURNING id`,
+          [startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "cube_three_view") { // Stage6 三视图
+        const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.cube_three_view_configs (starting_level, total_questions, timer_mode, time_limit)
+           VALUES ($1,$2,$3,$4) RETURNING id`,
+          [startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "shape_count") { // 平面数方块(数正方形/长方形)
+        const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.shape_count_configs (ask_type, starting_level, total_questions, timer_mode, time_limit)
+           VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+          [cfg.ask_type ?? "both", startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "cube_stack") { // 生成参数，不是authored内容——没有素材图/隐藏答案，题目运行时现场生成
+        const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.cube_stack_configs (starting_level, total_questions, timer_mode, time_limit)
+           VALUES ($1,$2,$3,$4)
+           RETURNING id`,
+          [startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
         );
         configId = cfgRows[0].id;
       } else { // sudoku — authored content: a puzzle IMAGE + which cells are blank + the correct digit for each. Never generates or validates a real sudoku's row/column/box constraints, same "authored answer, not computed" principle as everything else here.
@@ -872,6 +928,47 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
           await client.query(
             `UPDATE edu.sticker_game_configs SET bg_image_url=$2, objects=$3, timer_mode=$4, time_limit=$5, question_i18n=$6 WHERE id=$1`,
             [module_config_id, cfg.bg_image_url, JSON.stringify(objects), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+          );
+        } else if (module_type === "cube_layer_count") {
+          const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+          await client.query(
+            `UPDATE edu.cube_layer_count_configs SET starting_level=$2, total_questions=$3, max_split_layers=$4, timer_mode=$5, time_limit=$6 WHERE id=$1`,
+            [module_config_id, startingLevel, cfg.total_questions ?? 5, cfg.max_split_layers ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+          );
+        } else if (module_type === "cube_find_hidden") {
+          const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+          await client.query(
+            `UPDATE edu.cube_find_hidden_configs SET starting_level=$2, total_questions=$3, hidden_targets=$4, timer_mode=$5, time_limit=$6 WHERE id=$1`,
+            [module_config_id, startingLevel, cfg.total_questions ?? 5, cfg.hidden_targets ?? 1, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+          );
+        } else if (module_type === "cube_free_rotate") {
+          await client.query(
+            `UPDATE edu.cube_free_rotate_configs SET total_shapes=$2, shape_size=$3, min_view_seconds=$4, timer_mode=$5, time_limit=$6 WHERE id=$1`,
+            [module_config_id, cfg.total_shapes ?? 3, cfg.shape_size ?? 3, cfg.min_view_seconds ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+          );
+        } else if (module_type === "cube_build") {
+          const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+          await client.query(
+            `UPDATE edu.cube_build_configs SET starting_level=$2, total_questions=$3, timer_mode=$4, time_limit=$5 WHERE id=$1`,
+            [module_config_id, startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+          );
+        } else if (module_type === "cube_three_view") {
+          const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+          await client.query(
+            `UPDATE edu.cube_three_view_configs SET starting_level=$2, total_questions=$3, timer_mode=$4, time_limit=$5 WHERE id=$1`,
+            [module_config_id, startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+          );
+        } else if (module_type === "shape_count") {
+          const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+          await client.query(
+            `UPDATE edu.shape_count_configs SET ask_type=$2, starting_level=$3, total_questions=$4, timer_mode=$5, time_limit=$6 WHERE id=$1`,
+            [module_config_id, cfg.ask_type ?? "both", startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+          );
+        } else if (module_type === "cube_stack") {
+          const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+          await client.query(
+            `UPDATE edu.cube_stack_configs SET starting_level=$2, total_questions=$3, timer_mode=$4, time_limit=$5 WHERE id=$1`,
+            [module_config_id, startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
           );
         } else { // sudoku
           const cells = cfg.cells as Array<{ x: number; y: number; answer: number }> | undefined;
@@ -1200,6 +1297,52 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
         const cellsWithoutAnswers = (row.cells as Array<{ x: number; y: number }>).map((c) => ({ x: c.x, y: c.y }));
         config = { bg_image_url: row.bg_image_url, cells: cellsWithoutAnswers, difficulty: row.difficulty, timer_mode: row.timer_mode, time_limit: row.time_limit, question_i18n: row.question_i18n };
       }
+    } else if (level.module_type === "cube_layer_count") {
+      const { rows: cfgRows } = await query(
+        `SELECT starting_level, total_questions, max_split_layers, timer_mode, time_limit FROM edu.cube_layer_count_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "cube_find_hidden") {
+      const { rows: cfgRows } = await query(
+        `SELECT starting_level, total_questions, hidden_targets, timer_mode, time_limit FROM edu.cube_find_hidden_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "cube_free_rotate") {
+      const { rows: cfgRows } = await query(
+        `SELECT total_shapes, shape_size, min_view_seconds, timer_mode, time_limit FROM edu.cube_free_rotate_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "cube_build") {
+      const { rows: cfgRows } = await query(
+        `SELECT starting_level, total_questions, timer_mode, time_limit FROM edu.cube_build_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "cube_three_view") {
+      const { rows: cfgRows } = await query(
+        `SELECT starting_level, total_questions, timer_mode, time_limit FROM edu.cube_three_view_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "shape_count") {
+      const { rows: cfgRows } = await query(
+        `SELECT ask_type, starting_level, total_questions, timer_mode, time_limit FROM edu.shape_count_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "cube_stack") {
+      // 没有藏答案这回事——题目是前端运行时现场生成的3D结构，判定也是
+      // 纯计算(数方块总数)，不是server端核对一份authored好的正确答案，
+      // 所以这几个参数字段直接给前端就行，跟number_maze/贴纸同一个
+      // "client端直接判定"的安全等级。
+      const { rows: cfgRows } = await query(
+        `SELECT starting_level, total_questions, timer_mode, time_limit FROM edu.cube_stack_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
     }
 
     const { course_grade_tier_id, ...levelForResponse } = level;
@@ -1560,6 +1703,49 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
       // the ONLY branch that differs from getLevel: cells keep `answer`
       const { rows: cfgRows } = await query(
         `SELECT bg_image_url, cells, difficulty, timer_mode, time_limit, question_i18n FROM edu.sudoku_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "cube_layer_count") {
+      const { rows: cfgRows } = await query(
+        `SELECT starting_level, total_questions, max_split_layers, timer_mode, time_limit FROM edu.cube_layer_count_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "cube_find_hidden") {
+      const { rows: cfgRows } = await query(
+        `SELECT starting_level, total_questions, hidden_targets, timer_mode, time_limit FROM edu.cube_find_hidden_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "cube_free_rotate") {
+      const { rows: cfgRows } = await query(
+        `SELECT total_shapes, shape_size, min_view_seconds, timer_mode, time_limit FROM edu.cube_free_rotate_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "cube_build") {
+      const { rows: cfgRows } = await query(
+        `SELECT starting_level, total_questions, timer_mode, time_limit FROM edu.cube_build_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "cube_three_view") {
+      const { rows: cfgRows } = await query(
+        `SELECT starting_level, total_questions, timer_mode, time_limit FROM edu.cube_three_view_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "shape_count") {
+      const { rows: cfgRows } = await query(
+        `SELECT ask_type, starting_level, total_questions, timer_mode, time_limit FROM edu.shape_count_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "cube_stack") {
+      // 设计者视角跟学生视角(getLevel)是同一份数据——没有要隐藏的答案
+      const { rows: cfgRows } = await query(
+        `SELECT starting_level, total_questions, timer_mode, time_limit FROM edu.cube_stack_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;

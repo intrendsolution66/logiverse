@@ -8,7 +8,7 @@
 // existing scale instead of ad-hoc inline styles.
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
+import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Boxes, Rows3, Eye, RotateCw, Hammer, Frame, Square, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { eduApi, lessonsApi, exerciseClassificationApi, taxonomyApi } from "@/api";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
@@ -56,6 +56,13 @@ const MODULE_LABELS: Record<string, { emoji: string; label: string }> = {
   video_lecture:{ emoji: "🎬", label: "视频讲义" },
   play_along:   { emoji: "🎼", label: "跟弹练习" },
   sticker_game: { emoji: "🏷️", label: "贴纸游戏" },
+  cube_stack:   { emoji: "🧊", label: "立体方块计数" },
+  cube_layer_count: { emoji: "🧱", label: "立体方块-逐层计数" },
+  cube_find_hidden: { emoji: "🕵️", label: "立体方块-找隐藏方块" },
+  cube_free_rotate: { emoji: "🔄", label: "立体方块-自由旋转观察" },
+  cube_build:       { emoji: "🏗️", label: "立体方块-自己搭积木" },
+  cube_three_view:  { emoji: "📐", label: "立体方块-三视图" },
+  shape_count:      { emoji: "🔲", label: "数方块(平面图形)" },
 };
 
 // 每个游戏类型一个专属色系——像玩具架上的游戏卡带，一眼就能从颜色分辨
@@ -77,6 +84,13 @@ const MODULE_COLORS: Record<string, { bg: string; text: string; ring: string }> 
   video_lecture: { bg: "#FEE2E2", text: "#B91C1C", ring: "#EF4444" },
   play_along:    { bg: "#FDF4FF", text: "#A21CAF", ring: "#D946EF" },
   sticker_game:  { bg: "#FEF9C3", text: "#854D0E", ring: "#EAB308" },
+  cube_stack:    { bg: "#E7E5E4", text: "#44403C", ring: "#78716C" },
+  cube_layer_count: { bg: "#FFEDD5", text: "#9A3412", ring: "#FB923C" },
+  cube_find_hidden: { bg: "#E0E7FF", text: "#3730A3", ring: "#818CF8" },
+  cube_free_rotate: { bg: "#CFFAFE", text: "#155E75", ring: "#22D3EE" },
+  cube_build:       { bg: "#FEF3C7", text: "#92400E", ring: "#F59E0B" },
+  cube_three_view:  { bg: "#F3E8FF", text: "#6B21A8", ring: "#C084FC" },
+  shape_count:      { bg: "#DBEAFE", text: "#1E40AF", ring: "#60A5FA" },
 };
 const FALLBACK_COLOR = { bg: "#F1F5F9", text: "#334155", ring: "#94A3B8" };
 
@@ -87,7 +101,9 @@ const MODULE_ICONS: Record<string, LucideIcon> = {
   counting: Hash, spot_diff: ScanSearch, focus_tap: Target, memory: Layers,
   pattern: Puzzle, word_problem: FileText, maze: Route, number_maze: GitBranch, sudoku: Grid3x3,
   line_match: Link2, coloring: Palette, ppt_lecture: Presentation, video_lecture: Film,
-  play_along: Music2, sticker_game: Sticker,
+  play_along: Music2, sticker_game: Sticker, cube_stack: Boxes,
+  cube_layer_count: Rows3, cube_find_hidden: Eye, cube_free_rotate: RotateCw,
+  cube_build: Hammer, cube_three_view: Frame, shape_count: Square,
 };
 
 function readAsDataURL(file: File): Promise<string> {
@@ -2128,7 +2144,7 @@ function PlayAlongMarkerEditor({ pages, audioUrl, markers, setMarkers, currentPa
 // 里用 typeof moduleType 反过来引用它自己（TS 处理不了这种循环引用，
 // 会报 "implicitly has type any"）。这两个地方（下面 useState 的初始值、
 // presetModuleType 转型）都要用这个命名类型，不要图省事写 typeof。
-type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game";
+type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game" | "cube_stack" | "cube_layer_count" | "cube_find_hidden" | "cube_free_rotate" | "cube_build" | "cube_three_view" | "shape_count";
 
 function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleType }: {
   open: boolean; onClose: () => void; editingLevelId?: string | null; onSaved: () => void;
@@ -2300,6 +2316,20 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   const [patternTheme, setPatternTheme] = useState("shape");
   const [patternTypes, setPatternTypes] = useState<string[]>(["AB", "ABC", "AAB", "ABB", "AABB"]);
   const [seqLength, setSeqLength] = useState(7);
+
+  // cube_stack fields — 没有素材/authored内容，只有一个"从第几级难度
+  // 开始"的参数，题数/计时用跟其他模块共用的 totalQuestions
+  const [cubeStackStartingLevel, setCubeStackStartingLevel] = useState(1);
+  // 同一系列(Stage2/3/5/6)和数方块都共用同一个 starting_level 输入状态
+  // (cubeStackStartingLevel)——反正设计器一次只编辑一种模块类型，不会
+  // 互相干扰，不用为每个模块各开一个几乎一样的state。下面这几个才是
+  // 各自独有、跟starting_level/total_questions不一样的额外参数。
+  const [cubeMaxSplitLayers, setCubeMaxSplitLayers] = useState(5);      // Stage2 逐层计数
+  const [cubeHiddenTargets, setCubeHiddenTargets] = useState(1);        // Stage3 找隐藏方块
+  const [cubeFreeRotateShapes, setCubeFreeRotateShapes] = useState(3);  // Stage4 看几个结构
+  const [cubeFreeRotateSize, setCubeFreeRotateSize] = useState(3);      // Stage4 结构大小(固定难度，不自适应)
+  const [cubeFreeRotateMinSec, setCubeFreeRotateMinSec] = useState(5);  // Stage4 每个结构至少看几秒
+  const [shapeAskType, setShapeAskType] = useState<"square" | "rectangle" | "both">("both"); // 平面数方块 问正方形/长方形/都问
 
   // word_problem fields
   const [wpCategories, setWpCategories] = useState<string[]>(["chicken_rabbit"]);
@@ -2807,6 +2837,31 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         setPatternTypes((cfg.pattern_types as string[]) ?? ["AB","ABC","AAB","ABB","AABB"]);
         setSeqLength((cfg.seq_length as number) ?? 7);
         setTotalQuestions((cfg.total_questions as number) ?? 5);
+      } else if (level.module_type === "cube_stack") {
+        setCubeStackStartingLevel((cfg.starting_level as number) ?? 1);
+        setTotalQuestions((cfg.total_questions as number) ?? 5);
+      } else if (level.module_type === "cube_layer_count") {
+        setCubeStackStartingLevel((cfg.starting_level as number) ?? 1);
+        setTotalQuestions((cfg.total_questions as number) ?? 5);
+        setCubeMaxSplitLayers((cfg.max_split_layers as number) ?? 5);
+      } else if (level.module_type === "cube_find_hidden") {
+        setCubeStackStartingLevel((cfg.starting_level as number) ?? 1);
+        setTotalQuestions((cfg.total_questions as number) ?? 5);
+        setCubeHiddenTargets((cfg.hidden_targets as number) ?? 1);
+      } else if (level.module_type === "cube_free_rotate") {
+        setCubeFreeRotateShapes((cfg.total_shapes as number) ?? 3);
+        setCubeFreeRotateSize((cfg.shape_size as number) ?? 3);
+        setCubeFreeRotateMinSec((cfg.min_view_seconds as number) ?? 5);
+      } else if (level.module_type === "cube_build") {
+        setCubeStackStartingLevel((cfg.starting_level as number) ?? 1);
+        setTotalQuestions((cfg.total_questions as number) ?? 5);
+      } else if (level.module_type === "cube_three_view") {
+        setCubeStackStartingLevel((cfg.starting_level as number) ?? 1);
+        setTotalQuestions((cfg.total_questions as number) ?? 5);
+      } else if (level.module_type === "shape_count") {
+        setCubeStackStartingLevel((cfg.starting_level as number) ?? 1);
+        setTotalQuestions((cfg.total_questions as number) ?? 5);
+        setShapeAskType((cfg.ask_type as "square" | "rectangle" | "both") ?? "both");
       } else if (level.module_type === "word_problem") {
         setWpCategories((cfg.categories as string[]) ?? ["chicken_rabbit"]);
         setWpAnswerMode(((cfg.answer_mode as string) ?? "select") as "select" | "input");
@@ -3169,6 +3224,85 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
 
           category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
           config: { theme: patternTheme, pattern_types: patternTypes, seq_length: seqLength, num_choices: 3, total_questions: totalQuestions, timer_mode: "stopwatch", question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined },
+        });
+      } else if (moduleType === "cube_stack") {
+        await saveLevel({
+          module_type: "cube_stack",
+          title_i18n: { zh: levelTitle || "立体方块计数", en: levelTitle || "Cube Stack" },
+          explanation_text: explanationText || undefined,
+          explanation_image_url: explanationImageUrl || undefined,
+          explanation_video_url: explanationVideoUrl || undefined,
+
+          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: { starting_level: cubeStackStartingLevel, total_questions: totalQuestions, timer_mode: "stopwatch" },
+        });
+      } else if (moduleType === "cube_layer_count") {
+        await saveLevel({
+          module_type: "cube_layer_count",
+          title_i18n: { zh: levelTitle || "立体方块-逐层计数", en: levelTitle || "Cube Layer Count" },
+          explanation_text: explanationText || undefined,
+          explanation_image_url: explanationImageUrl || undefined,
+          explanation_video_url: explanationVideoUrl || undefined,
+          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: { starting_level: cubeStackStartingLevel, total_questions: totalQuestions, max_split_layers: cubeMaxSplitLayers, timer_mode: "stopwatch" },
+        });
+      } else if (moduleType === "cube_find_hidden") {
+        await saveLevel({
+          module_type: "cube_find_hidden",
+          title_i18n: { zh: levelTitle || "立体方块-找隐藏方块", en: levelTitle || "Cube Find Hidden" },
+          explanation_text: explanationText || undefined,
+          explanation_image_url: explanationImageUrl || undefined,
+          explanation_video_url: explanationVideoUrl || undefined,
+          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: { starting_level: cubeStackStartingLevel, total_questions: totalQuestions, hidden_targets: cubeHiddenTargets, timer_mode: "stopwatch" },
+        });
+      } else if (moduleType === "cube_free_rotate") {
+        await saveLevel({
+          module_type: "cube_free_rotate",
+          title_i18n: { zh: levelTitle || "立体方块-自由旋转观察", en: levelTitle || "Cube Free Rotate" },
+          explanation_text: explanationText || undefined,
+          explanation_image_url: explanationImageUrl || undefined,
+          explanation_video_url: explanationVideoUrl || undefined,
+          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: { total_shapes: cubeFreeRotateShapes, shape_size: cubeFreeRotateSize, min_view_seconds: cubeFreeRotateMinSec, timer_mode: "stopwatch" },
+        });
+      } else if (moduleType === "cube_build") {
+        await saveLevel({
+          module_type: "cube_build",
+          title_i18n: { zh: levelTitle || "立体方块-自己搭积木", en: levelTitle || "Cube Build" },
+          explanation_text: explanationText || undefined,
+          explanation_image_url: explanationImageUrl || undefined,
+          explanation_video_url: explanationVideoUrl || undefined,
+          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: { starting_level: cubeStackStartingLevel, total_questions: totalQuestions, timer_mode: "stopwatch" },
+        });
+      } else if (moduleType === "cube_three_view") {
+        await saveLevel({
+          module_type: "cube_three_view",
+          title_i18n: { zh: levelTitle || "立体方块-三视图", en: levelTitle || "Cube Three View" },
+          explanation_text: explanationText || undefined,
+          explanation_image_url: explanationImageUrl || undefined,
+          explanation_video_url: explanationVideoUrl || undefined,
+          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: { starting_level: cubeStackStartingLevel, total_questions: totalQuestions, timer_mode: "stopwatch" },
+        });
+      } else if (moduleType === "shape_count") {
+        await saveLevel({
+          module_type: "shape_count",
+          title_i18n: { zh: levelTitle || "数方块(平面图形)", en: levelTitle || "Shape Count" },
+          explanation_text: explanationText || undefined,
+          explanation_image_url: explanationImageUrl || undefined,
+          explanation_video_url: explanationVideoUrl || undefined,
+          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: { ask_type: shapeAskType, starting_level: cubeStackStartingLevel, total_questions: totalQuestions, timer_mode: "stopwatch" },
         });
       } else if (moduleType === "word_problem") {
         if (wpCategories.length === 0) { toast.error("请至少选一种题型"); return; }
@@ -3975,6 +4109,122 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           </div>
         )}
 
+        {moduleType === "cube_stack" && (
+          <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3 text-sm">
+            <div className="flex gap-3 flex-wrap items-center">
+              <label className="flex items-center gap-1.5">起始难度等级
+                <input type="number" min={1} max={10} value={cubeStackStartingLevel} onChange={(e) => setCubeStackStartingLevel(Math.min(10, Math.max(1, +e.target.value)))} className={MINI_INPUT_CLASS} />
+              </label>
+              <label className="flex items-center gap-1.5">题数 <input type="number" value={totalQuestions} onChange={(e) => setTotalQuestions(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              这个游戏没有素材图或题目内容要准备——每题的立体方块结构是玩的时候现场生成的。难度会跟着学生答对/答错自动升降（1~10级），这里只是设定"从第几级开始"。
+            </p>
+          </div>
+        )}
+
+        {moduleType === "cube_layer_count" && (
+          <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3 text-sm">
+            <div className="flex gap-3 flex-wrap items-center">
+              <label className="flex items-center gap-1.5">起始难度等级
+                <input type="number" min={1} max={10} value={cubeStackStartingLevel} onChange={(e) => setCubeStackStartingLevel(Math.min(10, Math.max(1, +e.target.value)))} className={MINI_INPUT_CLASS} />
+              </label>
+              <label className="flex items-center gap-1.5">题数 <input type="number" value={totalQuestions} onChange={(e) => setTotalQuestions(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
+              <label className="flex items-center gap-1.5">最多拆几层
+                <input type="number" min={2} value={cubeMaxSplitLayers} onChange={(e) => setCubeMaxSplitLayers(Math.max(2, +e.target.value))} className={MINI_INPUT_CLASS} />
+              </label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              学生要按楼层输入每层有几个方块，自动加总。"最多拆几层"是保底设置——结构实际层数超过这个数字时，多出来的层会自动合并成最后一格，避免答题变得没完没了（按目前的难度曲线，最高10级也就5层，正常不会触发合并）。
+            </p>
+          </div>
+        )}
+
+        {moduleType === "cube_find_hidden" && (
+          <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3 text-sm">
+            <div className="flex gap-3 flex-wrap items-center">
+              <label className="flex items-center gap-1.5">起始难度等级
+                <input type="number" min={1} max={10} value={cubeStackStartingLevel} onChange={(e) => setCubeStackStartingLevel(Math.min(10, Math.max(1, +e.target.value)))} className={MINI_INPUT_CLASS} />
+              </label>
+              <label className="flex items-center gap-1.5">题数 <input type="number" value={totalQuestions} onChange={(e) => setTotalQuestions(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
+              <label className="flex items-center gap-1.5">每题要找几个隐藏方块
+                <input type="number" min={1} value={cubeHiddenTargets} onChange={(e) => setCubeHiddenTargets(Math.max(1, +e.target.value))} className={MINI_INPUT_CLASS} />
+              </label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              学生转动结构，点击"应该藏着一个看不见的方块"的位置。如果某一局生成出来的结构里，天然能藏的位置没这么多，会自动改成实际能有的数量，不会卡住。每题最多容许猜错3次，超过会直接公布答案。
+            </p>
+          </div>
+        )}
+
+        {moduleType === "cube_free_rotate" && (
+          <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3 text-sm">
+            <div className="flex gap-3 flex-wrap items-center">
+              <label className="flex items-center gap-1.5">看几个结构
+                <input type="number" min={1} value={cubeFreeRotateShapes} onChange={(e) => setCubeFreeRotateShapes(Math.max(1, +e.target.value))} className={MINI_INPUT_CLASS} />
+              </label>
+              <label className="flex items-center gap-1.5">结构大小
+                <input type="number" min={2} max={5} value={cubeFreeRotateSize} onChange={(e) => setCubeFreeRotateSize(Math.min(5, Math.max(2, +e.target.value)))} className={MINI_INPUT_CLASS} />
+              </label>
+              <label className="flex items-center gap-1.5">每个至少看几秒
+                <input type="number" min={0} value={cubeFreeRotateMinSec} onChange={(e) => setCubeFreeRotateMinSec(Math.max(0, +e.target.value))} className={MINI_INPUT_CLASS} />
+              </label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              纯探索关，没有对错判定——热身/教程性质，帮还不熟悉3D拖动旋转操作的孩子先练习一下。"结构大小"是固定难度，不会自动升降（这一关的重点是熟悉操作，不是考验空间推理）。
+            </p>
+          </div>
+        )}
+
+        {moduleType === "cube_build" && (
+          <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3 text-sm">
+            <div className="flex gap-3 flex-wrap items-center">
+              <label className="flex items-center gap-1.5">起始难度等级
+                <input type="number" min={1} max={10} value={cubeStackStartingLevel} onChange={(e) => setCubeStackStartingLevel(Math.min(10, Math.max(1, +e.target.value)))} className={MINI_INPUT_CLASS} />
+              </label>
+              <label className="flex items-center gap-1.5">题数 <input type="number" value={totalQuestions} onChange={(e) => setTotalQuestions(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              学生照着上方展示的目标结构，在下方搭建区一块一块搭出一样的形状（点方块顶上的半透明虚影加一块，点实心方块拿掉最上面一块）。提交后逐根柱子比对高度，哪根不对会标红。
+            </p>
+          </div>
+        )}
+
+        {moduleType === "cube_three_view" && (
+          <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3 text-sm">
+            <div className="flex gap-3 flex-wrap items-center">
+              <label className="flex items-center gap-1.5">起始难度等级
+                <input type="number" min={1} max={10} value={cubeStackStartingLevel} onChange={(e) => setCubeStackStartingLevel(Math.min(10, Math.max(1, +e.target.value)))} className={MINI_INPUT_CLASS} />
+              </label>
+              <label className="flex items-center gap-1.5">题数 <input type="number" value={totalQuestions} onChange={(e) => setTotalQuestions(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              每题随机问正视图/俯视图/侧视图三选一，学生在网格上点格子拼出轮廓。提交后逐格比对，标红的地方是拼错的位置。
+            </p>
+          </div>
+        )}
+
+        {moduleType === "shape_count" && (
+          <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3 text-sm">
+            <div className="flex gap-3 flex-wrap items-center">
+              <label className="flex items-center gap-1.5">问哪种
+                <select value={shapeAskType} onChange={(e) => setShapeAskType(e.target.value as "square" | "rectangle" | "both")} className={MINI_INPUT_CLASS}>
+                  <option value="both">正方形+长方形都问</option>
+                  <option value="square">只问正方形</option>
+                  <option value="rectangle">只问长方形</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-1.5">起始难度等级
+                <input type="number" min={1} max={10} value={cubeStackStartingLevel} onChange={(e) => setCubeStackStartingLevel(Math.min(10, Math.max(1, +e.target.value)))} className={MINI_INPUT_CLASS} />
+              </label>
+              <label className="flex items-center gap-1.5">题数 <input type="number" value={totalQuestions} onChange={(e) => setTotalQuestions(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              经典"数格子图里有几个正方形/长方形"题型——网格是现场画的，答案是公式算出来的，不需要准备任何素材图。长方形题会提醒学生"正方形也算长方形的一种"。
+            </p>
+          </div>
+        )}
+
         {moduleType === "word_problem" && (
           <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3 text-sm">
             <div>
@@ -3985,6 +4235,8 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
                   { key: "meeting_point", label: "🚗 相遇问题" },
                   { key: "cow_grass", label: "🐄 牛吃草" },
                   { key: "concentration", label: "🧂 浓度问题" },
+                  { key: "queue_position", label: "🧍 排队序数" },
+                  { key: "queue_count", label: "🧍‍♂️ 排队人数" },
                 ].map(({ key, label }) => (
                   <button
                     key={key} type="button"

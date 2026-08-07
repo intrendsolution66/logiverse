@@ -24,13 +24,20 @@ import SudokuGame, { type SudokuConfig, type SudokuResult } from "@/games/Sudoku
 import LineMatchGame, { type LineMatchConfig, type LineMatchResult } from "@/games/LineMatchGame";
 import ColoringGame, { type ColoringConfig, type ColoringResult } from "@/games/ColoringGame";
 import StickerGame, { type StickerGameConfig, type StickerGameResult } from "@/games/StickerGame";
+import CubeStackGame, { type CubeStackConfig, type CubeStackResult } from "@/games/CubeStackGame";
+import CubeLayerCountGame, { type CubeLayerCountConfig, type CubeLayerCountResult } from "@/games/CubeLayerCountGame";
+import CubeFindHiddenGame, { type CubeFindHiddenConfig, type CubeFindHiddenResult } from "@/games/CubeFindHiddenGame";
+import CubeFreeRotateGame, { type CubeFreeRotateConfig, type CubeFreeRotateResult } from "@/games/CubeFreeRotateGame";
+import CubeBuildGame, { type CubeBuildConfig, type CubeBuildResult } from "@/games/CubeBuildGame";
+import CubeThreeViewGame, { type CubeThreeViewConfig, type CubeThreeViewResult } from "@/games/CubeThreeViewGame";
+import ShapeCountGame, { type ShapeCountConfig, type ShapeCountResult } from "@/games/ShapeCountGame";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { PptReader } from "@/components/PptReader";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import toast from "react-hot-toast";
 
-type GameResult = CountingResult | SpotDiffResult | FocusTapResult | MemoryResult | PatternResult | WordProblemResult | MazeResult | NumberMazeResult | SudokuResult | LineMatchResult | ColoringResult | StickerGameResult;
+type GameResult = CountingResult | SpotDiffResult | FocusTapResult | MemoryResult | PatternResult | WordProblemResult | MazeResult | NumberMazeResult | SudokuResult | LineMatchResult | ColoringResult | StickerGameResult | CubeStackResult | CubeLayerCountResult | CubeFindHiddenResult | CubeFreeRotateResult | CubeBuildResult | CubeThreeViewResult | ShapeCountResult;
 
 export default function LevelPlayerPage() {
   const { levelId } = useParams<{ levelId: string }>();
@@ -101,6 +108,10 @@ export default function LevelPlayerPage() {
       await eduApi.submitProgress(levelId, {
         module_type: level.module_type, score: r.score, max_score: r.max_score,
         time_spent_seconds: r.time_spent_seconds, mistakes: r.mistakes, completed: r.completed,
+        // cube_stack 的自适应难度会跑到哪个等级结束，存进 extra_data——
+        // 留给以后"下一次直接从上次结束的等级开始"这个功能用，其他游戏
+        // 的 result 都没有这个字段，这里就是 undefined，不会多存东西。
+        extra_data: "ending_level" in r ? { ending_level: r.ending_level } : undefined,
       });
       toast.success("成绩已记录！");
     } catch { toast.error("成绩记录失败（网络问题），可以再试一次"); }
@@ -163,7 +174,7 @@ export default function LevelPlayerPage() {
   if (loading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">加载中...</div>;
   if (!level) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">找不到这个 Activity</div>;
 
-  const KNOWN_GAME_MODULES = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "sticker_game"];
+  const KNOWN_GAME_MODULES = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "sticker_game", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count"];
   const isLecture = level.module_type === "video_lecture" || level.module_type === "ppt_lecture";
   const isKnown = KNOWN_GAME_MODULES.includes(level.module_type) || isLecture;
   // 只有真正的"游戏"套待机/开始/重玩/退出这套流程——讲义(video/ppt)
@@ -240,6 +251,13 @@ export default function LevelPlayerPage() {
               {level.module_type === "line_match" && levelId && <LineMatchGame key={playKey} levelId={levelId} config={level.config as unknown as LineMatchConfig} onComplete={handleComplete} />}
               {level.module_type === "coloring" && levelId && <ColoringGame key={playKey} levelId={levelId} config={level.config as unknown as ColoringConfig} onComplete={handleComplete} />}
               {level.module_type === "sticker_game" && <StickerGame key={playKey} config={level.config as unknown as StickerGameConfig} onComplete={handleComplete} />}
+              {level.module_type === "cube_stack" && <CubeStackGame key={playKey} config={level.config as unknown as CubeStackConfig} onComplete={handleComplete} />}
+              {level.module_type === "cube_layer_count" && <CubeLayerCountGame key={playKey} config={level.config as unknown as CubeLayerCountConfig} onComplete={handleComplete} />}
+              {level.module_type === "cube_find_hidden" && <CubeFindHiddenGame key={playKey} config={level.config as unknown as CubeFindHiddenConfig} onComplete={handleComplete} />}
+              {level.module_type === "cube_free_rotate" && <CubeFreeRotateGame key={playKey} config={level.config as unknown as CubeFreeRotateConfig} onComplete={handleComplete} />}
+              {level.module_type === "cube_build" && <CubeBuildGame key={playKey} config={level.config as unknown as CubeBuildConfig} onComplete={handleComplete} />}
+              {level.module_type === "cube_three_view" && <CubeThreeViewGame key={playKey} config={level.config as unknown as CubeThreeViewConfig} onComplete={handleComplete} />}
+              {level.module_type === "shape_count" && <ShapeCountGame key={playKey} config={level.config as unknown as ShapeCountConfig} onComplete={handleComplete} />}
 
               {level.module_type === "video_lecture" && (
                 <VideoPlayer src={config.video_url ?? ""} onProgress={(sec, dur, completed) => handleLectureProgress(sec, dur, completed)} />

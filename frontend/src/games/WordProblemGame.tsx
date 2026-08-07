@@ -13,7 +13,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { eduApi } from "@/api";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
 
-export type WordProblemCategory = "chicken_rabbit" | "meeting_point" | "cow_grass" | "concentration";
+export type WordProblemCategory = "chicken_rabbit" | "meeting_point" | "cow_grass" | "concentration" | "queue_position" | "queue_count";
 
 export interface WordProblemConfig {
   categories: WordProblemCategory[];
@@ -27,6 +27,9 @@ export interface WordProblemConfig {
   cow_days_min?: number; cow_days_max?: number; // 牛吃草: how many days the first known scenario takes
   conc_low_min?: number; conc_low_max?: number; // 浓度问题: target (lower) concentration %
   conc_gap_min?: number; conc_gap_max?: number; // 浓度问题: how much higher the original concentration is
+  queue_total_min?: number; queue_total_max?: number; // 排队序数: 队伍总人数范围
+  queue_front_min?: number; queue_front_max?: number; // 排队人数: 前面人数范围
+  queue_back_min?: number; queue_back_max?: number; // 排队人数: 后面人数范围
   timer_mode: "stopwatch" | "countdown";
   time_limit?: number | null;
   // 自定义题目 (authored) — one specific problem the designer wrote, not
@@ -79,7 +82,22 @@ interface ConcentrationQuestion {
   text: string; question: string; answer: number; unit: string;
   originalMass: number; originalConc: number; targetConc: number;
 }
-type Question = ChickenRabbitQuestion | MeetingPointQuestion | CowGrassQuestion | ConcentrationQuestion;
+// 排队序数——已知"从某一端数第几个"，问"从另一端数是第几个"。跟其他
+// 题型一样是构造出来的（先定总人数和其中一端的位置，另一端位置=
+// 总数-位置+1，从数学上保证一定是整数，不会出现算不出来的情况）。
+interface QueuePositionQuestion {
+  category: "queue_position";
+  text: string; question: string; answer: number; unit: string;
+  total: number; posFromFront: number; posFromBack: number; askFromBack: boolean;
+}
+// 排队人数——前面人数+后面人数+自己=总人数，三个量随机挑两个当已知
+// 条件，问第三个。
+interface QueueCountQuestion {
+  category: "queue_count";
+  text: string; question: string; answer: number; unit: string;
+  front: number; back: number; total: number; askWhich: "total" | "front" | "back";
+}
+type Question = ChickenRabbitQuestion | MeetingPointQuestion | CowGrassQuestion | ConcentrationQuestion | QueuePositionQuestion | QueueCountQuestion;
 
 function divisorsOf(n: number): number[] {
   const divs: number[] = [];
@@ -146,6 +164,65 @@ function genConcentration(cfg: WordProblemConfig): ConcentrationQuestion {
   };
 }
 
+// 排队序数——total是队伍总人数，posFromFront是"小明"从队头数的位置，
+// posFromBack = total - posFromFront + 1（数学上保证是整数，构造式生成，
+// 不用反过来验证）。随机决定题目给出哪一端的位置、问另一端。
+function genQueuePosition(cfg: WordProblemConfig): QueuePositionQuestion {
+  const total = randInt(cfg.queue_total_min ?? 8, cfg.queue_total_max ?? 20);
+  const posFromFront = randInt(1, total);
+  const posFromBack = total - posFromFront + 1;
+  const askFromBack = Math.random() < 0.5;
+  if (askFromBack) {
+    return {
+      category: "queue_position",
+      text: `一排队伍一共有 <b>${total}</b> 人，小明排在从队头数第 <b>${posFromFront}</b> 个。`,
+      question: "从队尾数，小明排第几个？",
+      answer: posFromBack, unit: "个",
+      total, posFromFront, posFromBack, askFromBack,
+    };
+  }
+  return {
+    category: "queue_position",
+    text: `一排队伍一共有 <b>${total}</b> 人，小明排在从队尾数第 <b>${posFromBack}</b> 个。`,
+    question: "从队头数，小明排第几个？",
+    answer: posFromFront, unit: "个",
+    total, posFromFront, posFromBack, askFromBack,
+  };
+}
+
+// 排队人数——前面人数(front) + 小明自己(1) + 后面人数(back) = 总人数
+// (total)，随机挑其中两个当题目给出的已知条件，问第三个。
+function genQueueCount(cfg: WordProblemConfig): QueueCountQuestion {
+  const front = randInt(cfg.queue_front_min ?? 1, cfg.queue_front_max ?? 10);
+  const back = randInt(cfg.queue_back_min ?? 1, cfg.queue_back_max ?? 10);
+  const total = front + back + 1;
+  const pick = Math.random();
+  const askWhich: "total" | "front" | "back" = pick < 1 / 3 ? "total" : pick < 2 / 3 ? "front" : "back";
+
+  if (askWhich === "total") {
+    return {
+      category: "queue_count",
+      text: `排队时，小明前面有 <b>${front}</b> 人，后面有 <b>${back}</b> 人。`,
+      question: "这一排队伍一共有多少人？",
+      answer: total, unit: "人", front, back, total, askWhich,
+    };
+  }
+  if (askWhich === "front") {
+    return {
+      category: "queue_count",
+      text: `一排队伍一共有 <b>${total}</b> 人，小明后面有 <b>${back}</b> 人。`,
+      question: "小明前面有多少人？",
+      answer: front, unit: "人", front, back, total, askWhich,
+    };
+  }
+  return {
+    category: "queue_count",
+    text: `一排队伍一共有 <b>${total}</b> 人，小明前面有 <b>${front}</b> 人。`,
+    question: "小明后面有多少人？",
+    answer: back, unit: "人", front, back, total, askWhich,
+  };
+}
+
 function genChickenRabbit(cfg: WordProblemConfig): ChickenRabbitQuestion {
   const c = randInt(cfg.chicken_min, cfg.chicken_max);
   const r = randInt(cfg.chicken_min, cfg.chicken_max);
@@ -190,6 +267,8 @@ const GENERATORS: Record<WordProblemCategory, (cfg: WordProblemConfig) => Questi
   meeting_point: genMeetingPoint,
   cow_grass: genCowGrass,
   concentration: genConcentration,
+  queue_position: genQueuePosition,
+  queue_count: genQueueCount,
 };
 
 // ── Interactive UI: 鸡兔同笼 ───────────────────────────────────────────────────
@@ -393,6 +472,113 @@ function ConcentrationInteractive({ q, onSubmit, disabled }: {
         className="block mx-auto text-lg font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground disabled:opacity-50 transition-colors"
       >
         确认答案：加水 {water} 克
+      </button>
+    </div>
+  );
+}
+
+// ── Interactive UI: 排队序数 ───────────────────────────────────────────────────
+// 画出整排队伍，"小明"的真实位置直接标出来（跟ChickenRabbit让孩子直接
+// 看着具体的鸡兔数一样，这个年龄段的"应用题"本来就该先具体可数，不是
+// 先抽象计算）。学生调整"从另一端数第几个"的计数器，实时高亮"数到第几
+// 个"落在哪一位，跟小明的位置对上了就是对的——不用等提交才知道对不对。
+function QueuePositionInteractive({ q, onSubmit, disabled }: {
+  q: QueuePositionQuestion; onSubmit: (val: number) => void; disabled: boolean;
+}) {
+  const [guess, setGuess] = useState(1);
+  // 小明真实站在从队头数第几个（渲染整排队伍固定用这个坐标系，不管题目
+  // 问的是哪一端）
+  const targetFromFront = q.posFromFront;
+  // 学生猜的这个数字，换算成"从队头数第几个"，才能跟targetFromFront对比
+  const guessedFromFront = q.askFromBack ? q.total - guess + 1 : guess;
+  const matched = guessedFromFront === targetFromFront;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-1 overflow-x-auto px-2 py-3 justify-start sm:justify-center">
+        <span className="text-xs text-muted-foreground mr-1 shrink-0">队头</span>
+        {Array.from({ length: q.total }, (_, i) => i + 1).map((pos) => {
+          const isTarget = pos === targetFromFront;
+          const isGuess = pos === guessedFromFront && !isTarget;
+          return (
+            <span
+              key={pos}
+              className={`text-2xl shrink-0 rounded-full ${isTarget ? "ring-2 ring-amber-400 bg-amber-50" : isGuess ? "ring-2 ring-sky-400 bg-sky-50" : ""}`}
+            >
+              {isTarget ? "🧑‍🦱" : "🧍"}
+            </span>
+          );
+        })}
+        <span className="text-xs text-muted-foreground ml-1 shrink-0">队尾</span>
+      </div>
+
+      <div className="flex items-center justify-center gap-3">
+        <span className="text-lg">{q.askFromBack ? "从队尾数第几个" : "从队头数第几个"}</span>
+        <button disabled={disabled} onClick={() => setGuess((v) => Math.max(1, v - 1))} className="w-10 h-10 rounded-lg border-2 border-border bg-card text-lg font-semibold disabled:opacity-50">−</button>
+        <span className="w-10 text-center text-2xl font-bold">{guess}</span>
+        <button disabled={disabled} onClick={() => setGuess((v) => Math.min(q.total, v + 1))} className="w-10 h-10 rounded-lg border-2 border-border bg-card text-lg font-semibold disabled:opacity-50">+</button>
+      </div>
+
+      <p className="text-center text-sm font-medium">
+        <span className={matched ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}>
+          {matched ? "对上小明的位置了！✓" : "调整一下，看看是不是对上小明的位置"}
+        </span>
+      </p>
+
+      <button
+        onClick={() => onSubmit(guess)}
+        disabled={disabled}
+        className="block mx-auto text-lg font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground disabled:opacity-50 transition-colors"
+      >
+        确认答案：第 {guess} 个
+      </button>
+    </div>
+  );
+}
+
+// ── Interactive UI: 排队人数 ───────────────────────────────────────────────────
+// 同样画出整排队伍（长度=真实总人数，小明位置也是真实位置），学生调整
+// 计数器猜"前面/后面/一共多少人"，可以直接数队伍里的小人来对答案，跟
+// 猜数字比对，而不是纯靠心算。
+function QueueCountInteractive({ q, onSubmit, disabled }: {
+  q: QueueCountQuestion; onSubmit: (val: number) => void; disabled: boolean;
+}) {
+  const [guess, setGuess] = useState(0);
+  const label = q.askWhich === "total" ? "队伍总人数" : q.askWhich === "front" ? "小明前面的人数" : "小明后面的人数";
+  const targetValue = q.askWhich === "total" ? q.total : q.askWhich === "front" ? q.front : q.back;
+  const matched = guess === targetValue;
+  const meIndex = q.front + 1; // 小明从队头数的位置，渲染整排队伍固定用这个坐标
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-1 overflow-x-auto px-2 py-3 justify-start sm:justify-center">
+        <span className="text-xs text-muted-foreground mr-1 shrink-0">队头</span>
+        {Array.from({ length: q.total }, (_, i) => i + 1).map((pos) => (
+          <span key={pos} className="text-2xl shrink-0">{pos === meIndex ? "🧑‍🦱" : "🧍"}</span>
+        ))}
+        <span className="text-xs text-muted-foreground ml-1 shrink-0">队尾</span>
+      </div>
+
+      <div className="flex items-center justify-center gap-3">
+        <span className="text-lg">{label}</span>
+        <button disabled={disabled} onClick={() => setGuess((v) => Math.max(0, v - 1))} className="w-10 h-10 rounded-lg border-2 border-border bg-card text-lg font-semibold disabled:opacity-50">−</button>
+        <span className="w-10 text-center text-2xl font-bold">{guess}</span>
+        <button disabled={disabled} onClick={() => setGuess((v) => v + 1)} className="w-10 h-10 rounded-lg border-2 border-border bg-card text-lg font-semibold disabled:opacity-50">+</button>
+        <span className="text-lg text-muted-foreground">人</span>
+      </div>
+
+      <p className="text-center text-sm font-medium">
+        <span className={matched ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}>
+          {matched ? "数对了！✓" : "数一数队伍里的小人试试看"}
+        </span>
+      </p>
+
+      <button
+        onClick={() => onSubmit(guess)}
+        disabled={disabled}
+        className="block mx-auto text-lg font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground disabled:opacity-50 transition-colors"
+      >
+        确认答案：{guess} 人
       </button>
     </div>
   );
@@ -619,8 +805,12 @@ function RandomWordProblemGame({ config, onComplete }: {
         <MeetingPointInteractive q={question} onSubmit={submitAnswer} disabled={answered} />
       ) : question.category === "cow_grass" ? (
         <CowGrassInteractive q={question} onSubmit={submitAnswer} disabled={answered} />
-      ) : (
+      ) : question.category === "concentration" ? (
         <ConcentrationInteractive q={question} onSubmit={submitAnswer} disabled={answered} />
+      ) : question.category === "queue_position" ? (
+        <QueuePositionInteractive q={question} onSubmit={submitAnswer} disabled={answered} />
+      ) : (
+        <QueueCountInteractive q={question} onSubmit={submitAnswer} disabled={answered} />
       )}
 
       {status.msg && (
