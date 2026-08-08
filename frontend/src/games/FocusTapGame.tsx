@@ -11,8 +11,9 @@
 //              (that randomization is the actual point of the exercise).
 //
 // i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
-// question_i18n 是designer自己填的authored题目文字，这次没扩展它加ms，
-// 维持原样zh/en两个key，跟CubeFreeRotateGame同样的处理方式。
+// question_i18n 是designer自己填的authored题目文字——现在CourseDesignerPage.tsx
+// 已经支持三语言输入了(zh/en/ms)，运行时读取顺序是"当前locale优先，没填
+// 再退回zh，还没填再退回en"。
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { type Locale, type Dict, t } from "@/lib/gameLocale";
@@ -39,7 +40,7 @@ export interface FocusTapConfig {
   positions?: FocusTapPosition[] | null;
   timer_mode: "stopwatch" | "countdown";
   time_limit?: number | null;
-  question_i18n?: { zh?: string; en?: string };
+  question_i18n?: { zh?: string; en?: string; ms?: string };
 }
 export interface FocusTapResult {
   score: number; max_score: number; time_spent_seconds: number; mistakes: number; completed: boolean;
@@ -146,8 +147,8 @@ export default function FocusTapGame({ config, onComplete, locale = "zh" }: {
         <span>{lt("next_number", locale, { n: next })}</span>
         <span>⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
-      {(config.question_i18n?.zh || config.question_i18n?.en) && (
-        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.zh || config.question_i18n?.en}</p>
+      {(config.question_i18n?.[locale] || config.question_i18n?.zh || config.question_i18n?.en) && (
+        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.[locale] || config.question_i18n?.zh || config.question_i18n?.en}</p>
       )}
 
       {isCustom ? (

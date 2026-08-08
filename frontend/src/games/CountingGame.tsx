@@ -10,6 +10,8 @@
 //   压根没给物件打类型），退回原本"数全部"的行为，不影响已有的Activity
 //
 // i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
+// question_i18n 现在CourseDesignerPage.tsx已经支持三语言输入了(zh/en/ms)，
+// 运行时读取顺序是"当前locale优先，没填再退回zh，还没填再退回en"。
 // 有一点特殊：CustomSceneCountingGame 没写question_i18n时，会自动拼一句
 // "一共有多少个{类型}？"——句子结构本身会跟着翻译，但{类型}这部分是
 // designer自己打的标签(比如"苹果")，这部分文字不会跟着变(那是authored
@@ -60,7 +62,7 @@ export interface CountingConfig {
   target_types?: string[];
   // 课程设计师自己写的题目句子（比如"苹果和西瓜一共有几个？"）——有值时
   // 优先显示这个，没有才退回下面按 target_types 自动生成的句子。
-  question_i18n?: { zh?: string; en?: string };
+  question_i18n?: { zh?: string; en?: string; ms?: string };
 }
 
 export interface CountingResult {
@@ -98,7 +100,7 @@ function CustomSceneCountingGame({ config, onComplete, locale }: {
     ? positions.filter((p) => p.type && targetTypes.includes(p.type)).length
     : positions.length;
 
-  const questionText = config.question_i18n?.zh || config.question_i18n?.en || (
+  const questionText = config.question_i18n?.[locale] || config.question_i18n?.zh || config.question_i18n?.en || (
     hasTypedTargets
       ? targetTypes.length === 1
         ? lt("how_many_type", locale, { type: targetTypes[0] })

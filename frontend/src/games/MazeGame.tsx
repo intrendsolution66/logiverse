@@ -19,7 +19,9 @@
 // just the part they want gone.
 //
 // i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
-// question_i18n 是designer自己填的authored题目文字，这次没扩展它加ms。
+// question_i18n 是designer自己填的authored题目文字——现在CourseDesignerPage.tsx
+// 已经支持三语言输入了(zh/en/ms)，运行时读取顺序是"当前locale优先，没填
+// 再退回zh，还没填再退回en"。
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
@@ -62,7 +64,7 @@ export interface MazeConfig {
   pairs?: MazePair[];
   timer_mode: "stopwatch" | "countdown";
   time_limit?: number | null;
-  question_i18n?: { zh?: string; en?: string };
+  question_i18n?: { zh?: string; en?: string; ms?: string };
 }
 export interface MazeResult {
   score: number; max_score: number; time_spent_seconds: number; mistakes: number; completed: boolean;
@@ -116,7 +118,7 @@ export default function MazeGame({ config, onComplete, locale = "zh" }: {
   const [elapsed, setElapsed] = useState(0);
   const [finished, setFinished] = useState(false);
   const [status, setStatus] = useState(
-    config.question_i18n?.zh || config.question_i18n?.en ||
+    config.question_i18n?.[locale] || config.question_i18n?.zh || config.question_i18n?.en ||
     (pairs.length > 1 ? lt("default_multi", locale, { n: pairs.length }) : lt("default_single", locale))
   );
 

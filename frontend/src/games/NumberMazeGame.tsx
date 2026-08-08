@@ -21,7 +21,9 @@
 // 注释。
 //
 // i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
-// question_i18n 是designer自己填的authored题目文字，这次没扩展它加ms。
+// question_i18n 是designer自己填的authored题目文字——现在CourseDesignerPage.tsx
+// 已经支持三语言输入了(zh/en/ms)，运行时读取顺序是"当前locale优先，没填
+// 再退回zh，还没填再退回en"。
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
@@ -77,7 +79,7 @@ export interface NumberMazeConfig {
   line_color?: string; given_color?: string; bg_color?: string; bg_enabled?: boolean; opacity?: number;
   timer_mode: "stopwatch" | "countdown";
   time_limit?: number | null;
-  question_i18n?: { zh?: string; en?: string };
+  question_i18n?: { zh?: string; en?: string; ms?: string };
 }
 export interface NumberMazeResult {
   score: number; max_score: number; time_spent_seconds: number; mistakes: number; completed: boolean;
@@ -120,7 +122,7 @@ function PathDecisionMazeGame({ config, onComplete, locale }: {
   const [finished, setFinished] = useState(false);
   const [done, setDone] = useState(false);
   const [status, setStatus] = useState(
-    config.question_i18n?.zh || config.question_i18n?.en || lt("path_default", locale)
+    config.question_i18n?.[locale] || config.question_i18n?.zh || config.question_i18n?.en || lt("path_default", locale)
   );
   const startRef = useRef(Date.now());
   const offPathRef = useRef(false);
@@ -451,8 +453,8 @@ function GridPathMazeGame({ config, onComplete, locale }: {
         <span>{lt("grid_progress", locale, { a: stepIndex + 1, b: path.length })}</span>
         <span>⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
-      {(config.question_i18n?.zh || config.question_i18n?.en) && (
-        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.zh || config.question_i18n?.en}</p>
+      {(config.question_i18n?.[locale] || config.question_i18n?.zh || config.question_i18n?.en) && (
+        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.[locale] || config.question_i18n?.zh || config.question_i18n?.en}</p>
       )}
       <div
         className="mx-auto rounded-2xl shadow-lg ring-1 ring-black/5 overflow-hidden grid"

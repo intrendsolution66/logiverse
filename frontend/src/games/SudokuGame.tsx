@@ -24,7 +24,9 @@
 // No custom virtual keyboard needed to satisfy "键盘+鼠标、触控".
 //
 // i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
-// question_i18n 是designer自己填的authored题目文字，这次没扩展它加ms。
+// question_i18n 是designer自己填的authored题目文字——现在CourseDesignerPage.tsx
+// 已经支持三语言输入了(zh/en/ms)，运行时读取顺序是"当前locale优先，没填
+// 再退回zh，还没填再退回en"。
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { eduApi } from "@/api";
@@ -72,7 +74,7 @@ export interface SudokuConfig {
   difficulty: "easy" | "medium" | "hard" | "custom";
   timer_mode: "stopwatch" | "countdown";
   time_limit?: number | null;
-  question_i18n?: { zh?: string; en?: string };
+  question_i18n?: { zh?: string; en?: string; ms?: string };
 }
 export interface SudokuResult {
   score: number; max_score: number; time_spent_seconds: number; mistakes: number; completed: boolean;
@@ -157,8 +159,8 @@ export default function SudokuGame({ levelId, config, onComplete, locale = "zh" 
         <span>{lt("sudoku_title", locale)} <span className="text-xs">{(DIFFICULTY_LABELS_LOCAL[config.difficulty]?.[locale]) ?? config.difficulty}</span></span>
         <span>{lt("time_filled", locale, { s: elapsed.toFixed(1), a: filledCount, b: activeCells.length })}</span>
       </div>
-      {(config.question_i18n?.zh || config.question_i18n?.en) && (
-        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.zh || config.question_i18n?.en}</p>
+      {(config.question_i18n?.[locale] || config.question_i18n?.zh || config.question_i18n?.en) && (
+        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.[locale] || config.question_i18n?.zh || config.question_i18n?.en}</p>
       )}
 
       <div
@@ -231,3 +233,4 @@ export default function SudokuGame({ levelId, config, onComplete, locale = "zh" 
     </div>
   );
 }
+git 

@@ -16,8 +16,10 @@
 // rule — just not the target color itself.
 //
 // i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
-// question_i18n 和每个区块的 label 都是designer自己填的authored文字，
-// 这次没扩展它们加ms。
+// question_i18n 现在CourseDesignerPage.tsx已经支持三语言输入了(zh/en/ms)，
+// 运行时读取顺序是"当前locale优先，没填再退回zh，还没填再退回en"。每个
+// 区块的 label 目前还是只有zh/en，不在这次范围内(per-item内容，跟
+// question_i18n这种整题一份的不是同一类)。
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { eduApi } from "@/api";
@@ -46,7 +48,7 @@ export interface ColoringConfig {
   palette?: string[];
   timer_mode: "stopwatch" | "countdown";
   time_limit?: number | null;
-  question_i18n?: { zh?: string; en?: string };
+  question_i18n?: { zh?: string; en?: string; ms?: string };
 }
 export interface ColoringResult {
   score: number; max_score: number; time_spent_seconds: number; mistakes: number; completed: boolean;
@@ -181,8 +183,8 @@ export default function ColoringGame({ levelId, config, onComplete, locale = "zh
         <span>{lt("filled_progress", locale, { a: filledCount, b: regions.length })}</span>
         <span>⏱️ {t("time_used", locale)} {elapsed.toFixed(1)}s</span>
       </div>
-      {(config.question_i18n?.zh || config.question_i18n?.en) && (
-        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.zh || config.question_i18n?.en}</p>
+      {(config.question_i18n?.[locale] || config.question_i18n?.zh || config.question_i18n?.en) && (
+        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.[locale] || config.question_i18n?.zh || config.question_i18n?.en}</p>
       )}
 
       <div className="flex flex-wrap items-center justify-center gap-2 mb-3 p-2 bg-muted/40 rounded-xl">

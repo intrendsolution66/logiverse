@@ -26,7 +26,9 @@
 // 不是两栏DOM布局，画线的方式因此不一样（用比例坐标而不是量DOM位置）。
 //
 // i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
-// question_i18n 是designer自己填的authored题目文字，这次没扩展它加ms。
+// question_i18n 是designer自己填的authored题目文字——现在CourseDesignerPage.tsx
+// 已经支持三语言输入了(zh/en/ms)，运行时读取顺序是"当前locale优先，没填
+// 再退回zh，还没填再退回en"。
 
 import { useState, useRef, useLayoutEffect, useEffect, useCallback, useMemo } from "react";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
@@ -71,7 +73,7 @@ export interface LineMatchConfig {
   shuffle_right?: boolean;
   timer_mode: "stopwatch" | "countdown";
   time_limit?: number | null;
-  question_i18n?: { zh?: string; en?: string };
+  question_i18n?: { zh?: string; en?: string; ms?: string };
 }
 export interface LineMatchResult {
   score: number; max_score: number; time_spent_seconds: number; mistakes: number; completed: boolean;
@@ -194,8 +196,8 @@ function LineMatchSceneGame({ config, onComplete, locale }: {
         <span>{lt("connected", locale, { a: pairLines.length, b: totalEdgesNeeded })}</span>
         <span>⏱️ {t("time_used", locale)} {elapsed.toFixed(1)}s</span>
       </div>
-      {(config.question_i18n?.zh || config.question_i18n?.en) && (
-        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.zh || config.question_i18n?.en}</p>
+      {(config.question_i18n?.[locale] || config.question_i18n?.zh || config.question_i18n?.en) && (
+        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.[locale] || config.question_i18n?.zh || config.question_i18n?.en}</p>
       )}
 
       <div
@@ -382,8 +384,8 @@ export default function LineMatchGame({ config, onComplete, locale = "zh" }: {
         <span>{lt("connected", locale, { a: matchedEdges.length, b: edges.length })}</span>
         <span>⏱️ {t("time_used", locale)} {elapsed.toFixed(1)}s</span>
       </div>
-      {(config.question_i18n?.zh || config.question_i18n?.en) && (
-        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.zh || config.question_i18n?.en}</p>
+      {(config.question_i18n?.[locale] || config.question_i18n?.zh || config.question_i18n?.en) && (
+        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.[locale] || config.question_i18n?.zh || config.question_i18n?.en}</p>
       )}
 
       <div ref={containerRef} className="relative bg-card rounded-2xl p-4 shadow-lg ring-1 ring-black/5">

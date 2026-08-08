@@ -21,8 +21,10 @@
 //
 // i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
 // 这是最后一个接入试点的游戏文件——12个游戏至此全部完成。
-// question_i18n 和 object_type 标签是designer自己填的authored内容，这次
-// 没扩展它们加ms。
+// question_i18n 现在CourseDesignerPage.tsx已经支持三语言输入了(zh/en/ms)，
+// 运行时读取顺序是"当前locale优先，没填再退回zh，还没填再退回en"。
+// object_type 标签不在这次范围内——那是分类用的匹配key，不是给人看的
+// 展示文字，翻译它会连带需要改判定逻辑。
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
@@ -85,7 +87,7 @@ export interface ShapeCountConfig {
   bg_image_url?: string;
   shapes?: ShapeCountShapeItem[];
   objects?: ShapeCountObjectItem[];
-  question_i18n?: { zh?: string; en?: string };
+  question_i18n?: { zh?: string; en?: string; ms?: string };
   // 共用
   timer_mode: "stopwatch" | "countdown";
   time_limit?: number | null;
@@ -394,7 +396,7 @@ function CustomShapeCountGame({ config, onComplete, locale }: {
     });
   }
 
-  const questionText = config.question_i18n?.zh || config.question_i18n?.en || lt("count_prompt", locale);
+  const questionText = config.question_i18n?.[locale] || config.question_i18n?.zh || config.question_i18n?.en || lt("count_prompt", locale);
 
   if (finished && results) {
     const allCorrect = Object.values(results).every(Boolean);

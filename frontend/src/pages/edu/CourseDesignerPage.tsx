@@ -2165,7 +2165,19 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   const [moduleType, setModuleType] = useState<ModuleType>(
     (presetModuleType as ModuleType) ?? "counting"
   );
-  const [levelTitle, setLevelTitle] = useState("");
+  // 标题——之前是单一输入框levelTitle，中英文两个key直接塞同一个值，
+  // en这个key形同虚设从来没真正填过英文。改成真正的三语言对象，中/英/
+  // 马来各自独立输入，不再互相复制。buildTitleI18n() 统一构造保存用的
+  // {zh,en,ms}，46处保存逻辑(30个标题+16个自定义题目)都改成调用共用
+  // helper，不再各自手写字面量——以后要再调整格式，只用改这一个地方。
+  const [titleI18n, setTitleI18n] = useState<{ zh: string; en: string; ms: string }>({ zh: "", en: "", ms: "" });
+  function buildTitleI18n(defaultZh: string, defaultEn: string): { zh: string; en: string; ms?: string } {
+    return {
+      zh: titleI18n.zh.trim() || defaultZh,
+      en: titleI18n.en.trim() || defaultEn,
+      ms: titleI18n.ms.trim() || undefined,
+    };
+  }
   const [explanationText, setExplanationText] = useState("");
   const [hintText, setHintText] = useState("");
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -2290,14 +2302,30 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   const [countingTargetTypes, setCountingTargetTypes] = useState<string[]>([]);
   // 自定义题目句子（选填）——不填的话游戏画面按 target_types 自动生成
   // 一句话；这个只改"怎么问"，答案还是由 target_types 决定，不受这个影响。
-  const [countingQuestionText, setCountingQuestionText] = useState("");
+  // 同样从单一输入框改成三语言对象，处理方式跟下面共用的 questionI18n
+  // 一致，只是这个专属counting、不跟其他8个模块共用同一个state（这个
+  // 输入框在表单里的位置不一样，在counting自己的自定义场景区块里）。
+  const [countingQuestionI18n, setCountingQuestionI18n] = useState<{ zh: string; en: string; ms: string }>({ zh: "", en: "", ms: "" });
+  function buildCountingQuestionI18n(): { zh?: string; en?: string; ms?: string } | undefined {
+    const zh = countingQuestionI18n.zh.trim(), en = countingQuestionI18n.en.trim(), ms = countingQuestionI18n.ms.trim();
+    if (!zh && !en && !ms) return undefined;
+    return { zh: zh || undefined, en: en || undefined, ms: ms || undefined };
+  }
 
   // 其它8个模块（找不同/专注力点数字/Memory配对/找规律/迷宫/填色/连线配对/
   // 数独）共用同一个"自定义题目句子"栏位——一次只编辑一个 Activity，共用
   // 一个 state 就够了，不用给每个模块各开一个。counting 自己已经有独立的
   // 一套（上面那个 countingQuestionText），这里不重复。
   const CUSTOM_QUESTION_MODULES = ["spot_diff", "focus_tap", "memory", "pattern", "maze", "coloring", "line_match", "sudoku", "shape_count"];
-  const [customQuestionText, setCustomQuestionText] = useState("");
+  // 自定义题目文字——同样从单一输入框改成三语言对象，跟标题那边同一个
+  // 处理方式。buildQuestionI18n() 三个语言都没填时回传undefined(维持
+  // "没设置自定义题目文字，用模块自己默认文案"这个原本的行为)。
+  const [questionI18n, setQuestionI18n] = useState<{ zh: string; en: string; ms: string }>({ zh: "", en: "", ms: "" });
+  function buildQuestionI18n(): { zh?: string; en?: string; ms?: string } | undefined {
+    const zh = questionI18n.zh.trim(), en = questionI18n.en.trim(), ms = questionI18n.ms.trim();
+    if (!zh && !en && !ms) return undefined;
+    return { zh: zh || undefined, en: en || undefined, ms: ms || undefined };
+  }
 
   // focus_tap fields (grid mode only for now)
   const [gridSize, setGridSize] = useState(4);
@@ -2705,7 +2733,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   // reset when the modal is closed so re-opening starts fresh
   useEffect(() => {
     if (!open) {
-      setLevelTitle(""); setModuleType((presetModuleType as ModuleType) ?? "counting");
+      setTitleI18n({ zh: "", en: "", ms: "" }); setModuleType((presetModuleType as ModuleType) ?? "counting");
       setExplanationText(""); setExplanationImageUrl(null); setExplanationVideoUrl("");
       setHintText(""); setAudioUrl(null); setAudioFileName("");
       setSubjectId(""); setCategoryId(""); setCategoryIds([]); setGroupId(""); setCurriculumTypeId("");
@@ -2717,7 +2745,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       setParentPreviewEnabled(false);
       setCoverImageUrl(null);
       setTheme("apple"); setMinVal(1); setMaxVal(10); setNumChoices(3); setTotalQuestions(5);
-      setCountingMode("random"); setCountingScene(null); setCountingTargetTypes([]); setCountingQuestionText(""); setCustomQuestionText("");
+      setCountingMode("random"); setCountingScene(null); setCountingTargetTypes([]); setCountingQuestionI18n({ zh: "", en: "", ms: "" }); setQuestionI18n({ zh: "", en: "", ms: "" });
       setGridSize(4);
       setFtMode("grid"); setFtScene(null);
       setMemoryTheme("animal"); setPairsCount(6); setPreviewSeconds(3);
@@ -2751,7 +2779,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
     if (!open || !editingLevelId) return;
     eduApi.getLevelForEdit(editingLevelId).then((level) => {
       setModuleType(level.module_type as typeof moduleType);
-      setLevelTitle(level.title_i18n?.zh ?? level.title_i18n?.en ?? "");
+      setTitleI18n({ zh: level.title_i18n?.zh ?? "", en: level.title_i18n?.en ?? "", ms: (level.title_i18n as Record<string, string> | undefined)?.ms ?? "" });
       setExplanationText(level.explanation_text ?? "");
       setExplanationImageUrl(level.explanation_image_url ?? null);
       setExplanationVideoUrl(level.explanation_video_url ?? "");
@@ -2780,7 +2808,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       // 通用读取——8个模块共用同一个栏位，这里统一处理一次，不用在每个
       // module_type 分支里各写一遍。counting自己有独立的一套，不受影响。
       const sharedQi18n = cfg.question_i18n as Record<string, string> | undefined;
-      setCustomQuestionText(sharedQi18n?.zh ?? sharedQi18n?.en ?? "");
+      setQuestionI18n({ zh: sharedQi18n?.zh ?? "", en: sharedQi18n?.en ?? "", ms: sharedQi18n?.ms ?? "" });
       if (level.module_type === "counting") {
         if (cfg.mode === "custom_scene") {
           setCountingMode("custom_scene");
@@ -2798,7 +2826,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           });
           setCountingTargetTypes((cfg.target_types as string[]) ?? []);
           const qi18n = cfg.question_i18n as Record<string, string> | undefined;
-          setCountingQuestionText(qi18n?.zh ?? qi18n?.en ?? "");
+          setCountingQuestionI18n({ zh: qi18n?.zh ?? "", en: qi18n?.en ?? "", ms: qi18n?.ms ?? "" });
         } else {
           setCountingMode("random");
           setTheme((cfg.theme as string) ?? "apple");
@@ -3131,7 +3159,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           if (countingScene.objects.length < 1) { toast.error("请至少加1个要数的物件"); return; }
           await saveLevel({
             module_type: "counting",
-            title_i18n: { zh: levelTitle || "点点数数", en: levelTitle || "Counting" },
+            title_i18n: buildTitleI18n("点点数数", "Counting"),
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3143,15 +3171,13 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               texts: countingScene.texts.map((t) => ({ ...t, x: t.x / GAME_CANVAS_W, y: t.y / GAME_CANVAS_H })),
               num_choices: numChoices, timer_mode: "stopwatch",
               target_types: countingTargetTypes.length > 0 ? countingTargetTypes : undefined,
-              question_i18n: countingQuestionText.trim()
-                ? { zh: countingQuestionText.trim(), en: countingQuestionText.trim() }
-                : undefined,
+              question_i18n: buildCountingQuestionI18n(),
             },
           });
         } else {
           await saveLevel({
             module_type: "counting",
-            title_i18n: { zh: levelTitle || "点点数数", en: levelTitle || "Counting" },
+            title_i18n: buildTitleI18n("点点数数", "Counting"),
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3166,7 +3192,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         if (hotspots.length < 1) { toast.error("请至少标记一个差异点"); return; }
         await saveLevel({
           module_type: "spot_diff",
-          title_i18n: { zh: levelTitle || "找不同之处", en: levelTitle || "Spot the Difference" },
+          title_i18n: buildTitleI18n("找不同之处", "Spot the Difference"),
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3174,7 +3200,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           hint_text: hintText || undefined, audio_url: audioUrl || undefined,
 
           category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-          config: { image_a_url: imgAUrl, image_b_url: imgBUrl, hotspots, timer_mode: "stopwatch", question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined },
+          config: { image_a_url: imgAUrl, image_b_url: imgBUrl, hotspots, timer_mode: "stopwatch", question_i18n: buildQuestionI18n() },
         });
       } else if (moduleType === "focus_tap") {
         if (ftMode === "custom") {
@@ -3182,7 +3208,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           if (ftScene.objects.length < 2) { toast.error("请至少加2个数字位置标记"); return; }
           await saveLevel({
             module_type: "focus_tap",
-            title_i18n: { zh: levelTitle || "专注力点数字", en: levelTitle || "Focus Tap" },
+            title_i18n: buildTitleI18n("专注力点数字", "Focus Tap"),
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3193,13 +3219,13 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             config: {
               mode: "custom", bg_image_url: ftScene.bgUrl,
               positions: ftScene.objects.map((o) => ({ x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H, w: o.w, h: o.h, rotation: o.rotation })),
-              timer_mode: "stopwatch", question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+              timer_mode: "stopwatch", question_i18n: buildQuestionI18n(),
             },
           });
         } else {
           await saveLevel({
             module_type: "focus_tap",
-            title_i18n: { zh: levelTitle || "专注力点数字", en: levelTitle || "Focus Tap" },
+            title_i18n: buildTitleI18n("专注力点数字", "Focus Tap"),
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3207,7 +3233,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             hint_text: hintText || undefined, audio_url: audioUrl || undefined,
 
             category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-            config: { mode: "grid", grid_size: gridSize, timer_mode: "stopwatch", question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined },
+            config: { mode: "grid", grid_size: gridSize, timer_mode: "stopwatch", question_i18n: buildQuestionI18n() },
           });
         }
       } else if (moduleType === "memory") {
@@ -3223,7 +3249,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           }
           await saveLevel({
             module_type: "memory",
-            title_i18n: { zh: levelTitle || "Memory配对", en: levelTitle || "Memory Match" },
+            title_i18n: buildTitleI18n("Memory配对", "Memory Match"),
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3233,7 +3259,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             config: {
               theme: "custom", custom_icons: memoryCustomIcons, bg_image_url: memoryBgUrl || undefined,
               pairs_count: memoryCustomIcons.length, preview_seconds: previewSeconds, timer_mode: "stopwatch",
-              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+              question_i18n: buildQuestionI18n(),
               layout: memoryLayout,
               positions: memoryLayout === "free" && memoryScene
                 ? memoryScene.objects.map((o) => ({ x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H }))
@@ -3243,21 +3269,21 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         } else {
           await saveLevel({
             module_type: "memory",
-            title_i18n: { zh: levelTitle || "Memory配对", en: levelTitle || "Memory Match" },
+            title_i18n: buildTitleI18n("Memory配对", "Memory Match"),
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
 
             hint_text: hintText || undefined, audio_url: audioUrl || undefined,
             category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-            config: { theme: memoryTheme, pairs_count: pairsCount, preview_seconds: previewSeconds, timer_mode: "stopwatch", question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined },
+            config: { theme: memoryTheme, pairs_count: pairsCount, preview_seconds: previewSeconds, timer_mode: "stopwatch", question_i18n: buildQuestionI18n() },
           });
         }
       } else if (moduleType === "pattern") {
         if (patternTypes.length === 0) { toast.error("请至少选一种规律类型"); return; }
         await saveLevel({
           module_type: "pattern",
-          title_i18n: { zh: levelTitle || "找规律", en: levelTitle || "Pattern" },
+          title_i18n: buildTitleI18n("找规律", "Pattern"),
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3265,12 +3291,12 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           hint_text: hintText || undefined, audio_url: audioUrl || undefined,
 
           category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-          config: { theme: patternTheme, pattern_types: patternTypes, seq_length: seqLength, num_choices: 3, total_questions: totalQuestions, timer_mode: "stopwatch", question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined },
+          config: { theme: patternTheme, pattern_types: patternTypes, seq_length: seqLength, num_choices: 3, total_questions: totalQuestions, timer_mode: "stopwatch", question_i18n: buildQuestionI18n() },
         });
       } else if (moduleType === "cube_stack") {
         await saveLevel({
           module_type: "cube_stack",
-          title_i18n: { zh: levelTitle || "立体方块计数", en: levelTitle || "Cube Stack" },
+          title_i18n: buildTitleI18n("立体方块计数", "Cube Stack"),
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3283,7 +3309,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       } else if (moduleType === "cube_layer_count") {
         await saveLevel({
           module_type: "cube_layer_count",
-          title_i18n: { zh: levelTitle || "立体方块-逐层计数", en: levelTitle || "Cube Layer Count" },
+          title_i18n: buildTitleI18n("立体方块-逐层计数", "Cube Layer Count"),
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3294,7 +3320,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       } else if (moduleType === "cube_find_hidden") {
         await saveLevel({
           module_type: "cube_find_hidden",
-          title_i18n: { zh: levelTitle || "立体方块-找隐藏方块", en: levelTitle || "Cube Find Hidden" },
+          title_i18n: buildTitleI18n("立体方块-找隐藏方块", "Cube Find Hidden"),
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3305,7 +3331,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       } else if (moduleType === "cube_free_rotate") {
         await saveLevel({
           module_type: "cube_free_rotate",
-          title_i18n: { zh: levelTitle || "立体方块-自由旋转观察", en: levelTitle || "Cube Free Rotate" },
+          title_i18n: buildTitleI18n("立体方块-自由旋转观察", "Cube Free Rotate"),
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3316,7 +3342,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       } else if (moduleType === "cube_build") {
         await saveLevel({
           module_type: "cube_build",
-          title_i18n: { zh: levelTitle || "立体方块-自己搭积木", en: levelTitle || "Cube Build" },
+          title_i18n: buildTitleI18n("立体方块-自己搭积木", "Cube Build"),
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3327,7 +3353,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       } else if (moduleType === "cube_three_view") {
         await saveLevel({
           module_type: "cube_three_view",
-          title_i18n: { zh: levelTitle || "立体方块-三视图", en: levelTitle || "Cube Three View" },
+          title_i18n: buildTitleI18n("立体方块-三视图", "Cube Three View"),
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3343,7 +3369,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           }
           await saveLevel({
             module_type: "shape_count",
-            title_i18n: { zh: levelTitle || "数方块(平面图形)", en: levelTitle || "Shape Count" },
+            title_i18n: buildTitleI18n("数方块(平面图形)", "Shape Count"),
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3361,13 +3387,13 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
                 object_type: o.objectType || undefined, flip_x: o.flipX, flip_y: o.flipY, opacity: o.opacity,
               })),
               timer_mode: "stopwatch",
-              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+              question_i18n: buildQuestionI18n(),
             },
           });
         } else {
           await saveLevel({
             module_type: "shape_count",
-            title_i18n: { zh: levelTitle || "数方块(平面图形)", en: levelTitle || "Shape Count" },
+            title_i18n: buildTitleI18n("数方块(平面图形)", "Shape Count"),
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3379,7 +3405,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       } else if (moduleType === "clock") {
         await saveLevel({
           module_type: "clock",
-          title_i18n: { zh: levelTitle || "认钟表", en: levelTitle || "Clock" },
+          title_i18n: buildTitleI18n("认钟表", "Clock"),
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3390,7 +3416,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       } else if (moduleType === "latin_square") {
         await saveLevel({
           module_type: "latin_square",
-          title_i18n: { zh: levelTitle || "图形排排看", en: levelTitle || "Latin Square" },
+          title_i18n: buildTitleI18n("图形排排看", "Latin Square"),
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3402,7 +3428,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         if (wpCategories.length === 0) { toast.error("请至少选一种题型"); return; }
         await saveLevel({
           module_type: "word_problem",
-          title_i18n: { zh: levelTitle || "应用题", en: levelTitle || "Word Problems" },
+          title_i18n: buildTitleI18n("应用题", "Word Problems"),
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3422,7 +3448,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         const completePairs = mazePairs as { start: { x: number; y: number }; end: { x: number; y: number } }[];
         await saveLevel({
           module_type: "maze",
-          title_i18n: { zh: levelTitle || "迷宫", en: levelTitle || "Maze" },
+          title_i18n: buildTitleI18n("迷宫", "Maze"),
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3437,7 +3463,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             end_x: completePairs[0].end.x, end_y: completePairs[0].end.y,
             pairs: completePairs,
             timer_mode: "stopwatch",
-            question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+            question_i18n: buildQuestionI18n(),
           },
         });
       } else if (moduleType === "line_match") { // authored: every pair/edge IS the puzzle, same shape as maze/sudoku
@@ -3455,7 +3481,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           if (soloKeys.length > 0) { toast.error(`配对标记「${soloKeys.join("、")}」只有1个物件，至少要2个才能连线`); return; }
           await saveLevel({
             module_type: "line_match",
-            title_i18n: { zh: levelTitle || "连线配对", en: levelTitle || "Line Match" },
+            title_i18n: buildTitleI18n("连线配对", "Line Match"),
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3475,7 +3501,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
                 opacity: o.opacity,
               })),
               timer_mode: "stopwatch",
-              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+              question_i18n: buildQuestionI18n(),
             },
           });
         } else {
@@ -3487,7 +3513,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           if (cleanEdges.length === 0) { toast.error("至少要连1条线——点左边一项、再点右边一项来连线"); return; }
           await saveLevel({
             module_type: "line_match",
-            title_i18n: { zh: levelTitle || "连线配对", en: levelTitle || "Line Match" },
+            title_i18n: buildTitleI18n("连线配对", "Line Match"),
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3500,7 +3526,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               left_items: cleanLeft, right_items: cleanRight, edges: cleanEdges,
               shuffle_right: lineMatchShuffleRight,
               timer_mode: "stopwatch",
-              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+              question_i18n: buildQuestionI18n(),
             },
           });
         }
@@ -3508,7 +3534,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         if (pptSlideUrls.length === 0) { toast.error("请先上传并转换 PPT，至少要有1页幻灯片"); return; }
         await saveLevel({
           module_type: "ppt_lecture",
-          title_i18n: { zh: levelTitle || "PPT讲义", en: levelTitle || "PPT Lecture" },
+          title_i18n: buildTitleI18n("PPT讲义", "PPT Lecture"),
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3525,7 +3551,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         if (!videoUrl) { toast.error("请填视频链接或上传视频"); return; }
         await saveLevel({
           module_type: "video_lecture",
-          title_i18n: { zh: levelTitle || "视频讲义", en: levelTitle || "Video Lecture" },
+          title_i18n: buildTitleI18n("视频讲义", "Video Lecture"),
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3545,7 +3571,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         if (!paOriginalBpm || paOriginalBpm < 1) { toast.error("请填这首曲子的原速 BPM"); return; }
         await saveLevel({
           module_type: "play_along",
-          title_i18n: { zh: levelTitle || "跟弹练习", en: levelTitle || "Play Along" },
+          title_i18n: buildTitleI18n("跟弹练习", "Play Along"),
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3568,7 +3594,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         if (coloringRegions.some((r) => r.rule === "specific" && !r.target_color)) { toast.error("选了「指定颜色」的区块，要填要求的颜色"); return; }
         await saveLevel({
           module_type: "coloring",
-          title_i18n: { zh: levelTitle || "填色游戏", en: levelTitle || "Coloring" },
+          title_i18n: buildTitleI18n("填色游戏", "Coloring"),
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3581,7 +3607,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             region_mask_url: coloringMaskDataUrl,
             regions: coloringRegions,
             timer_mode: "stopwatch",
-            question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+            question_i18n: buildQuestionI18n(),
           },
         });
       } else if (moduleType === "sudoku") { // authored: a puzzle image + which cells are blank + each one's correct digit
@@ -3598,7 +3624,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           if (blankCells.some((c) => !c.answer)) { toast.error("每个留空的格子都要填答案（1-9），点画布上那个格子在右边填"); return; }
           await saveLevel({
             module_type: "sudoku",
-            title_i18n: { zh: levelTitle || "数独", en: levelTitle || "Sudoku" },
+            title_i18n: buildTitleI18n("数独", "Sudoku"),
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3614,7 +3640,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               bg_color: grid.bgColor, bg_enabled: grid.bgEnabled, opacity: grid.opacity,
               difficulty: sudokuDifficulty,
               timer_mode: "stopwatch",
-              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+              question_i18n: buildQuestionI18n(),
             },
           });
         } else {
@@ -3623,7 +3649,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           if (sudokuCells.some((c) => !c.answer)) { toast.error("每个空格都要填答案（1-9）"); return; }
           await saveLevel({
             module_type: "sudoku",
-            title_i18n: { zh: levelTitle || "数独", en: levelTitle || "Sudoku" },
+            title_i18n: buildTitleI18n("数独", "Sudoku"),
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3637,7 +3663,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               cells: sudokuCells.map((c) => ({ x: c.x, y: c.y, answer: parseInt(c.answer, 10) })),
               difficulty: sudokuDifficulty,
               timer_mode: "stopwatch",
-              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+              question_i18n: buildQuestionI18n(),
             },
           });
         }
@@ -3661,7 +3687,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           }
           await saveLevel({
             module_type: "number_maze",
-            title_i18n: { zh: levelTitle || "数字迷宫", en: levelTitle || "Number Maze" },
+            title_i18n: buildTitleI18n("数字迷宫", "Number Maze"),
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3677,7 +3703,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               line_color: grid.lineColor, given_color: grid.givenColor,
               bg_color: grid.bgColor, bg_enabled: grid.bgEnabled, opacity: grid.opacity,
               timer_mode: "stopwatch",
-              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+              question_i18n: buildQuestionI18n(),
             },
           });
         } else {
@@ -3687,7 +3713,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           if (nmDecisionPoints.some((d) => d.options.some((o) => !o.value.trim()))) { toast.error("每个分岔点的每个选项都要填数字，不能留空"); return; }
           await saveLevel({
             module_type: "number_maze",
-            title_i18n: { zh: levelTitle || "数字迷宫", en: levelTitle || "Number Maze" },
+            title_i18n: buildTitleI18n("数字迷宫", "Number Maze"),
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3701,7 +3727,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               start: nmStart, end: nmEnd,
               decision_points: nmDecisionPoints,
               timer_mode: "stopwatch",
-              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+              question_i18n: buildQuestionI18n(),
             },
           });
         }
@@ -3710,7 +3736,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         if (stickerScene.objects.length < 1) { toast.error("请至少放1个贴纸"); return; }
         await saveLevel({
           module_type: "sticker_game",
-          title_i18n: { zh: levelTitle || "贴纸游戏", en: levelTitle || "Sticker Game" },
+          title_i18n: buildTitleI18n("贴纸游戏", "Sticker Game"),
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3726,7 +3752,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               flip_x: o.flipX || undefined, flip_y: o.flipY || undefined,
             })),
             timer_mode: "stopwatch",
-            question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+            question_i18n: buildQuestionI18n(),
           },
         });
       } else { // fallback — should be unreachable given the exhaustive branches above, kept only so TS doesn't flag a missing final else
@@ -3855,17 +3881,21 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           </div>
           <div className="space-y-1.5">
             <Label>Activity 名称</Label>
-            <Input placeholder="Activity 名称" value={levelTitle} onChange={(e) => setLevelTitle(e.target.value)} />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <Input placeholder="中文（必填，留空用模块默认名称）" value={titleI18n.zh} onChange={(e) => setTitleI18n((v) => ({ ...v, zh: e.target.value }))} />
+              <Input placeholder="English（选填）" value={titleI18n.en} onChange={(e) => setTitleI18n((v) => ({ ...v, en: e.target.value }))} />
+              <Input placeholder="Bahasa Melayu（选填）" value={titleI18n.ms} onChange={(e) => setTitleI18n((v) => ({ ...v, ms: e.target.value }))} />
+            </div>
           </div>
           {CUSTOM_QUESTION_MODULES.includes(moduleType) && (
             <div className="space-y-1.5">
               <Label>自定义题目句子（选填）</Label>
-              <Input
-                placeholder="不填的话游戏画面用默认提示文字"
-                value={customQuestionText}
-                onChange={(e) => setCustomQuestionText(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground/80">只改"怎么问"，不影响判分逻辑本身。</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <Input placeholder="中文" value={questionI18n.zh} onChange={(e) => setQuestionI18n((v) => ({ ...v, zh: e.target.value }))} />
+                <Input placeholder="English" value={questionI18n.en} onChange={(e) => setQuestionI18n((v) => ({ ...v, en: e.target.value }))} />
+                <Input placeholder="Bahasa Melayu" value={questionI18n.ms} onChange={(e) => setQuestionI18n((v) => ({ ...v, ms: e.target.value }))} />
+              </div>
+              <p className="text-xs text-muted-foreground/80">三个语言都不填的话，游戏画面用模块默认提示文字；只改"怎么问"，不影响判分逻辑本身。</p>
             </div>
           )}
         </div>
@@ -3931,13 +3961,13 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
 
     <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
       <Label className="text-xs">自定义题目句子（选填）</Label>
-      <Input
-        value={countingQuestionText}
-        onChange={(e) => setCountingQuestionText(e.target.value)}
-        placeholder="例如：苹果和西瓜一共有几个？（不填的话系统会按下面勾选的类型自动生成一句）"
-      />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <Input value={countingQuestionI18n.zh} onChange={(e) => setCountingQuestionI18n((v) => ({ ...v, zh: e.target.value }))} placeholder="中文，例如：苹果和西瓜一共有几个？" />
+        <Input value={countingQuestionI18n.en} onChange={(e) => setCountingQuestionI18n((v) => ({ ...v, en: e.target.value }))} placeholder="English" />
+        <Input value={countingQuestionI18n.ms} onChange={(e) => setCountingQuestionI18n((v) => ({ ...v, ms: e.target.value }))} placeholder="Bahasa Melayu" />
+      </div>
       <p className="text-xs text-muted-foreground/80">
-        这里只是改"怎么问"——正确答案还是由下面"这一题要问哪几种"决定，跟画面里实际摆的物件数量对应，不会因为这句话改变。
+        三个语言都不填的话，系统会按下面勾选的类型自动生成一句。这里只是改"怎么问"——正确答案还是由下面"这一题要问哪几种"决定，跟画面里实际摆的物件数量对应，不会因为这句话改变。
       </p>
     </div>
 

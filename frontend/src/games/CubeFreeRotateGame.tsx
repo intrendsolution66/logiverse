@@ -15,8 +15,9 @@
 // generation logic rather than reaching into CubeStackGame's internals.
 //
 // i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
-// question_i18n 这个字段是设计师自己填的authored题目文字，跟这套UI词典
-// 是两回事，这次没有扩展它加ms(维持原样zh/en两个key)，不在这次试点范围。
+// question_i18n 这个字段是设计师自己填的authored题目文字——现在
+// CourseDesignerPage.tsx已经支持三语言输入了(zh/en/ms)，运行时读取顺序
+// 是"当前locale优先，没填再退回zh，还没填再退回en"。
 
 import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from "react";
 import { Canvas, type ThreeEvent } from "@react-three/fiber";
@@ -45,7 +46,7 @@ export interface CubeFreeRotateConfig {
   min_view_seconds: number;  // 每个结构至少要转/看几秒，才能按"下一个"（防止直接秒点跳过）
   timer_mode: "stopwatch" | "countdown";
   time_limit?: number | null;
-  question_i18n?: { zh?: string; en?: string };
+  question_i18n?: { zh?: string; en?: string; ms?: string };
 }
 export interface CubeFreeRotateResult {
   score: number; max_score: number; time_spent_seconds: number; mistakes: number; completed: boolean;
@@ -213,8 +214,8 @@ export default function CubeFreeRotateGame({ config, onComplete, locale = "zh" }
         <span>{lt("shape_progress", locale, { i: shapeIndex + 1, n: total })}</span>
         <span>⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
-      {(config.question_i18n?.zh || config.question_i18n?.en) && (
-        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.zh || config.question_i18n?.en}</p>
+      {(config.question_i18n?.[locale] || config.question_i18n?.zh || config.question_i18n?.en) && (
+        <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.[locale] || config.question_i18n?.zh || config.question_i18n?.en}</p>
       )}
 
       <div className="h-[360px] bg-muted/40 rounded-2xl mb-2 overflow-hidden">
