@@ -1,75 +1,219 @@
-// frontend/src/pages/HomePage.tsx
+// frontend/src/components/layout/AppLayout.tsx
 //
-// Was a Phase 0 placeholder ("占位首页") that just printed a static list of
-// what each role SHOULD eventually see — never actually built out, even
-// though every one of those pages now exists for real. This replaces it
-// with an actual per-role dashboard: each role sees quick-access cards to
-// the pages that are actually theirs, matching the same role gating
-// AppLayout.tsx's nav now uses (same bug this was part of — "看到所有选项,
-// 没有根据权限显示").
-//
-// i18n: 已接入 react-i18next(zh/en/ms) — 见 src/i18n/locales/*.json 的
-// home.* 命名空间。
+// 去掉"课程/Activity"这个菜单项（对应已删除的 CoursesPage/`/courses`
+// 路由），顺带去掉不再用到的 canBrowseCourses 变量。
 
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/index";
+import { LanguageSwitcher } from "@/components/shared/LanguageSwitcher";
+import { authApi } from "@/api";
+import {
+  ChevronLeft, ChevronRight, Home, FolderTree, FolderOpen, Tag, SlidersHorizontal,
+  BookOpen, Puzzle, Image as ImageIcon, Palette, Baby, Search, School, Calendar,
+  Building2, GraduationCap, UserCog, Users, Trash2, Settings, ClipboardList,
+  ChevronDown, User as UserIcon, LogOut, type LucideIcon,
+} from "lucide-react";
+import toast from "react-hot-toast";
 
-interface DashCard { to: string; emoji: string; titleKey: string; descKey: string }
+const SIDEBAR_COLLAPSED_KEY = "logiverse-sidebar-collapsed";
 
-export default function HomePage() {
-  const { t } = useTranslation();
-  const user = useAuthStore((s) => s.user);
+export default function AppLayout() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { t, i18n } = useTranslation();
+  const { user, clearAuth, setUser } = useAuthStore();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1");
+
+  useEffect(() => { setMobileNavOpen(false); setUserMenuOpen(false); }, [location.pathname]);
+  useEffect(() => { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0"); }, [collapsed]);
+
+  useEffect(() => {
+    authApi.me()
+      .then((freshUser) => setUser(freshUser))
+      .catch(() => { /* if this fails, the user object we already have stays as-is */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleLogout() {
+    try {
+      const refreshToken = localStorage.getItem("refreshToken") ?? undefined;
+      await authApi.logout(refreshToken);
+    } catch {
+      // logout should never block the user from leaving, even if the network call fails
+    } finally {
+      localStorage.removeItem("accessToken");
+      localStorage.removeItem("refreshToken");
+      clearAuth();
+      toast.success(t("nav.loggedOut"));
+      navigate("/login");
+    }
+  }
+
   const roleCodes = user?.roles?.map((r) => r.code) ?? [];
   const hasRole = (...codes: string[]) => codes.some((c) => roleCodes.includes(c));
 
-  const cards: DashCard[] = [];
-  if (hasRole("STUDENT")) cards.push({ to: "/learn", emoji: "🎮", titleKey: "home.cards.student.title", descKey: "home.cards.student.desc" });
-  if (hasRole("PARENT")) cards.push({ to: "/family", emoji: "👨‍👩‍👧", titleKey: "home.cards.parent.title", descKey: "home.cards.parent.desc" });
-  if (hasRole("TEACHER")) {
-    cards.push({ to: "/my-classes", emoji: "🏫", titleKey: "home.cards.teacherClasses.title", descKey: "home.cards.teacherClasses.desc" });
-    cards.push({ to: "/schedule", emoji: "📅", titleKey: "home.cards.teacherSchedule.title", descKey: "home.cards.teacherSchedule.desc" });
-  }
-  if (hasRole("OPERATOR", "COURSE_DESIGNER")) {
-    cards.push({ to: "/course-designer", emoji: "🛠️", titleKey: "home.cards.activityDesigner.title", descKey: "home.cards.activityDesigner.desc" });
-    cards.push({ to: "/courses-manage", emoji: "📖", titleKey: "home.cards.coursesManage.title", descKey: "home.cards.coursesManage.desc" });
-    cards.push({ to: "/asset-library", emoji: "🗂️", titleKey: "home.cards.assetLibrary.title", descKey: "home.cards.assetLibrary.desc" });
-    cards.push({ to: "/image-editor", emoji: "🎨", titleKey: "home.cards.imageEditor.title", descKey: "home.cards.imageEditor.desc" });
-    cards.push({ to: "/grade-tiers", emoji: "📶", titleKey: "home.cards.gradeTiers.title", descKey: "home.cards.gradeTiers.desc" });
-    cards.push({ to: "/programmes", emoji: "🏛️", titleKey: "home.cards.programmes.title", descKey: "home.cards.programmes.desc" });
-    cards.push({ to: "/subjects", emoji: "📚", titleKey: "home.cards.subjects.title", descKey: "home.cards.subjects.desc" });
-    cards.push({ to: "/topics-manage", emoji: "🔢", titleKey: "home.cards.topics.title", descKey: "home.cards.topics.desc" });
-  }
-  if (hasRole("OPERATOR")) {
-    cards.push({ to: "/orgs", emoji: "🏢", titleKey: "home.cards.orgs.title", descKey: "home.cards.orgs.desc" });
-    cards.push({ to: "/manage-students", emoji: "🧑‍🎓", titleKey: "home.cards.manageStudents.title", descKey: "home.cards.manageStudents.desc" });
-    cards.push({ to: "/manage-teachers", emoji: "🧑‍🏫", titleKey: "home.cards.manageTeachers.title", descKey: "home.cards.manageTeachers.desc" });
-    cards.push({ to: "/manage-parents", emoji: "👪", titleKey: "home.cards.manageParents.title", descKey: "home.cards.manageParents.desc" });
-    cards.push({ to: "/settings", emoji: "⚙️", titleKey: "home.cards.settings.title", descKey: "home.cards.settings.desc" });
-  }
+  const canDesignCourses = hasRole("OPERATOR", "COURSE_DESIGNER");
+  const isParent   = hasRole("PARENT");
+  const isTeacher  = hasRole("TEACHER");
+  const isOperator = hasRole("OPERATOR");
+
+  interface NavLink { to: string; label: string; show: boolean; icon: LucideIcon; group: string }
+
+  const navLinks: NavLink[] = [
+    { to: "/home", label: t("nav.home"), show: true, icon: Home, group: t("nav.groups.overview") },
+
+    { to: "/programmes", label: t("nav.programmes"), show: canDesignCourses, icon: FolderTree, group: t("nav.groups.taxonomy") },
+    { to: "/subjects", label: t("nav.subjects"), show: canDesignCourses, icon: FolderOpen, group: t("nav.groups.taxonomy") },
+    { to: "/topics-manage", label: t("nav.topics"), show: canDesignCourses, icon: Tag, group: t("nav.groups.taxonomy") },
+    { to: "/grade-tiers", label: t("nav.gradeTiers"), show: canDesignCourses, icon: SlidersHorizontal, group: t("nav.groups.taxonomy") },
+
+    { to: "/courses-manage", label: t("nav.coursesManage"), show: canDesignCourses, icon: BookOpen, group: t("nav.groups.coursesContent") },
+    { to: "/course-designer", label: t("nav.courseDesigner"), show: canDesignCourses, icon: Puzzle, group: t("nav.groups.coursesContent") },
+
+    { to: "/asset-library", label: t("nav.assetLibrary"), show: canDesignCourses, icon: ImageIcon, group: t("nav.groups.contentManagement") },
+    { to: "/image-editor", label: t("nav.imageEditor"), show: canDesignCourses, icon: Palette, group: t("nav.groups.contentManagement") },
+
+    { to: "/family", label: t("nav.myChildren"), show: isParent, icon: Baby, group: t("nav.groups.familyClass") },
+    { to: "/parent-preview", label: t("nav.parentPreview"), show: isParent, icon: Search, group: t("nav.groups.familyClass") },
+    { to: "/my-classes", label: t("nav.myClasses"), show: isTeacher, icon: School, group: t("nav.groups.familyClass") },
+    { to: "/schedule", label: t("nav.schedule"), show: isTeacher, icon: Calendar, group: t("nav.groups.familyClass") },
+
+    { to: "/orgs", label: t("nav.orgs"), show: isOperator, icon: Building2, group: t("nav.groups.orgManagement") },
+    { to: "/manage-students", label: t("nav.manageStudents"), show: isOperator, icon: GraduationCap, group: t("nav.groups.orgManagement") },
+    { to: "/manage-teachers", label: t("nav.manageTeachers"), show: isOperator, icon: UserCog, group: t("nav.groups.orgManagement") },
+    { to: "/manage-parents", label: t("nav.manageParents"), show: isOperator, icon: Users, group: t("nav.groups.orgManagement") },
+    { to: "/admin/progress-records", label: t("nav.progressRecords"), show: isOperator, icon: ClipboardList, group: t("nav.groups.orgManagement") },
+    { to: "/admin/activity-cleanup", label: t("nav.activityCleanup"), show: isOperator, icon: Trash2, group: t("nav.groups.orgManagement") },
+    { to: "/settings", label: t("nav.settings"), show: isOperator, icon: Settings, group: t("nav.groups.orgManagement") },
+  ];
+
+  const visibleLinks = navLinks.filter((l) => l.show);
+  const groups = Array.from(new Set(visibleLinks.map((l) => l.group)));
+  const isActive = (to: string) => location.pathname === to;
 
   return (
-    <div className="max-w-7xl mx-auto">
-      <h1 className="text-2xl font-bold mb-1">{t("home.welcome", { name: user?.preferred_name || user?.full_name_zh || user?.username })}</h1>
-      <p className="text-muted-foreground mb-6">
-        {roleCodes.length ? t("home.roleLabel", { roles: roleCodes.join(", ") }) : t("home.noRoleShort")}
-      </p>
-
-      {cards.length === 0 ? (
-        <div className="rounded-lg border p-6 text-sm text-muted-foreground text-center">
-          {t("home.noRole")}
+    <div className="min-h-screen flex flex-col bg-[#F4F6FA]" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+      <header className="bg-white border-b border-border flex items-center justify-between px-4 py-3 z-10">
+        <div className="flex items-center gap-2">
+          <button
+            type="button" onClick={() => setMobileNavOpen((v) => !v)}
+            className="md:hidden w-9 h-9 -ml-1.5 flex items-center justify-center rounded-md hover:bg-muted"
+            aria-label={t("nav.menuAria")}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              {mobileNavOpen ? <path d="M18 6 6 18M6 6l12 12" /> : <><path d="M3 6h18" /><path d="M3 12h18" /><path d="M3 18h18" /></>}
+            </svg>
+          </button>
+          <Link to="/home" className="flex items-center gap-2 font-bold text-lg text-[#0B1526]">
+            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-teal-500 to-blue-600 flex items-center justify-center text-white text-sm">LG</div>
+            LogiVerse
+          </Link>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {cards.map((c) => (
-            <Link key={c.to} to={c.to} className="rounded-xl border p-4 hover:border-primary hover:bg-muted/40 transition-colors">
-              <div className="text-2xl mb-1">{c.emoji}</div>
-              <div className="font-semibold">{t(c.titleKey)}</div>
-              <div className="text-xs text-muted-foreground mt-0.5">{t(c.descKey)}</div>
-            </Link>
-          ))}
+
+        <div className="flex items-center gap-3">
+          <LanguageSwitcher />
+          <div className="relative">
+            <button
+              type="button" onClick={() => setUserMenuOpen((v) => !v)}
+              className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full hover:bg-muted transition-colors"
+            >
+              <div className="h-7 w-7 rounded-full bg-gradient-to-br from-teal-500 to-blue-600 flex items-center justify-center text-white text-xs font-semibold overflow-hidden shrink-0">
+                {user?.avatar_url ? (
+                  <img src={user.avatar_url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  (user?.preferred_name || user?.full_name_zh || user?.username || "?").slice(0, 1)
+                )}
+              </div>
+              <span className="text-sm text-muted-foreground hidden sm:inline">
+                {user?.preferred_name || user?.full_name_zh || user?.username}
+              </span>
+              <ChevronDown size={14} className="text-muted-foreground hidden sm:inline" />
+            </button>
+
+            {userMenuOpen && (
+              <>
+                {/* 点空白处关掉菜单——比精确判断"点到菜单外面"简单，透明遮罩铺满全屏，点哪都能关 */}
+                <div className="fixed inset-0 z-10" onClick={() => setUserMenuOpen(false)} />
+                <div className="absolute right-0 mt-2 w-52 bg-white rounded-lg border border-border shadow-lg z-20 py-1">
+                  <div className="px-3 py-2 border-b border-border">
+                    <p className="text-sm font-medium truncate">{user?.preferred_name || user?.full_name_zh || user?.username}</p>
+                    {roleCodes.length > 0 && <p className="text-xs text-muted-foreground mt-0.5">{roleCodes.join(i18n.language === "zh" ? "、" : ", ")}</p>}
+                  </div>
+                  <Link to="/profile" className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+                    <UserIcon size={15} /> {t("nav.profile")}
+                  </Link>
+                  {isOperator && (
+                    <Link to="/settings" className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+                      <Settings size={15} /> {t("nav.settings")}
+                    </Link>
+                  )}
+                  <button type="button" onClick={handleLogout} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors">
+                    <LogOut size={15} /> {t("nav.logout")}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {mobileNavOpen && (
+        <div className="md:hidden border-b bg-[#0B1526] text-white">
+          <nav className="p-3 space-y-0.5 max-h-[70vh] overflow-y-auto">
+            {visibleLinks.map((l) => (
+              <Link key={l.to} to={l.to} className="flex items-center gap-2 px-3 py-2.5 rounded-md hover:bg-white/10 text-sm">
+                <l.icon size={16} strokeWidth={2} />{l.label}
+              </Link>
+            ))}
+            <button type="button" onClick={handleLogout} className="w-full text-left px-3 py-2.5 rounded-md hover:bg-white/10 text-sm text-red-300">{t("nav.logout")}</button>
+          </nav>
         </div>
       )}
+
+      <div className="flex-1 flex">
+        <aside className={`shrink-0 bg-[#0B1526] text-white hidden md:flex flex-col transition-all duration-200 ${collapsed ? "w-16" : "w-64"}`}>
+          <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-5">
+            {groups.map((group) => (
+              <div key={group}>
+                {!collapsed && <p className="px-3 text-[11px] font-medium text-white/40 uppercase tracking-wide mb-1.5">{group}</p>}
+                <div className="space-y-0.5">
+                  {visibleLinks.filter((l) => l.group === group).map((l) => (
+                    <Link
+                      key={l.to} to={l.to}
+                      title={collapsed ? l.label : undefined}
+                      className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${collapsed ? "justify-center" : ""} ${
+                        isActive(l.to) ? "bg-gradient-to-r from-teal-500 to-blue-600 text-white font-medium" : "text-white/70 hover:bg-white/5 hover:text-white"
+                      }`}
+                    >
+                      <l.icon size={17} strokeWidth={2} className="shrink-0" />
+                      {!collapsed && l.label}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </nav>
+
+          <div className="border-t border-white/10 p-3">
+            <button
+              type="button"
+              onClick={() => setCollapsed((v) => !v)}
+              title={collapsed ? t("nav.expandMenu") : t("nav.collapseMenu")}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-white/60 hover:bg-white/5 hover:text-white transition-colors w-full ${collapsed ? "justify-center" : ""}`}
+            >
+              {collapsed ? <ChevronRight size={16} /> : <><ChevronLeft size={16} /> {t("nav.collapseMenu")}</>}
+            </button>
+          </div>
+        </aside>
+
+        <main className="flex-1 p-6" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }
