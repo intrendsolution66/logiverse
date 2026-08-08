@@ -33,7 +33,31 @@ import CubeThreeViewGame, { type CubeThreeViewConfig, type CubeThreeViewResult }
 import ShapeCountGame, { type ShapeCountConfig, type ShapeCountResult } from "@/games/ShapeCountGame";
 import ClockGame, { type ClockConfig, type ClockResult } from "@/games/ClockGame";
 import LatinSquareGame, { type LatinSquareConfig, type LatinSquareResult } from "@/games/LatinSquareGame";
-import { useGameLocale, LOCALE_LABELS, ALL_LOCALES, I18N_READY_MODULES } from "@/lib/gameLocale";
+import { useGameLocale, LOCALE_LABELS, ALL_LOCALES, I18N_READY_MODULES, type Dict } from "@/lib/gameLocale";
+
+// 这一圈"外层壳"的文字(待机封面+顶部控制按钮)——只有玩i18n已经接入的
+// 游戏(isI18nReady)时才会真的切换语言，其他游戏保持原来的中文不受影响
+// (见下面 shellLocale 的算法：不是ready的游戏，shellLocale永远固定是zh)。
+// 排行榜/自己的记录两个弹窗内部的详细文字这次没有涵盖，还是中文——那
+// 部分内容更多，之后要做再单独排期。
+const SHELL: Record<string, Dict> = {
+  ready_title:   { zh: "准备好了吗？", en: "Ready?", ms: "Sudah sedia?" },
+  ready_hint:    { zh: "按下面的\"开始\"就可以进入游戏啦", en: "Press \"Start\" below to begin", ms: "Tekan \"Mula\" di bawah untuk bermula" },
+  start_button:  { zh: "▶️ 开始", en: "▶️ Start", ms: "▶️ Mula" },
+  my_records:    { zh: "📊 自己记录", en: "📊 My records", ms: "📊 Rekod saya" },
+  leaderboard:   { zh: "🏆 排行榜", en: "🏆 Leaderboard", ms: "🏆 Papan pendahulu" },
+  replay:        { zh: "🔄 重玩", en: "🔄 Replay", ms: "🔄 Main semula" },
+  exit:          { zh: "🚪 退出", en: "🚪 Exit", ms: "🚪 Keluar" },
+  back_designer: { zh: "← 返回设计器", en: "← Back to designer", ms: "← Kembali ke pereka" },
+  back:          { zh: "返回", en: "Back", ms: "Kembali" },
+  view_explain:  { zh: "📖 查看讲解", en: "📖 View explanation", ms: "📖 Lihat penjelasan" },
+  home:          { zh: "回首页", en: "Home", ms: "Laman utama" },
+};
+function shellT(key: string, locale: "zh" | "en" | "ms"): string {
+  const entry = SHELL[key];
+  if (!entry) return key;
+  return entry[locale] ?? entry.zh;
+}
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { PptReader } from "@/components/PptReader";
 import { Button } from "@/components/ui/button";
@@ -190,6 +214,9 @@ export default function LevelPlayerPage() {
   // 封面只会多一次没必要的点击，不套用这套状态机。
   const isGameModule = KNOWN_GAME_MODULES.includes(level.module_type);
   const isI18nReady = I18N_READY_MODULES.includes(level.module_type);
+  // 外层壳(待机封面+控制按钮)只在玩已接入的游戏时才真的切换语言，其他
+  // 游戏这个值固定是zh，shellT()永远回退中文，行为跟改动前一样。
+  const shellLocale = isI18nReady ? locale : "zh";
   const config = level.config as { video_url?: string; slide_image_urls?: string[] };
 
   return (
@@ -215,18 +242,18 @@ export default function LevelPlayerPage() {
             )}
             {isGameModule && (
               <>
-                <Button type="button" variant="outline" size="sm" onClick={openMyRecords}>📊 自己记录</Button>
-                <Button type="button" variant="outline" size="sm" onClick={openLeaderboard}>🏆 排行榜</Button>
+                <Button type="button" variant="outline" size="sm" onClick={openMyRecords}>{shellT("my_records", shellLocale)}</Button>
+                <Button type="button" variant="outline" size="sm" onClick={openLeaderboard}>{shellT("leaderboard", shellLocale)}</Button>
               </>
             )}
             {isGameModule && playState !== "idle" && (
               <>
-                <Button type="button" variant="outline" size="sm" onClick={handleReplay}>🔄 重玩</Button>
-                <Button type="button" variant="outline" size="sm" onClick={goBack}>🚪 退出</Button>
+                <Button type="button" variant="outline" size="sm" onClick={handleReplay}>{shellT("replay", shellLocale)}</Button>
+                <Button type="button" variant="outline" size="sm" onClick={goBack}>{shellT("exit", shellLocale)}</Button>
               </>
             )}
             {!(isGameModule && playState !== "idle") && (
-              <Button variant="ghost" size="sm" onClick={goBack}>{cameFromDesigner ? "← 返回设计器" : "返回"}</Button>
+              <Button variant="ghost" size="sm" onClick={goBack}>{cameFromDesigner ? shellT("back_designer", shellLocale) : shellT("back", shellLocale)}</Button>
             )}
           </div>
         </div>
@@ -255,9 +282,9 @@ export default function LevelPlayerPage() {
           {isGameModule && playState === "idle" && (
             <div className="text-center py-16 space-y-4">
               <div className="text-5xl">🎮</div>
-              <p className="text-lg font-medium text-foreground">准备好了吗？</p>
-              <p className="text-sm text-muted-foreground">按下面的"开始"就可以进入游戏啦</p>
-              <Button type="button" size="lg" onClick={handleStart} className="text-lg font-semibold px-8">▶️ 开始</Button>
+              <p className="text-lg font-medium text-foreground">{shellT("ready_title", shellLocale)}</p>
+              <p className="text-sm text-muted-foreground">{shellT("ready_hint", shellLocale)}</p>
+              <Button type="button" size="lg" onClick={handleStart} className="text-lg font-semibold px-8">{shellT("start_button", shellLocale)}</Button>
             </div>
           )}
 
@@ -315,7 +342,7 @@ export default function LevelPlayerPage() {
         )}
         {isGameModule && playState === "finished" && (level.explanation_text || level.explanation_image_url || level.explanation_video_url) && (
           <div className="mt-4 text-center">
-            <Button variant="outline" onClick={() => setShowExplanation(true)}>📖 查看讲解</Button>
+            <Button variant="outline" onClick={() => setShowExplanation(true)}>{shellT("view_explain", shellLocale)}</Button>
           </div>
         )}
 
