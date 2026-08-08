@@ -52,11 +52,33 @@ const SHELL: Record<string, Dict> = {
   back:          { zh: "返回", en: "Back", ms: "Kembali" },
   view_explain:  { zh: "📖 查看讲解", en: "📖 View explanation", ms: "📖 Lihat penjelasan" },
   home:          { zh: "回首页", en: "Home", ms: "Laman utama" },
+  loading:       { zh: "加载中...", en: "Loading...", ms: "Memuatkan..." },
+  no_one_yet:    { zh: "还没有人玩过这个 Activity，快来当第一名！", en: "No one has played this Activity yet — be the first!", ms: "Belum ada yang bermain Aktiviti ini — jadilah yang pertama!" },
+  your_rank:     { zh: "你目前排在第 {rank} 名（共 {total} 人）", en: "You're currently ranked #{rank} (out of {total})", ms: "Anda kini berada di kedudukan #{rank} (daripada {total})" },
+  me_suffix:     { zh: "（我）", en: " (me)", ms: " (saya)" },
+  score_unit:    { zh: "分", en: "pts", ms: "mata" },
+  not_played:    { zh: "还没有玩过，快去试试看！", en: "You haven't played yet — give it a try!", ms: "Anda belum bermain lagi — cubalah!" },
+  best_record:   { zh: "历史最佳", en: "Best record", ms: "Rekod terbaik" },
+  recent_records:{ zh: "最近记录（第几次尝试 · 分数 · 用时）", en: "Recent attempts (attempt # · score · time)", ms: "Percubaan terkini (percubaan # · markah · masa)" },
+  attempt_no:    { zh: "第 {n} 次", en: "Attempt {n}", ms: "Percubaan {n}" },
 };
-function shellT(key: string, locale: "zh" | "en" | "ms"): string {
+function shellT(key: string, locale: "zh" | "en" | "ms", vars?: Record<string, string | number>): string {
   const entry = SHELL[key];
   if (!entry) return key;
-  return entry[locale] ?? entry.zh;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
+// 完成日期时间——played_at是后端存的ISO时间字符串，本来就有，只是弹窗
+// UI一直没显示出来。用 toLocaleString 让它自动按浏览器/系统的语言环境
+// 排版(中文日期习惯 vs 英文/马来文日期习惯不一样)，不用自己手写格式化。
+const DATE_LOCALE_MAP: Record<"zh" | "en" | "ms", string> = { zh: "zh-CN", en: "en-US", ms: "ms-MY" };
+function formatPlayedAt(iso: string, locale: "zh" | "en" | "ms"): string {
+  try {
+    return new Date(iso).toLocaleString(DATE_LOCALE_MAP[locale], { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return iso;
+  }
 }
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { PptReader } from "@/components/PptReader";
@@ -354,16 +376,16 @@ export default function LevelPlayerPage() {
           </div>
         </Modal>
 
-        <Modal open={showLeaderboard} onClose={() => setShowLeaderboard(false)} title="🏆 全台的排行榜" size="md">
+        <Modal open={showLeaderboard} onClose={() => setShowLeaderboard(false)} title={shellT("leaderboard", shellLocale)} size="md">
           {leaderboardLoading ? (
-            <p className="text-center text-muted-foreground py-6">加载中...</p>
+            <p className="text-center text-muted-foreground py-6">{shellT("loading", shellLocale)}</p>
           ) : !leaderboard?.entries?.length ? (
-            <p className="text-center text-muted-foreground py-6">还没有人玩过这个 Activity，快来当第一名！</p>
+            <p className="text-center text-muted-foreground py-6">{shellT("no_one_yet", shellLocale)}</p>
           ) : (
             <div className="space-y-2">
               {leaderboard.my_rank && (
                 <p className="text-sm text-teal-700 bg-teal-50 rounded-lg px-3 py-2 mb-2">
-                  你目前排在第 {leaderboard.my_rank} 名（共 {leaderboard.total_players ?? leaderboard.entries.length} 人）
+                  {shellT("your_rank", shellLocale, { rank: leaderboard.my_rank, total: leaderboard.total_players ?? leaderboard.entries.length })}
                 </p>
               )}
               {leaderboard.entries.map((e) => {
@@ -375,10 +397,13 @@ export default function LevelPlayerPage() {
                   <div key={e.student_id} className={`flex items-center justify-between rounded-xl px-3 py-2 ${isMe ? "bg-teal-50 ring-1 ring-teal-200" : "bg-muted/40"}`}>
                     <div className="flex items-center gap-3">
                       <span className="w-7 text-center font-semibold text-foreground">{medal}</span>
-                      <span className="text-sm font-medium text-foreground">{e.full_name_zh ?? e.full_name_en ?? e.username}{isMe ? "（我）" : ""}</span>
+                      <div>
+                        <span className="text-sm font-medium text-foreground">{e.full_name_zh ?? e.full_name_en ?? e.username}{isMe ? shellT("me_suffix", shellLocale) : ""}</span>
+                        <p className="text-xs text-muted-foreground/70">{formatPlayedAt(e.played_at, shellLocale)}</p>
+                      </div>
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {e.score}/{e.max_score} 分　⏱️ {Number(e.time_spent_seconds ?? 0).toFixed(1)}s
+                      {e.score}/{e.max_score} {shellT("score_unit", shellLocale)}　⏱️ {Number(e.time_spent_seconds ?? 0).toFixed(1)}s
                     </div>
                   </div>
                 );
@@ -387,26 +412,30 @@ export default function LevelPlayerPage() {
           )}
         </Modal>
 
-        <Modal open={showMyRecords} onClose={() => setShowMyRecords(false)} title="📊 自己的记录" size="md">
+        <Modal open={showMyRecords} onClose={() => setShowMyRecords(false)} title={shellT("my_records", shellLocale)} size="md">
           {myRecordsLoading ? (
-            <p className="text-center text-muted-foreground py-6">加载中...</p>
+            <p className="text-center text-muted-foreground py-6">{shellT("loading", shellLocale)}</p>
           ) : !myRecords?.best && !myRecords?.history?.length ? (
-            <p className="text-center text-muted-foreground py-6">还没有玩过，快去试试看！</p>
+            <p className="text-center text-muted-foreground py-6">{shellT("not_played", shellLocale)}</p>
           ) : (
             <div className="space-y-4">
               {myRecords.best && (
                 <div className="rounded-xl bg-gradient-to-r from-teal-500 to-blue-600 text-white px-4 py-3">
-                  <p className="text-xs opacity-80 mb-1">历史最佳</p>
-                  <p className="text-lg font-semibold">{myRecords.best.score}/{myRecords.best.max_score} 分　⏱️ {Number(myRecords.best.time_spent_seconds ?? 0).toFixed(1)}s</p>
+                  <p className="text-xs opacity-80 mb-1">{shellT("best_record", shellLocale)}</p>
+                  <p className="text-lg font-semibold">{myRecords.best.score}/{myRecords.best.max_score} {shellT("score_unit", shellLocale)}　⏱️ {Number(myRecords.best.time_spent_seconds ?? 0).toFixed(1)}s</p>
+                  <p className="text-xs opacity-80 mt-1">{formatPlayedAt(myRecords.best.played_at, shellLocale)}</p>
                 </div>
               )}
               {!!myRecords?.history?.length && (
                 <div className="space-y-1.5">
-                  <p className="text-xs text-muted-foreground">最近记录（第几次尝试 · 分数 · 用时）</p>
+                  <p className="text-xs text-muted-foreground">{shellT("recent_records", shellLocale)}</p>
                   {myRecords.history.map((h) => (
                     <div key={h.id} className="flex items-center justify-between text-sm rounded-lg bg-muted/40 px-3 py-1.5">
-                      <span className="text-muted-foreground">第 {h.attempt_number} 次</span>
-                      <span className="text-foreground">{h.score}/{h.max_score} 分</span>
+                      <div>
+                        <span className="text-muted-foreground">{shellT("attempt_no", shellLocale, { n: h.attempt_number })}</span>
+                        <p className="text-xs text-muted-foreground/70">{formatPlayedAt(h.played_at, shellLocale)}</p>
+                      </div>
+                      <span className="text-foreground">{h.score}/{h.max_score} {shellT("score_unit", shellLocale)}</span>
                       <span className="text-muted-foreground">⏱️ {Number(h.time_spent_seconds ?? 0).toFixed(1)}s</span>
                     </div>
                   ))}
@@ -419,3 +448,4 @@ export default function LevelPlayerPage() {
     </div>
   );
 }
+
