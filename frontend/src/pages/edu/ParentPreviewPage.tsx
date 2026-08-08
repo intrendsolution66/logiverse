@@ -18,9 +18,16 @@
 //     ⚠️ 这条路径目前还没做"预览模式跳过 submitProgress"的处理，家长玩完
 //     可能会往 progress_records 写一条不该有的记录——等拿到 LevelPlayerPage
 //     的代码补上开关后，这里的链接方式不用改，只是行为会变干净。
+//
+// i18n: 已接入 react-i18next(zh/en/ms) — 见 src/i18n/locales/*.json 的
+// parentPreview.* 命名空间。原本每个 Activity 的 title_i18n 只有 zh/en
+// 两个key，遇到马来文模式时退回en（跟原本"没有en就退回zh"是同一个套路，
+// 只是链条上多接一层）；module_type 的名字改查字典的 moduleTypes.*，
+// 不再用本地 MODULE_TYPE_LABEL 常量。
 
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { eduApi, taxonomyApi } from "@/api";
 import { PlayCircle, Video, FileText, Hash, ScanSearch, Target, Layers, Puzzle, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, FolderOpen, type LucideIcon } from "lucide-react";
 
@@ -38,13 +45,6 @@ interface Activity {
   module_type: string; difficulty?: string; duration_minutes?: number; cover_image_url?: string;
   my_play_count?: number; total_play_count?: number; created_at?: string;
 }
-
-const MODULE_TYPE_LABEL: Record<string, string> = {
-  video_lecture: "视频讲解", ppt_lecture: "PPT讲义", play_along: "跟弹练习",
-  counting: "点点数数", spot_diff: "找不同", focus_tap: "专注力", memory: "记忆配对",
-  pattern: "找规律", word_problem: "应用题", maze: "迷宫", number_maze: "数字迷宫", sudoku: "数独",
-  line_match: "连线配对", coloring: "填色游戏", sticker_game: "贴纸游戏",
-};
 
 // 跟 CourseDesignerPage 那边"Activity 设计管理"卡片用的是同一套图标+
 // 色系——家长在预览页看到的卡片样式，要跟设计师后台看到的是同一个视觉
@@ -80,8 +80,15 @@ function moduleIcon(moduleType: string) {
   return Icon ? <Icon className="w-5 h-5" /> : <Puzzle className="w-5 h-5" />;
 }
 
+// 日期格式化的语言代码——react-i18next的语言码(zh/en/ms)转成
+// toLocaleDateString认得的locale字符串，跟LevelPlayerPage那边
+// formatPlayedAt()是同一个思路。
+const DATE_LOCALE_MAP: Record<string, string> = { zh: "zh-CN", en: "en-US", ms: "ms-MY" };
+
 export default function ParentPreviewPage() {
   const navigate = useNavigate();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language;
 
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -149,8 +156,8 @@ export default function ParentPreviewPage() {
     <div className="min-h-screen bg-[#F4F6FA]">
       <div className="max-w-6xl mx-auto px-4 py-8">
         <div className="mb-6">
-          <h1 className="text-xl font-semibold">课程内容预览</h1>
-          <p className="text-sm text-muted-foreground mt-1">看看孩子订阅后能学到什么，再决定要不要订阅</p>
+          <h1 className="text-xl font-semibold">{t("parentPreview.title")}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t("parentPreview.subtitle")}</p>
         </div>
 
         {!selectedTopic ? (
@@ -162,7 +169,7 @@ export default function ParentPreviewPage() {
                 onChange={(e) => handleProgrammeChange(e.target.value)}
                 className="text-sm border border-border rounded-md px-2.5 py-1.5 bg-background"
               >
-                <option value="">全部 Programme</option>
+                <option value="">{t("parentPreview.filters.allProgramme")}</option>
                 {programmes.map((p) => <option key={p.id} value={p.id}>{p.name_zh}</option>)}
               </select>
 
@@ -171,7 +178,7 @@ export default function ParentPreviewPage() {
                 onChange={(e) => setSubjectId(e.target.value)}
                 className="text-sm border border-border rounded-md px-2.5 py-1.5 bg-background"
               >
-                <option value="">全部 Subject</option>
+                <option value="">{t("parentPreview.filters.allSubject")}</option>
                 {visibleSubjects.map((s) => <option key={s.id} value={s.id}>{s.name_zh}</option>)}
               </select>
 
@@ -180,21 +187,21 @@ export default function ParentPreviewPage() {
                 onChange={(e) => setGradeTierId(e.target.value)}
                 className="text-sm border border-border rounded-md px-2.5 py-1.5 bg-background"
               >
-                <option value="">全部等级</option>
+                <option value="">{t("parentPreview.filters.allGrade")}</option>
                 {gradeTiers.map((g) => <option key={g.id} value={g.id}>{g.name_i18n?.zh ?? g.name_i18n?.en ?? g.code}</option>)}
               </select>
 
               <select
                 value=""
                 onChange={(e) => {
-                  const t = topics.find((x) => x.id === e.target.value);
-                  if (t) openTopic(t);
+                  const found = topics.find((x) => x.id === e.target.value);
+                  if (found) openTopic(found);
                 }}
                 disabled={topics.length === 0}
                 className="text-sm border border-border rounded-md px-2.5 py-1.5 bg-background disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <option value="">选择 Topic 直接查看</option>
-                {topics.map((t) => <option key={t.id} value={t.id}>{t.name_zh}</option>)}
+                <option value="">{t("parentPreview.filters.selectTopic")}</option>
+                {topics.map((tp) => <option key={tp.id} value={tp.id}>{tp.name_zh}</option>)}
               </select>
 
               {(programmeId || subjectId || gradeTierId) && (
@@ -202,22 +209,22 @@ export default function ParentPreviewPage() {
                   onClick={() => { setProgrammeId(""); setSubjectId(""); setGradeTierId(""); }}
                   className="text-xs text-muted-foreground hover:text-foreground ml-1"
                 >
-                  清除筛选
+                  {t("parentPreview.filters.clearFilter")}
                 </button>
               )}
             </div>
 
             {/* Topic 网格 */}
             {topicsLoading ? (
-              <p className="text-center text-muted-foreground py-16">加载中...</p>
+              <p className="text-center text-muted-foreground py-16">{t("parentPreview.loading")}</p>
             ) : topics.length === 0 ? (
-              <p className="text-center text-muted-foreground py-16">这个筛选条件下还没有开放预览的内容</p>
+              <p className="text-center text-muted-foreground py-16">{t("parentPreview.noContentFiltered")}</p>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                {topics.map((t) => (
+                {topics.map((tp) => (
                   <button
-                    key={t.id}
-                    onClick={() => openTopic(t)}
+                    key={tp.id}
+                    onClick={() => openTopic(tp)}
                     className="text-left bg-white rounded-xl border-t-4 border-x border-b border-border overflow-hidden hover:shadow-md transition-all"
                     style={{ borderTopColor: "#6366F1" }}
                   >
@@ -226,10 +233,10 @@ export default function ParentPreviewPage() {
                         <FolderOpen className="w-5 h-5" />
                       </div>
                       <p className="text-xs text-muted-foreground mb-1 truncate">
-                        {t.id === "__uncategorized__" ? "暂未归类" : `${t.programme_name_zh} · ${t.subject_name_zh}`}
+                        {tp.id === "__uncategorized__" ? t("parentPreview.uncategorized") : `${tp.programme_name_zh} · ${tp.subject_name_zh}`}
                       </p>
-                      <p className="font-semibold truncate">{t.name_zh}</p>
-                      <p className="text-xs text-muted-foreground mt-1.5">{t.activity_count} 个可预览内容</p>
+                      <p className="font-semibold truncate">{tp.name_zh}</p>
+                      <p className="text-xs text-muted-foreground mt-1.5">{t("parentPreview.itemsAvailable", { count: tp.activity_count })}</p>
                     </div>
                   </button>
                 ))}
@@ -239,24 +246,24 @@ export default function ParentPreviewPage() {
         ) : (
           <>
             <button onClick={() => setSelectedTopic(null)} className="text-sm text-muted-foreground hover:text-foreground mb-4">
-              ← 返回 Topic 列表
+              {t("parentPreview.backToTopics")}
             </button>
             <div className="mb-4">
               <p className="text-xs text-muted-foreground">
-                {selectedTopic.id === "__uncategorized__" ? "暂未归类" : `${selectedTopic.programme_name_zh} · ${selectedTopic.subject_name_zh}`}
+                {selectedTopic.id === "__uncategorized__" ? t("parentPreview.uncategorized") : `${selectedTopic.programme_name_zh} · ${selectedTopic.subject_name_zh}`}
               </p>
               <h2 className="text-lg font-semibold">{selectedTopic.name_zh}</h2>
             </div>
 
             {activitiesLoading ? (
-              <p className="text-center text-muted-foreground py-16">加载中...</p>
+              <p className="text-center text-muted-foreground py-16">{t("parentPreview.loading")}</p>
             ) : activities.length === 0 ? (
-              <p className="text-center text-muted-foreground py-16">这个 Topic 下暂时没有开放预览的内容</p>
+              <p className="text-center text-muted-foreground py-16">{t("parentPreview.noContentInTopic")}</p>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {activities.map((a) => {
                   const color = MODULE_COLORS[a.module_type] ?? FALLBACK_COLOR;
-                  const publishedDate = a.created_at ? new Date(a.created_at).toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }) : null;
+                  const publishedDate = a.created_at ? new Date(a.created_at).toLocaleDateString(DATE_LOCALE_MAP[lang] ?? "en-US", { year: "numeric", month: "2-digit", day: "2-digit" }) : null;
                   return (
                     <div
                       key={a.id}
@@ -271,9 +278,9 @@ export default function ParentPreviewPage() {
                               <img src={a.cover_image_url} alt="" className="w-full h-full object-cover" />
                             ) : moduleIcon(a.module_type)}
                           </div>
-                          <p className="font-semibold text-sm truncate">{a.title_i18n?.zh ?? a.title_i18n?.en ?? "未命名"}</p>
+                          <p className="font-semibold text-sm truncate">{a.title_i18n?.zh ?? a.title_i18n?.en ?? "—"}</p>
                           <p className="text-[11px] text-muted-foreground">
-                            {MODULE_TYPE_LABEL[a.module_type] ?? a.module_type}
+                            {t(`parentPreview.moduleTypes.${a.module_type}`, { defaultValue: a.module_type })}
                           </p>
                         </div>
 
@@ -288,12 +295,12 @@ export default function ParentPreviewPage() {
                               </div>
                             )}
                             <div className="absolute top-1 right-1 rounded-md bg-black/70 text-white text-[9px] leading-tight px-1.5 py-1 space-y-0.5">
-                              <p>总玩次数：{a.total_play_count ?? 0}</p>
-                              <p>你试玩过 {a.my_play_count ?? 0} 次</p>
+                              <p>{t("parentPreview.totalPlays", { count: a.total_play_count ?? 0 })}</p>
+                              <p>{t("parentPreview.myPlays", { count: a.my_play_count ?? 0 })}</p>
                             </div>
                           </div>
-                          {publishedDate && <p className="text-[10px] text-muted-foreground/70 text-right">发布日期：{publishedDate}</p>}
-                          {a.duration_minutes && <p className="text-[10px] text-muted-foreground/70">约{a.duration_minutes}分钟</p>}
+                          {publishedDate && <p className="text-[10px] text-muted-foreground/70 text-right">{t("parentPreview.publishedOn", { date: publishedDate })}</p>}
+                          {a.duration_minutes && <p className="text-[10px] text-muted-foreground/70">{t("parentPreview.aboutMinutes", { n: a.duration_minutes })}</p>}
                         </div>
                       </div>
                       <button
@@ -301,7 +308,7 @@ export default function ParentPreviewPage() {
                         className="flex items-center justify-center gap-1.5 text-sm font-medium text-primary border-t border-border py-2.5 hover:bg-primary/5 transition-colors"
                       >
                         <PlayCircle className="w-3.5 h-3.5" />
-                        {a.module_type === "video_lecture" || a.module_type === "ppt_lecture" ? "预览" : "试玩"}
+                        {a.module_type === "video_lecture" || a.module_type === "ppt_lecture" ? t("parentPreview.preview") : t("parentPreview.tryIt")}
                       </button>
                     </div>
                   );
@@ -314,8 +321,3 @@ export default function ParentPreviewPage() {
     </div>
   );
 }
-
-
- 
-
- 
