@@ -24,9 +24,29 @@
 // 自定义画面模式（config.layout === "scene"）走 LineMatchSceneGame，逻辑
 // 跟这里基本一致（也是client端直接核对），只是物件是自由摆放的坐标，
 // 不是两栏DOM布局，画线的方式因此不一样（用比例坐标而不是量DOM位置）。
+//
+// i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
+// question_i18n 是designer自己填的authored题目文字，这次没扩展它加ms。
 
 import { useState, useRef, useLayoutEffect, useEffect, useCallback, useMemo } from "react";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
+import { type Locale, type Dict, t } from "@/lib/gameLocale";
+
+const LOCAL: Record<string, Dict> = {
+  connected:        { zh: "🔗 已连 {a} / {b}", en: "🔗 Connected {a} / {b}", ms: "🔗 Disambung {a} / {b}" },
+  scene_hint_one:   { zh: "已选中一个物件——点它的配对连起来", en: "One item selected — tap its match to connect", ms: "Satu item dipilih — ketik pasangannya untuk sambung" },
+  scene_hint_none:  { zh: "点一个物件，再点跟它配对的物件连起来", en: "Tap an item, then tap its match to connect them", ms: "Ketik satu item, kemudian ketik pasangannya untuk sambungkan" },
+  list_hint_one:    { zh: "已选中一项——点对面任一项目连线（一个物件可以连好几条线）", en: "One item selected — tap any item on the other side (an item can have several connections)", ms: "Satu item dipilih — ketik mana-mana item di sebelah (satu item boleh ada beberapa sambungan)" },
+  list_hint_none:   { zh: "点一个物件，再点它配对的物件连起来", en: "Tap an item, then tap its match to connect them", ms: "Ketik satu item, kemudian ketik pasangannya untuk sambungkan" },
+  matched_lines:    { zh: "连对 {a} / {b} 条", en: "{a} / {b} matched", ms: "{a} / {b} sepadan" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
 
 interface MatchItem { id: string; type: "text" | "image"; content: string }
 interface MatchEdge { leftId: string; rightId: string }
@@ -95,8 +115,8 @@ function curvedPath(x1: number, y1: number, x2: number, y2: number) {
   return `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
 }
 
-function LineMatchSceneGame({ config, onComplete }: {
-  config: LineMatchConfig; onComplete: (r: LineMatchResult) => void;
+function LineMatchSceneGame({ config, onComplete, locale }: {
+  config: LineMatchConfig; onComplete: (r: LineMatchResult) => void; locale: Locale;
 }) {
   const objects = config.objects ?? [];
   // 一组的成员数不再固定是2——按 pair_key 分组，两两互相连起来才算这一
@@ -171,8 +191,8 @@ function LineMatchSceneGame({ config, onComplete }: {
   return (
     <div className="max-w-3xl mx-auto w-full">
       <div className="flex justify-between text-base font-medium text-muted-foreground mb-3">
-        <span>🔗 已连 {pairLines.length} / {totalEdgesNeeded}</span>
-        <span>⏱️ 用时 {elapsed.toFixed(1)}s</span>
+        <span>{lt("connected", locale, { a: pairLines.length, b: totalEdgesNeeded })}</span>
+        <span>⏱️ {t("time_used", locale)} {elapsed.toFixed(1)}s</span>
       </div>
       {(config.question_i18n?.zh || config.question_i18n?.en) && (
         <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.zh || config.question_i18n?.en}</p>
@@ -229,7 +249,7 @@ function LineMatchSceneGame({ config, onComplete }: {
       </div>
 
       <p className="text-center text-xs text-muted-foreground mt-2">
-        {selected !== null ? "已选中一个物件——点它的配对连起来" : "点一个物件，再点跟它配对的物件连起来"}
+        {selected !== null ? lt("scene_hint_one", locale) : lt("scene_hint_none", locale)}
       </p>
     </div>
   );
@@ -254,11 +274,11 @@ function ItemBox({ item, selected, matched, wrong, onClick, boxRef }: {
   );
 }
 
-export default function LineMatchGame({ config, onComplete }: {
-  levelId: string; config: LineMatchConfig; onComplete: (r: LineMatchResult) => void;
+export default function LineMatchGame({ config, onComplete, locale = "zh" }: {
+  levelId: string; config: LineMatchConfig; onComplete: (r: LineMatchResult) => void; locale?: Locale;
 }) {
   if (config.layout === "scene") {
-    return <LineMatchSceneGame config={config} onComplete={onComplete} />;
+    return <LineMatchSceneGame config={config} onComplete={onComplete} locale={locale} />;
   }
 
   const { left: leftItems, right: rightItemsRaw, edges } = useMemo(() => normalizeListData(config), [config]);
@@ -359,8 +379,8 @@ export default function LineMatchGame({ config, onComplete }: {
   return (
     <div className="max-w-3xl mx-auto w-full">
       <div className="flex justify-between text-base font-medium text-muted-foreground mb-3">
-        <span>🔗 已连 {matchedEdges.length} / {edges.length}</span>
-        <span>⏱️ 用时 {elapsed.toFixed(1)}s</span>
+        <span>{lt("connected", locale, { a: matchedEdges.length, b: edges.length })}</span>
+        <span>⏱️ {t("time_used", locale)} {elapsed.toFixed(1)}s</span>
       </div>
       {(config.question_i18n?.zh || config.question_i18n?.en) && (
         <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.zh || config.question_i18n?.en}</p>
@@ -425,7 +445,7 @@ export default function LineMatchGame({ config, onComplete }: {
       </div>
 
       <p className="text-center text-xs text-muted-foreground mt-2">
-        {selected !== null ? "已选中一项——点对面任一项目连线（一个物件可以连好几条线）" : "点一个物件，再点它配对的物件连起来"}
+        {selected !== null ? lt("list_hint_one", locale) : lt("list_hint_none", locale)}
       </p>
 
       {finished && (
@@ -433,7 +453,7 @@ export default function LineMatchGame({ config, onComplete }: {
           matchedEdges.length === edges.length ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400"
           : "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400"
         }`}>
-          连对 {matchedEdges.length} / {edges.length} 条
+          {lt("matched_lines", locale, { a: matchedEdges.length, b: edges.length })}
         </div>
       )}
     </div>

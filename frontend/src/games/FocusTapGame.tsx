@@ -9,8 +9,26 @@
 //              fixed positions every play — the POSITIONS are authored,
 //              which number lands where each session is still randomized
 //              (that randomization is the actual point of the exercise).
+//
+// i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
+// question_i18n 是designer自己填的authored题目文字，这次没扩展它加ms，
+// 维持原样zh/en两个key，跟CubeFreeRotateGame同样的处理方式。
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { type Locale, type Dict, t } from "@/lib/gameLocale";
+
+const LOCAL: Record<string, Dict> = {
+  next_number:  { zh: "🎯 下一个：{n}", en: "🎯 Next: {n}", ms: "🎯 Seterusnya: {n}" },
+  all_tapped:   { zh: "全部点完了！用时 {s} 秒", en: "All tapped! Time: {s}s", ms: "Semua ditekan! Masa: {s}s" },
+  time_up:      { zh: "时间到，点到了 {c} / {n}", en: "Time's up — tapped {c} / {n}", ms: "Masa tamat — tekan {c} / {n}" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
 
 export interface FocusTapPosition { x: number; y: number } // normalized 0..1
 
@@ -36,8 +54,8 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-export default function FocusTapGame({ config, onComplete }: {
-  config: FocusTapConfig; onComplete: (r: FocusTapResult) => void;
+export default function FocusTapGame({ config, onComplete, locale = "zh" }: {
+  config: FocusTapConfig; onComplete: (r: FocusTapResult) => void; locale?: Locale;
 }) {
   const isCustom = config.mode === "custom" && config.bg_image_url && config.positions && config.positions.length >= 2;
   const total = isCustom ? config.positions!.length : config.grid_size * config.grid_size;
@@ -86,7 +104,7 @@ export default function FocusTapGame({ config, onComplete }: {
     }
   }
 
-  const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
+  const timerLabel = config.timer_mode === "countdown" ? t("time_left", locale) : t("time_used", locale);
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
 
   if (finished) {
@@ -94,7 +112,7 @@ export default function FocusTapGame({ config, onComplete }: {
       <div className="text-center py-10">
         <div className="text-6xl">{next > total ? "🎯" : "⏰"}</div>
         <div className="text-xl font-semibold mt-3 text-foreground">
-          {next > total ? `全部点完了！用时 ${timerValue.toFixed(1)} 秒` : `时间到，点到了 ${next - 1} / ${total}`}
+          {next > total ? lt("all_tapped", locale, { s: timerValue.toFixed(1) }) : lt("time_up", locale, { c: next - 1, n: total })}
         </div>
       </div>
     );
@@ -125,7 +143,7 @@ export default function FocusTapGame({ config, onComplete }: {
   return (
     <div className="max-w-2xl mx-auto w-full">
       <div className="flex justify-between text-base font-medium text-muted-foreground mb-3">
-        <span>🎯 下一个：{next}</span>
+        <span>{lt("next_number", locale, { n: next })}</span>
         <span>⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
       {(config.question_i18n?.zh || config.question_i18n?.en) && (

@@ -14,10 +14,29 @@
 // The requirement TYPE (free vs specific) is visible from the start —
 // the point of this task is precise execution, not guessing a hidden
 // rule — just not the target color itself.
+//
+// i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
+// question_i18n 和每个区块的 label 都是designer自己填的authored文字，
+// 这次没扩展它们加ms。
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { eduApi } from "@/api";
 import { Button } from "@/components/ui/button";
+import { type Locale, type Dict, t } from "@/lib/gameLocale";
+
+const LOCAL: Record<string, Dict> = {
+  filled_progress: { zh: "🎨 已填 {a} / {b}", en: "🎨 Filled {a} / {b}", ms: "🎨 Diisi {a} / {b}" },
+  checking:        { zh: "检查中...", en: "Checking...", ms: "Menyemak..." },
+  submit:          { zh: "✅ 提交", en: "✅ Submit", ms: "✅ Hantar" },
+  correct_regions: { zh: "答对 {a} / {b} 个区块", en: "{a} / {b} regions correct", ms: "{a} / {b} kawasan betul" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
 
 interface ColoringRegion { marker_color: string; rule: "specific" | "free"; label?: string }
 export interface ColoringConfig {
@@ -42,8 +61,8 @@ function hexDistance(a: [number, number, number], b: string): number {
   return Math.abs(a[0] - br) + Math.abs(a[1] - bg) + Math.abs(a[2] - bb);
 }
 
-export default function ColoringGame({ levelId, config, onComplete }: {
-  levelId: string; config: ColoringConfig; onComplete: (r: ColoringResult) => void;
+export default function ColoringGame({ levelId, config, onComplete, locale = "zh" }: {
+  levelId: string; config: ColoringConfig; onComplete: (r: ColoringResult) => void; locale?: Locale;
 }) {
   const regions = config.regions ?? [];
   const palette = config.palette?.length ? config.palette : DEFAULT_PALETTE;
@@ -159,8 +178,8 @@ export default function ColoringGame({ levelId, config, onComplete }: {
   return (
     <div className="max-w-3xl mx-auto w-full">
       <div className="flex justify-between text-base font-medium text-muted-foreground mb-3">
-        <span>🎨 已填 {filledCount} / {regions.length}</span>
-        <span>⏱️ 用时 {elapsed.toFixed(1)}s</span>
+        <span>{lt("filled_progress", locale, { a: filledCount, b: regions.length })}</span>
+        <span>⏱️ {t("time_used", locale)} {elapsed.toFixed(1)}s</span>
       </div>
       {(config.question_i18n?.zh || config.question_i18n?.en) && (
         <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.zh || config.question_i18n?.en}</p>
@@ -194,7 +213,7 @@ export default function ColoringGame({ levelId, config, onComplete }: {
       {!finished ? (
         <div className="flex justify-center mt-4">
           <Button onClick={handleSubmit} disabled={checking || filledCount === 0} className="text-lg font-semibold px-8 py-2.5 rounded-2xl">
-            {checking ? "检查中..." : "✅ 提交"}
+            {checking ? lt("checking", locale) : lt("submit", locale)}
           </Button>
         </div>
       ) : (
@@ -202,7 +221,7 @@ export default function ColoringGame({ levelId, config, onComplete }: {
           results && Object.values(results).every((v) => v) ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400"
           : "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400"
         }`}>
-          {results ? `答对 ${Object.values(results).filter(Boolean).length} / ${regions.length} 个区块` : ""}
+          {results ? lt("correct_regions", locale, { a: Object.values(results).filter(Boolean).length, b: regions.length }) : ""}
         </div>
       )}
     </div>

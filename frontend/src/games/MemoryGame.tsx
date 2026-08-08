@@ -5,8 +5,25 @@
 // icons from the theme set so a repeat play doesn't always show the exact
 // same subset. Cards preview face-up for `preview_seconds` at the start —
 // this is a memory exercise, seeing the layout briefly is the point.
+//
+// i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
+// question_i18n 是designer自己填的authored题目文字，这次没扩展它加ms。
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { type Locale, type Dict, t } from "@/lib/gameLocale";
+
+const LOCAL: Record<string, Dict> = {
+  matched_progress: { zh: "🃏 配对 {a} / {b}", en: "🃏 Matched {a} / {b}", ms: "🃏 Sepadan {a} / {b}" },
+  memorize:         { zh: "记住位置...", en: "Memorize the positions...", ms: "Ingat kedudukan..." },
+  matched_done:     { zh: "配对成功 {a} / {b} 对，用时 {s} 秒", en: "Matched {a} / {b} pairs, time: {s}s", ms: "Sepadan {a} / {b} pasang, masa: {s}s" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
 
 export interface MemoryConfig {
   theme: "animal" | "fruit" | "number" | "shape" | "custom";
@@ -46,8 +63,8 @@ function shuffle<T>(arr: T[]): T[] {
 
 interface Card { id: number; icon: string; matched: boolean }
 
-export default function MemoryGame({ config, onComplete }: {
-  config: MemoryConfig; onComplete: (r: MemoryResult) => void;
+export default function MemoryGame({ config, onComplete, locale = "zh" }: {
+  config: MemoryConfig; onComplete: (r: MemoryResult) => void; locale?: Locale;
 }) {
   const pairs = Math.max(2, config.pairs_count);
   const isCustom = config.theme === "custom" && !!config.custom_icons?.length;
@@ -68,8 +85,10 @@ export default function MemoryGame({ config, onComplete }: {
   const lockRef = useRef(false);
 
   useEffect(() => {
-    const t = setTimeout(() => { setPreviewing(false); startRef.current = Date.now(); }, config.preview_seconds * 1000);
-    return () => clearTimeout(t);
+    // 这个局部计时器故意叫 previewTimer 不叫 t——文件顶部 import 了
+    // gameLocale 的翻译函数 t()，两个撞名会互相覆盖。
+    const previewTimer = setTimeout(() => { setPreviewing(false); startRef.current = Date.now(); }, config.preview_seconds * 1000);
+    return () => clearTimeout(previewTimer);
   }, [config.preview_seconds]);
 
   const finish = useCallback((completed: boolean) => {
@@ -119,7 +138,7 @@ export default function MemoryGame({ config, onComplete }: {
     }
   }
 
-  const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
+  const timerLabel = config.timer_mode === "countdown" ? t("time_left", locale) : t("time_used", locale);
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
   const cols = Math.min(6, Math.ceil(Math.sqrt(cards.length)));
   // 自由摆放——位置槽数量必须正好等于卡片数才启用，数量对不上（比如
@@ -132,7 +151,7 @@ export default function MemoryGame({ config, onComplete }: {
       <div className="text-center py-10">
         <div className="text-6xl">{matched.size === cards.length ? "🎉" : "⏰"}</div>
         <div className="text-xl font-semibold mt-3 text-foreground">
-          配对成功 {matched.size / 2} / {cards.length / 2} 对，用时 {timerValue.toFixed(1)} 秒
+          {lt("matched_done", locale, { a: matched.size / 2, b: cards.length / 2, s: timerValue.toFixed(1) })}
         </div>
       </div>
     );
@@ -141,8 +160,8 @@ export default function MemoryGame({ config, onComplete }: {
   return (
     <div className="max-w-2xl mx-auto w-full">
       <div className="flex justify-between text-base font-medium text-muted-foreground mb-3">
-        <span>🃏 配对 {matched.size / 2} / {cards.length / 2}</span>
-        <span>{previewing ? "记住位置..." : `⏱️ ${timerLabel} ${timerValue.toFixed(1)}s`}</span>
+        <span>{lt("matched_progress", locale, { a: matched.size / 2, b: cards.length / 2 })}</span>
+        <span>{previewing ? lt("memorize", locale) : `⏱️ ${timerLabel} ${timerValue.toFixed(1)}s`}</span>
       </div>
       {(config.question_i18n?.zh || config.question_i18n?.en) && (
         <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.zh || config.question_i18n?.en}</p>

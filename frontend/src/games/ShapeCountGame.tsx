@@ -18,9 +18,41 @@
 //   question explicitly reminds the student of that rather than silently
 //   assuming they already know the convention.
 //   count = C(rows+1, 2) × C(cols+1, 2)
+//
+// i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
+// 这是最后一个接入试点的游戏文件——12个游戏至此全部完成。
+// question_i18n 和 object_type 标签是designer自己填的authored内容，这次
+// 没扩展它们加ms。
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
+import { type Locale, type Dict, t, questionProgress } from "@/lib/gameLocale";
+
+const LOCAL: Record<string, Dict> = {
+  practice_done:   { zh: "答对 {c} / {n} 题", en: "{c} / {n} correct", ms: "{c} / {n} betul" },
+  ask_square:      { zh: "这张图里一共有多少个正方形？", en: "How many squares are there in this picture?", ms: "Berapakah jumlah segi empat sama dalam gambar ini?" },
+  ask_rectangle:   { zh: "这张图里一共有多少个长方形？", en: "How many rectangles are there in this picture?", ms: "Berapakah jumlah segi empat tepat dalam gambar ini?" },
+  rect_note:       { zh: "（正方形也是长方形的一种，也要数进去哦）", en: "(A square counts as a rectangle too — include those)", ms: "(Segi empat sama juga dikira sebagai segi empat tepat — kira sekali)" },
+  enter_answer:    { zh: "输入答案", en: "Enter answer", ms: "Masukkan jawapan" },
+  correct_level_up:{ zh: "🎉 答对了！难度提升一级", en: "🎉 Correct! Level up", ms: "🎉 Betul! Naik tahap" },
+  answer_level_down:{ zh: "答案是 {n} 个（难度降一级）", en: "The answer is {n} (level down)", ms: "Jawapannya ialah {n} (tahap turun)" },
+  all_correct:     { zh: "全部答对了！", en: "All correct!", ms: "Semua betul!" },
+  correct_kinds:   { zh: "答对 {n} / 3 种", en: "{n} / 3 correct", ms: "{n} / 3 betul" },
+  wrong_answer_was:{ zh: "✗ (答案{n})", en: "✗ (answer: {n})", ms: "✗ (jawapan: {n})" },
+  count_prompt:    { zh: "数一数，每种图形各有多少个？", en: "Count how many of each shape there are", ms: "Kira berapa banyak setiap bentuk" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
+const SHAPE_KIND_LABEL_LOCAL: Record<string, Dict> = {
+  square:   { zh: "正方形", en: "Square", ms: "Segi empat sama" },
+  circle:   { zh: "圆形", en: "Circle", ms: "Bulatan" },
+  triangle: { zh: "三角形", en: "Triangle", ms: "Segi tiga" },
+};
 
 export type ShapeAskType = "square" | "rectangle"; // 只有 grid 模式用得到——问正方形还是长方形
 // custom 模式下画的形状——跟 SceneEditor.tsx 的 StructuredSceneOutput.shapes
@@ -115,8 +147,8 @@ function GridSvg({ rows, cols }: { rows: number; cols: number }) {
   );
 }
 
-function GridShapeCountGame({ config, onComplete }: {
-  config: ShapeCountConfig; onComplete: (r: ShapeCountResult) => void;
+function GridShapeCountGame({ config, onComplete, locale }: {
+  config: ShapeCountConfig; onComplete: (r: ShapeCountResult) => void; locale: Locale;
 }) {
   const [qIndex, setQIndex] = useState(0);
   const [level, setLevel] = useState(() => Math.min(LEVEL_MAX, Math.max(1, config.starting_level || 1)));
@@ -190,7 +222,7 @@ function GridShapeCountGame({ config, onComplete }: {
     }
   }
 
-  const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
+  const timerLabel = config.timer_mode === "countdown" ? t("time_left", locale) : t("time_used", locale);
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
   const accuracy = correctCount + mistakeCount > 0 ? Math.round((correctCount / (correctCount + mistakeCount)) * 100) : 0;
 
@@ -199,9 +231,9 @@ function GridShapeCountGame({ config, onComplete }: {
       <div className="text-center py-10">
         <div className="text-6xl">🔲</div>
         <div className="text-xl font-semibold mt-3 text-foreground">
-          练习完成！答对 {correctCount} / {config.total_questions} 题
+          {t("practice_complete", locale)}{lt("practice_done", locale, { c: correctCount, n: config.total_questions })}
         </div>
-        <div className="text-sm text-muted-foreground mt-1">最长连对 {bestStreak} 题　结束时等级 Lv.{level}</div>
+        <div className="text-sm text-muted-foreground mt-1">{t("best_streak", locale)} {bestStreak}　{t("ending_level", locale)} Lv.{level}</div>
       </div>
     );
   }
@@ -211,8 +243,8 @@ function GridShapeCountGame({ config, onComplete }: {
   return (
     <div className="max-w-xl mx-auto w-full">
       <div className="flex justify-between text-base font-medium text-muted-foreground mb-3 flex-wrap gap-1">
-        <span>第 {qIndex} / {config.total_questions} 题　Lv.{level}</span>
-        <span>✅ 正确率 {accuracy}%　🔥 连对 {streak}　⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
+        <span>{questionProgress(qIndex, config.total_questions, locale)}　Lv.{level}</span>
+        <span>✅ {t("accuracy", locale)} {accuracy}%　🔥 {t("streak", locale)} {streak}　⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
 
       <div className="bg-white dark:bg-card rounded-2xl p-4 mb-4 shadow-lg ring-1 ring-black/5">
@@ -220,10 +252,10 @@ function GridShapeCountGame({ config, onComplete }: {
       </div>
 
       <p className="text-center text-lg font-semibold text-foreground mb-1">
-        这张图里一共有多少个{puzzle.askType === "square" ? "正方形" : "长方形"}？
+        {puzzle.askType === "square" ? lt("ask_square", locale) : lt("ask_rectangle", locale)}
       </p>
       {puzzle.askType === "rectangle" && (
-        <p className="text-center text-xs text-muted-foreground mb-3">（正方形也是长方形的一种，也要数进去哦）</p>
+        <p className="text-center text-xs text-muted-foreground mb-3">{lt("rect_note", locale)}</p>
       )}
 
       {!answered ? (
@@ -232,16 +264,15 @@ function GridShapeCountGame({ config, onComplete }: {
             type="tel" inputMode="numeric" value={answerText}
             onChange={(e) => setAnswerText(e.target.value.replace(/[^0-9]/g, ""))}
             onKeyDown={(e) => e.key === "Enter" && submitAnswer()}
-            placeholder="输入答案"
+            placeholder={lt("enter_answer", locale)}
             className="w-32 text-center text-2xl font-bold px-3 py-2 rounded-xl border-2 border-border bg-card"
           />
-          <span className="text-lg text-muted-foreground">个</span>
           <button
             onClick={submitAnswer}
             disabled={answerText === ""}
             className="text-lg font-semibold px-6 py-2.5 rounded-2xl bg-primary text-primary-foreground disabled:opacity-50 transition-colors"
           >
-            ✅ 提交
+            ✅ {t("submit", locale)}
           </button>
         </div>
       ) : (
@@ -250,14 +281,14 @@ function GridShapeCountGame({ config, onComplete }: {
             correct ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400"
             : "bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-400"
           }`}>
-            {correct ? "🎉 答对了！难度提升一级" : `答案是 ${puzzle.answer} 个（难度降一级）`}
+            {correct ? lt("correct_level_up", locale) : lt("answer_level_down", locale, { n: puzzle.answer })}
           </div>
           <div className="flex justify-center">
             <button
               onClick={nextQuestion}
               className="text-lg font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground transition-colors"
             >
-              下一题
+              {t("next_question", locale)}
             </button>
           </div>
         </div>
@@ -278,8 +309,6 @@ function GridShapeCountGame({ config, onComplete }: {
 // "triangle")的那些一起算进同一个类型的总数——这样设计师不管是用画笔画
 // 的、还是上传一张图片摆上去的，只要类型标签/形状种类对得上，都会被
 // 数进同一个类别里，不用关心背后到底是哪种物件。
-const SHAPE_KIND_LABEL: Record<string, string> = { square: "正方形", circle: "圆形", triangle: "三角形" };
-
 function countByKind(shapes: ShapeCountShapeItem[], objects: ShapeCountObjectItem[]) {
   const shapeKindOf: Record<string, string> = { rect: "square", ellipse: "circle", triangle: "triangle" };
   const counts: Record<string, number> = { square: 0, circle: 0, triangle: 0 };
@@ -328,8 +357,8 @@ function ShapeSvg({ s }: { s: ShapeCountShapeItem }) {
   );
 }
 
-function CustomShapeCountGame({ config, onComplete }: {
-  config: ShapeCountConfig; onComplete: (r: ShapeCountResult) => void;
+function CustomShapeCountGame({ config, onComplete, locale }: {
+  config: ShapeCountConfig; onComplete: (r: ShapeCountResult) => void; locale: Locale;
 }) {
   const shapes = config.shapes ?? [];
   const objects = config.objects ?? [];
@@ -365,7 +394,7 @@ function CustomShapeCountGame({ config, onComplete }: {
     });
   }
 
-  const questionText = config.question_i18n?.zh || config.question_i18n?.en || "数一数，每种图形各有多少个？";
+  const questionText = config.question_i18n?.zh || config.question_i18n?.en || lt("count_prompt", locale);
 
   if (finished && results) {
     const allCorrect = Object.values(results).every(Boolean);
@@ -373,12 +402,12 @@ function CustomShapeCountGame({ config, onComplete }: {
       <div className="text-center py-10">
         <div className="text-6xl">{allCorrect ? "🎉" : "🔲"}</div>
         <div className="text-xl font-semibold mt-3 text-foreground">
-          {allCorrect ? "全部答对了！" : `答对 ${Object.values(results).filter(Boolean).length} / 3 种`}
+          {allCorrect ? lt("all_correct", locale) : lt("correct_kinds", locale, { n: Object.values(results).filter(Boolean).length })}
         </div>
         <div className="text-sm text-muted-foreground mt-2 space-x-3">
           {(["square", "circle", "triangle"] as const).map((k) => (
             <span key={k} className={results[k] ? "text-emerald-600" : "text-red-500"}>
-              {SHAPE_KIND_LABEL[k]} {results[k] ? "✓" : `✗ (答案${trueCounts[k]})`}
+              {SHAPE_KIND_LABEL_LOCAL[k][locale]} {results[k] ? "✓" : lt("wrong_answer_was", locale, { n: trueCounts[k] })}
             </span>
           ))}
         </div>
@@ -389,7 +418,7 @@ function CustomShapeCountGame({ config, onComplete }: {
   return (
     <div className="max-w-3xl mx-auto w-full">
       <div className="flex justify-end text-base font-medium text-muted-foreground mb-3">
-        <span>⏱️ 用时 {elapsed.toFixed(1)}s</span>
+        <span>⏱️ {t("time_used", locale)} {elapsed.toFixed(1)}s</span>
       </div>
 
       <div
@@ -419,7 +448,7 @@ function CustomShapeCountGame({ config, onComplete }: {
       <div className="flex flex-wrap gap-4 justify-center mb-4">
         {(["square", "circle", "triangle"] as const).map((k) => (
           <label key={k} className="flex items-center gap-2 bg-muted/40 rounded-xl px-4 py-2.5">
-            <span className="text-base font-medium text-foreground">{SHAPE_KIND_LABEL[k]}</span>
+            <span className="text-base font-medium text-foreground">{SHAPE_KIND_LABEL_LOCAL[k][locale]}</span>
             <input
               type="tel" inputMode="numeric" value={inputs[k]}
               disabled={answered}
@@ -427,7 +456,6 @@ function CustomShapeCountGame({ config, onComplete }: {
               className="w-16 text-center text-xl font-bold px-2 py-1.5 rounded-lg border-2 border-border bg-card focus:border-primary outline-none"
               placeholder="?"
             />
-            <span className="text-sm text-muted-foreground">个</span>
           </label>
         ))}
       </div>
@@ -438,18 +466,18 @@ function CustomShapeCountGame({ config, onComplete }: {
           disabled={!allFilled}
           className="text-lg font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground disabled:opacity-50 transition-colors"
         >
-          ✅ 提交
+          ✅ {t("submit", locale)}
         </button>
       </div>
     </div>
   );
 }
 
-export default function ShapeCountGame({ config, onComplete }: {
-  config: ShapeCountConfig; onComplete: (r: ShapeCountResult) => void;
+export default function ShapeCountGame({ config, onComplete, locale = "zh" }: {
+  config: ShapeCountConfig; onComplete: (r: ShapeCountResult) => void; locale?: Locale;
 }) {
   if (config.layout === "custom") {
-    return <CustomShapeCountGame config={config} onComplete={onComplete} />;
+    return <CustomShapeCountGame config={config} onComplete={onComplete} locale={locale} />;
   }
-  return <GridShapeCountGame config={config} onComplete={onComplete} />;
+  return <GridShapeCountGame config={config} onComplete={onComplete} locale={locale} />;
 }

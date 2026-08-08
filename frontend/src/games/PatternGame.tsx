@@ -5,8 +5,24 @@
 // the chosen theme), asks what comes next. A shuffle bag rotates through
 // the allowed pattern types across questions so the same shape doesn't
 // repeat back-to-back.
+//
+// i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
+// question_i18n 是designer自己填的authored题目文字，这次没扩展它加ms。
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { type Locale, type Dict, t, questionProgress } from "@/lib/gameLocale";
+
+const LOCAL: Record<string, Dict> = {
+  practice_done: { zh: "答对 {c} / {n} 题", en: "{c} / {n} correct", ms: "{c} / {n} betul" },
+  wrong_pattern: { zh: "不对哦，再看看规律吧～", en: "Not quite — take another look at the pattern", ms: "Kurang tepat — lihat semula corak itu" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
 
 export interface PatternConfig {
   theme: "shape" | "animal" | "fruit";
@@ -37,8 +53,8 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-export default function PatternGame({ config, onComplete }: {
-  config: PatternConfig; onComplete: (r: PatternResult) => void;
+export default function PatternGame({ config, onComplete, locale = "zh" }: {
+  config: PatternConfig; onComplete: (r: PatternResult) => void; locale?: Locale;
 }) {
   const icons = THEME_ICONS[config.theme] ?? THEME_ICONS.shape;
 
@@ -125,15 +141,15 @@ export default function PatternGame({ config, onComplete }: {
     setAnswered(true);
     if (icon === answerIcon) {
       setCorrectCount((c) => c + 1);
-      setStatus({ msg: "🎉 答对了！", kind: "good" });
+      setStatus({ msg: t("correct_exclaim", locale), kind: "good" });
     } else {
       setMistakeCount((m) => m + 1);
-      setStatus({ msg: "不对哦，再看看规律吧～", kind: "bad" });
+      setStatus({ msg: lt("wrong_pattern", locale), kind: "bad" });
     }
     setTimeout(nextQuestion, 1100);
   }
 
-  const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
+  const timerLabel = config.timer_mode === "countdown" ? t("time_left", locale) : t("time_used", locale);
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
 
   if (finished) {
@@ -141,7 +157,7 @@ export default function PatternGame({ config, onComplete }: {
       <div className="text-center py-10">
         <div className="text-6xl">🧩</div>
         <div className="text-xl font-semibold mt-3 text-foreground">
-          练习完成！答对 {correctCount} / {config.total_questions} 题
+          {t("practice_complete", locale)}{lt("practice_done", locale, { c: correctCount, n: config.total_questions })}
         </div>
       </div>
     );
@@ -150,7 +166,7 @@ export default function PatternGame({ config, onComplete }: {
   return (
     <div className="max-w-2xl mx-auto w-full">
       <div className="flex justify-between text-base font-medium text-muted-foreground mb-3">
-        <span>第 {qIndex} / {config.total_questions} 题</span>
+        <span>{questionProgress(qIndex, config.total_questions, locale)}</span>
         <span>✅ {correctCount}　⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
       {(config.question_i18n?.zh || config.question_i18n?.en) && (

@@ -7,9 +7,29 @@
 //
 // Config shape matches edu.spot_diff_configs: image_a_url, image_b_url,
 // hotspots ([{x,y,r}] normalized 0..1 per image), timer_mode, time_limit.
+//
+// i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
+// question_i18n 是designer自己填的authored题目文字，这次没扩展它加ms。
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
+import { type Locale, type Dict, t } from "@/lib/gameLocale";
+
+const LOCAL: Record<string, Dict> = {
+  default_prompt: { zh: "找找看两张图哪里不一样，点一下不同的地方吧！", en: "Find the differences between the two pictures and tap them!", ms: "Cari perbezaan antara dua gambar dan ketik!" },
+  found_more:     { zh: "🎉 找到了！还有 {n} 处", en: "🎉 Found it! {n} left", ms: "🎉 Dijumpai! {n} lagi" },
+  try_again:      { zh: "这里好像一样哦，再找找看～", en: "That looks the same — keep looking", ms: "Nampak sama sahaja — cari lagi" },
+  loading_images: { zh: "图片加载中...", en: "Loading images...", ms: "Memuatkan imej..." },
+  found_progress: { zh: "🔍 找到 {a} / {b}", en: "🔍 Found {a} / {b}", ms: "🔍 Dijumpai {a} / {b}" },
+  found_done:     { zh: "找到 {a} / {b} 处，用时 {s} 秒", en: "Found {a} / {b}, time: {s}s", ms: "Dijumpai {a} / {b}, masa: {s}s" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
 
 export interface SpotDiffHotspot { x: number; y: number; r: number }
 export interface SpotDiffConfig {
@@ -27,8 +47,8 @@ export interface SpotDiffResult {
 const W = GAME_CANVAS_W, H = GAME_CANVAS_H;
 const BOX_W = 500, BOX_H = 655, LEFT_X = 30, RIGHT_X = 570, BOX_Y = 22;
 
-export default function SpotDiffGame({ config, onComplete }: {
-  config: SpotDiffConfig; onComplete: (r: SpotDiffResult) => void;
+export default function SpotDiffGame({ config, onComplete, locale = "zh" }: {
+  config: SpotDiffConfig; onComplete: (r: SpotDiffResult) => void; locale?: Locale;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgARef = useRef<HTMLImageElement | null>(null);
@@ -36,7 +56,7 @@ export default function SpotDiffGame({ config, onComplete }: {
   const [imagesLoaded, setImagesLoaded] = useState(false);
   const [found, setFound] = useState<Set<number>>(new Set());
   const [misses, setMisses] = useState(0);
-  const [status, setStatus] = useState(config.question_i18n?.zh || config.question_i18n?.en || "找找看两张图哪里不一样，点一下不同的地方吧！");
+  const [status, setStatus] = useState(config.question_i18n?.zh || config.question_i18n?.en || lt("default_prompt", locale));
   const [elapsed, setElapsed] = useState(0);
   const [finished, setFinished] = useState(false);
   const missFlashRef = useRef<{ x: number; y: number; t: number }[]>([]);
@@ -127,16 +147,16 @@ export default function SpotDiffGame({ config, onComplete }: {
     const hitIdx = config.hotspots.findIndex((h, i) => !found.has(i) && Math.hypot(h.x - lx, h.y - ly) < h.r * 1.3);
     if (hitIdx >= 0) {
       const next = new Set(found); next.add(hitIdx); setFound(next);
-      setStatus(`🎉 找到了！还有 ${config.hotspots.length - next.size} 处`);
+      setStatus(lt("found_more", locale, { n: config.hotspots.length - next.size }));
       if (next.size === config.hotspots.length) setTimeout(finish, 600);
     } else {
       missFlashRef.current.push({ x: px, y: py, t: performance.now() });
       setMisses((m) => m + 1);
-      setStatus("这里好像一样哦，再找找看～");
+      setStatus(lt("try_again", locale));
     }
   }
 
-  const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
+  const timerLabel = config.timer_mode === "countdown" ? t("time_left", locale) : t("time_used", locale);
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
 
   if (finished) {
@@ -144,7 +164,7 @@ export default function SpotDiffGame({ config, onComplete }: {
       <div className="text-center py-10">
         <div className="text-6xl">🏆</div>
         <div className="text-xl font-semibold mt-3 text-foreground">
-          找到 {found.size} / {config.hotspots.length} 处，用时 {timerValue.toFixed(1)} 秒
+          {lt("found_done", locale, { a: found.size, b: config.hotspots.length, s: timerValue.toFixed(1) })}
         </div>
       </div>
     );
@@ -153,10 +173,10 @@ export default function SpotDiffGame({ config, onComplete }: {
   return (
     <div className="max-w-6xl mx-auto w-full">
       <div className="flex justify-between text-base font-medium text-muted-foreground mb-3">
-        <span>🔍 找到 {found.size} / {config.hotspots.length}</span>
+        <span>{lt("found_progress", locale, { a: found.size, b: config.hotspots.length })}</span>
         <span>⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
-      {!imagesLoaded && <div className="text-center py-10 text-muted-foreground">图片加载中...</div>}
+      {!imagesLoaded && <div className="text-center py-10 text-muted-foreground">{lt("loading_images", locale)}</div>}
       <canvas
         ref={canvasRef} width={W} height={H} onClick={handleClick}
         className={`w-full h-auto rounded-2xl shadow-lg ring-1 ring-black/5 cursor-pointer bg-sky-50 dark:bg-sky-950/20 ${imagesLoaded ? "block" : "hidden"}`}

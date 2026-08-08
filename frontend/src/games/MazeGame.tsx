@@ -17,9 +17,37 @@
 // student can see their own progress and backtrack visually. Two trail
 // controls: clear all trails, or switch to an eraser tool and drag over
 // just the part they want gone.
+//
+// i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
+// question_i18n 是designer自己填的authored题目文字，这次没扩展它加ms。
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
+import { type Locale, type Dict, t } from "@/lib/gameLocale";
+
+const LOCAL: Record<string, Dict> = {
+  default_multi:   { zh: "拖着每个小球，各自走到自己颜色对应的终点吧！（共 {n} 个）", en: "Drag each ball to the finish line matching its color! ({n} in total)", ms: "Seret setiap bola ke garisan penamat mengikut warnanya! ({n} jumlahnya)" },
+  default_single:  { zh: "拖着小球，沿着走得通的路走到终点吧！", en: "Drag the ball along the path to reach the finish line!", ms: "Seret bola di sepanjang laluan untuk sampai ke garisan penamat!" },
+  hit_wall:        { zh: "撞墙了，沿着路走走看～", en: "Bumped a wall — try following the path", ms: "Terlanggar dinding — cuba ikut laluan" },
+  all_arrived:     { zh: "🎉 全部到达终点！", en: "🎉 All balls arrived!", ms: "🎉 Semua bola sampai!" },
+  one_arrived:     { zh: "🎉 这个球到了！还有别的球没到～", en: "🎉 This one made it! Others still need to arrive", ms: "🎉 Yang ini sampai! Yang lain belum lagi" },
+  keep_going:      { zh: "继续沿着路走～", en: "Keep following the path", ms: "Teruskan ikut laluan" },
+  loading:         { zh: "加载中...", en: "Loading...", ms: "Memuatkan..." },
+  maze_title:      { zh: "🧭 走迷宫", en: "🧭 Maze", ms: "🧭 Labirin" },
+  tool_move:       { zh: "🖊️ 走路", en: "🖊️ Walk", ms: "🖊️ Berjalan" },
+  tool_erase:      { zh: "🧹 擦掉走过的路", en: "🧹 Erase trail", ms: "🧹 Padam jejak" },
+  tool_clear:      { zh: "🗑️ 全部清除", en: "🗑️ Clear all", ms: "🗑️ Kosongkan semua" },
+  bumps_count:     { zh: "💥 撞墙 {n} 次", en: "💥 Bumped {n} times", ms: "💥 Terlanggar {n} kali" },
+  all_done:        { zh: "全部走到终点了！用时 {s} 秒", en: "All balls reached the finish! Time: {s}s", ms: "Semua bola sampai ke penamat! Masa: {s}s" },
+  time_up_done:    { zh: "时间到，完成 {a} / {b} 个", en: "Time's up — {a} / {b} done", ms: "Masa tamat — {a} / {b} selesai" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
 
 export interface MazePoint { x: number; y: number }
 export interface MazePair { start: MazePoint; end: MazePoint }
@@ -64,8 +92,8 @@ function normalizePairs(config: MazeConfig): MazePair[] {
   return [{ start: { x: config.start_x, y: config.start_y }, end: { x: config.end_x, y: config.end_y } }];
 }
 
-export default function MazeGame({ config, onComplete }: {
-  config: MazeConfig; onComplete: (r: MazeResult) => void;
+export default function MazeGame({ config, onComplete, locale = "zh" }: {
+  config: MazeConfig; onComplete: (r: MazeResult) => void; locale?: Locale;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null); // offscreen, for pixel sampling
@@ -89,7 +117,7 @@ export default function MazeGame({ config, onComplete }: {
   const [finished, setFinished] = useState(false);
   const [status, setStatus] = useState(
     config.question_i18n?.zh || config.question_i18n?.en ||
-    (pairs.length > 1 ? `拖着每个小球，各自走到自己颜色对应的终点吧！（共 ${pairs.length} 个）` : "拖着小球，沿着走得通的路走到终点吧！")
+    (pairs.length > 1 ? lt("default_multi", locale, { n: pairs.length }) : lt("default_single", locale))
   );
 
   const startRef = useRef(Date.now());
@@ -280,7 +308,7 @@ export default function MazeGame({ config, onComplete }: {
 
       if (hitWall && !offPathRef.current) {
         setBumps((n) => n + 1);
-        setStatus("撞墙了，沿着路走走看～");
+        setStatus(lt("hit_wall", locale));
       }
       offPathRef.current = hitWall;
 
@@ -292,11 +320,11 @@ export default function MazeGame({ config, onComplete }: {
       const allDone = next.every((b) => b.done);
       if (allDone) {
         setDragging(false);
-        setStatus("🎉 全部到达终点！");
+        setStatus(lt("all_arrived", locale));
         setTimeout(() => finish(true), 400);
       } else if (!hitWall) {
         const justFinished = next.find((b) => b.id === activeBallId)?.done && !bs.find((b) => b.id === activeBallId)?.done;
-        setStatus(justFinished ? "🎉 这个球到了！还有别的球没到～" : "继续沿着路走～");
+        setStatus(justFinished ? lt("one_arrived", locale) : lt("keep_going", locale));
       }
       return next;
     });
@@ -305,7 +333,7 @@ export default function MazeGame({ config, onComplete }: {
   function handlePointerUp() { setDragging(false); setActiveBallId(null); }
   function clearTrail() { setBalls((bs) => bs.map((b) => ({ ...b, trail: [b.pos] }))); }
 
-  const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
+  const timerLabel = config.timer_mode === "countdown" ? t("time_left", locale) : t("time_used", locale);
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
   const doneCount = balls.filter((b) => b.done).length;
 
@@ -314,9 +342,9 @@ export default function MazeGame({ config, onComplete }: {
       <div className="text-center py-10">
         <div className="text-6xl">🏁</div>
         <div className="text-xl font-semibold mt-3 text-foreground">
-          {doneCount === balls.length ? `全部走到终点了！用时 ${timerValue.toFixed(1)} 秒` : `时间到，完成 ${doneCount} / ${balls.length} 个`}
+          {doneCount === balls.length ? lt("all_done", locale, { s: timerValue.toFixed(1) }) : lt("time_up_done", locale, { a: doneCount, b: balls.length })}
         </div>
-        <div className="text-sm text-muted-foreground mt-1">💥 一共撞墙 {bumps} 次</div>
+        <div className="text-sm text-muted-foreground mt-1">{lt("bumps_count", locale, { n: bumps })}</div>
       </div>
     );
   }
@@ -324,30 +352,30 @@ export default function MazeGame({ config, onComplete }: {
   return (
     <div className="max-w-5xl mx-auto w-full">
       <div className="flex justify-between items-center text-base font-medium text-muted-foreground mb-3 flex-wrap gap-2">
-        <span>🧭 走迷宫{balls.length > 1 ? `　${doneCount}/${balls.length}` : ""}</span>
+        <span>{lt("maze_title", locale)}{balls.length > 1 ? `　${doneCount}/${balls.length}` : ""}</span>
         <div className="flex items-center gap-2">
           <div className="flex gap-1.5">
             <button
               type="button" onClick={() => setTool("move")}
               className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${tool === "move" ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground"}`}
             >
-              🖊️ 走路
+              {lt("tool_move", locale)}
             </button>
             <button
               type="button" onClick={() => setTool("erase")}
               className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${tool === "erase" ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground"}`}
             >
-              🧹 擦掉走过的路
+              {lt("tool_erase", locale)}
             </button>
             <button type="button" onClick={clearTrail} className="px-2.5 py-1 rounded-md text-xs font-medium border bg-card border-border text-muted-foreground">
-              🗑️ 全部清除
+              {lt("tool_clear", locale)}
             </button>
           </div>
-          <span>💥 撞墙 {bumps} 次</span>
+          <span>{lt("bumps_count", locale, { n: bumps })}</span>
           <span>⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
         </div>
       </div>
-      {!imagesLoaded && <div className="text-center py-10 text-muted-foreground">加载中...</div>}
+      {!imagesLoaded && <div className="text-center py-10 text-muted-foreground">{lt("loading", locale)}</div>}
       <canvas
         ref={canvasRef} width={W} height={H}
         onPointerDown={handlePointerDown} onPointerMove={handlePointerMove}

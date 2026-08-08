@@ -15,9 +15,29 @@
 // "跟着手指走"的浮层贴纸(ghost)，跟贴纸盘/画布本身的坐标系统脱钩，才
 // 能自由地从贴纸盘拖进画布——如果贴纸元素本身被限制在贴纸盘的容器里，
 // 拖出这个容器时坐标会算不对。
+//
+// i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
+// question_i18n 是designer自己填的authored题目文字，这次没扩展它加ms。
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
+import { type Locale, type Dict, t } from "@/lib/gameLocale";
+
+const LOCAL: Record<string, Dict> = {
+  sticker_title:  { zh: "🏷️ 贴纸游戏　{a}/{b}", en: "🏷️ Sticker Game　{a}/{b}", ms: "🏷️ Permainan Pelekat　{a}/{b}" },
+  tray_empty:     { zh: "贴纸盘空了，都贴出去了～", en: "Tray's empty — all stickers placed!", ms: "Dulang kosong — semua pelekat sudah diletakkan!" },
+  drag_hint:      { zh: "把下面的贴纸拖到画面里虚线框标出来的位置～", en: "Drag the stickers below to the dashed outlines on the picture", ms: "Seret pelekat di bawah ke garis putus-putus pada gambar" },
+  all_placed:     { zh: "全部贴对了！用时 {s} 秒", en: "All placed correctly! Time: {s}s", ms: "Semua diletakkan dengan betul! Masa: {s}s" },
+  time_up_placed: { zh: "时间到，贴对了 {a} / {b} 个", en: "Time's up — placed {a} / {b}", ms: "Masa tamat — {a} / {b} diletakkan" },
+  total_mistakes: { zh: "共错了 {n} 次", en: "{n} mistakes total", ms: "Jumlah {n} kesilapan" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
 
 export interface StickerObject {
   image_url: string; x: number; y: number; w: number; h: number; rotation: number;
@@ -53,8 +73,8 @@ function withinTolerance(dropX: number, dropY: number, target: StickerObject): b
   return Math.abs(dropX - target.x) < tolX && Math.abs(dropY - target.y) < tolY;
 }
 
-export default function StickerGame({ config, onComplete }: {
-  config: StickerGameConfig; onComplete: (r: StickerGameResult) => void;
+export default function StickerGame({ config, onComplete, locale = "zh" }: {
+  config: StickerGameConfig; onComplete: (r: StickerGameResult) => void; locale?: Locale;
 }) {
   const objects = config.objects ?? [];
   const [trayOrder] = useState(() => shuffleIndices(objects.length));
@@ -138,7 +158,7 @@ export default function StickerGame({ config, onComplete }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragging]);
 
-  const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
+  const timerLabel = config.timer_mode === "countdown" ? t("time_left", locale) : t("time_used", locale);
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
   const draggingSticker = dragging ? objects[dragging.index] : null;
 
@@ -147,9 +167,9 @@ export default function StickerGame({ config, onComplete }: {
       <div className="text-center py-10">
         <div className="text-6xl">🏷️</div>
         <div className="text-xl font-semibold mt-3 text-foreground">
-          {placed.size === objects.length ? `全部贴对了！用时 ${timerValue.toFixed(1)} 秒` : `时间到，贴对了 ${placed.size} / ${objects.length} 个`}
+          {placed.size === objects.length ? lt("all_placed", locale, { s: timerValue.toFixed(1) }) : lt("time_up_placed", locale, { a: placed.size, b: objects.length })}
         </div>
-        <div className="text-sm text-muted-foreground mt-1">共错了 {mistakes} 次</div>
+        <div className="text-sm text-muted-foreground mt-1">{lt("total_mistakes", locale, { n: mistakes })}</div>
       </div>
     );
   }
@@ -157,7 +177,7 @@ export default function StickerGame({ config, onComplete }: {
   return (
     <div className="max-w-4xl mx-auto w-full select-none">
       <div className="flex justify-between items-center text-base font-medium text-muted-foreground mb-3 flex-wrap gap-2">
-        <span>🏷️ 贴纸游戏　{placed.size}/{objects.length}</span>
+        <span>{lt("sticker_title", locale, { a: placed.size, b: objects.length })}</span>
         <span>⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
       {(config.question_i18n?.zh || config.question_i18n?.en) && (
@@ -204,7 +224,7 @@ export default function StickerGame({ config, onComplete }: {
       {/* 贴纸盘 */}
       <div className="mt-3 flex flex-wrap gap-3 justify-center rounded-2xl bg-muted/40 border border-border p-3 min-h-[88px]">
         {trayIndices.length === 0 ? (
-          <p className="text-xs text-muted-foreground/60 self-center">贴纸盘空了，都贴出去了～</p>
+          <p className="text-xs text-muted-foreground/60 self-center">{lt("tray_empty", locale)}</p>
         ) : (
           trayIndices.map((i) => {
             const o = objects[i];
@@ -225,7 +245,7 @@ export default function StickerGame({ config, onComplete }: {
         )}
       </div>
 
-      <p className="text-center text-xs text-muted-foreground mt-2">把下面的贴纸拖到画面里虚线框标出来的位置～</p>
+      <p className="text-center text-xs text-muted-foreground mt-2">{lt("drag_hint", locale)}</p>
 
       {/* 拖动中的浮层贴纸——跟着手指/鼠标走，脱离贴纸盘和画布各自的坐标系统 */}
       {dragging && draggingSticker && (

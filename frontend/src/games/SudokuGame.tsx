@@ -22,10 +22,37 @@
 // (numeric-only via inputMode/pattern), so a physical keyboard just works,
 // and mobile browsers show their native numeric keypad automatically.
 // No custom virtual keyboard needed to satisfy "键盘+鼠标、触控".
+//
+// i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
+// question_i18n 是designer自己填的authored题目文字，这次没扩展它加ms。
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { eduApi } from "@/api";
 import { Button } from "@/components/ui/button";
+import { type Locale, type Dict, t } from "@/lib/gameLocale";
+
+const LOCAL: Record<string, Dict> = {
+  checking:       { zh: "检查中...", en: "Checking...", ms: "Menyemak..." },
+  submit_answer:  { zh: "✅ 提交答案", en: "✅ Submit answer", ms: "✅ Hantar jawapan" },
+  all_correct:    { zh: "🎉 全部正确！", en: "🎉 All correct!", ms: "🎉 Semua betul!" },
+  correct_count:  { zh: "对了 {a} / {b} 个", en: "{a} / {b} correct", ms: "{a} / {b} betul" },
+  view_answer:    { zh: "👀 查看答案", en: "👀 View answer", ms: "👀 Lihat jawapan" },
+  time_filled:    { zh: "⏱️ 用时 {s}s · 已填 {a}/{b}", en: "⏱️ Time {s}s · Filled {a}/{b}", ms: "⏱️ Masa {s}s · Diisi {a}/{b}" },
+  sudoku_title:   { zh: "🔢 数独", en: "🔢 Sudoku", ms: "🔢 Sudoku" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
+const DIFFICULTY_LABELS_LOCAL: Record<string, Dict> = {
+  easy:   { zh: "😊 简单", en: "😊 Easy", ms: "😊 Mudah" },
+  medium: { zh: "🙂 中等", en: "🙂 Medium", ms: "🙂 Sederhana" },
+  hard:   { zh: "😤 困难", en: "😤 Hard", ms: "😤 Sukar" },
+  custom: { zh: "🎯 自定义", en: "🎯 Custom", ms: "🎯 Tersuai" },
+};
 
 // grid 模式的给定数字——row/col 是 0 起算的格子坐标，value 是要显示的数字/内容
 export interface SudokuGivenCell { row: number; col: number; value: string }
@@ -51,10 +78,8 @@ export interface SudokuResult {
   score: number; max_score: number; time_spent_seconds: number; mistakes: number; completed: boolean;
 }
 
-const DIFFICULTY_LABELS: Record<string, string> = { easy: "😊 简单", medium: "🙂 中等", hard: "😤 困难", custom: "🎯 自定义" };
-
-export default function SudokuGame({ levelId, config, onComplete }: {
-  levelId: string; config: SudokuConfig; onComplete: (r: SudokuResult) => void;
+export default function SudokuGame({ levelId, config, onComplete, locale = "zh" }: {
+  levelId: string; config: SudokuConfig; onComplete: (r: SudokuResult) => void; locale?: Locale;
 }) {
   const isGrid = config.layout === "grid";
   // 两种模式统一成同一份"要填的格子"清单——photo模式是 config.cells，
@@ -129,8 +154,8 @@ export default function SudokuGame({ levelId, config, onComplete }: {
   return (
     <div className="max-w-5xl mx-auto w-full">
       <div className="flex justify-between items-center text-base font-medium text-muted-foreground mb-3 flex-wrap gap-2">
-        <span>🔢 数独 <span className="text-xs">{DIFFICULTY_LABELS[config.difficulty] ?? config.difficulty}</span></span>
-        <span>⏱️ 用时 {elapsed.toFixed(1)}s · 已填 {filledCount}/{activeCells.length}</span>
+        <span>{lt("sudoku_title", locale)} <span className="text-xs">{(DIFFICULTY_LABELS_LOCAL[config.difficulty]?.[locale]) ?? config.difficulty}</span></span>
+        <span>{lt("time_filled", locale, { s: elapsed.toFixed(1), a: filledCount, b: activeCells.length })}</span>
       </div>
       {(config.question_i18n?.zh || config.question_i18n?.en) && (
         <p className="text-center text-lg font-semibold text-foreground mb-3">{config.question_i18n?.zh || config.question_i18n?.en}</p>
@@ -190,16 +215,16 @@ export default function SudokuGame({ levelId, config, onComplete }: {
       {!finished ? (
         <div className="flex justify-center">
           <Button onClick={handleSubmit} disabled={checking || filledCount === 0}>
-            {checking ? "检查中..." : "✅ 提交答案"}
+            {checking ? lt("checking", locale) : lt("submit_answer", locale)}
           </Button>
         </div>
       ) : (
         <div className="text-center space-y-3">
           <p className={`text-lg font-semibold ${correctness?.every(Boolean) ? "text-emerald-600" : "text-amber-600"}`}>
-            {correctness?.every(Boolean) ? "🎉 全部正确！" : `对了 ${correctness?.filter(Boolean).length ?? 0} / ${activeCells.length} 个`}
+            {correctness?.every(Boolean) ? lt("all_correct", locale) : lt("correct_count", locale, { a: correctness?.filter(Boolean).length ?? 0, b: activeCells.length })}
           </p>
           {!correctness?.every(Boolean) && (
-            <Button variant="outline" onClick={revealAnswer}>👀 查看答案</Button>
+            <Button variant="outline" onClick={revealAnswer}>{lt("view_answer", locale)}</Button>
           )}
         </div>
       )}

@@ -8,9 +8,38 @@
 // - 答案不再是 positions.length（全部物件总数），而是"target_types 里
 //   这几种类型加起来有几个"；如果 target_types 没设（旧数据，或设计师
 //   压根没给物件打类型），退回原本"数全部"的行为，不影响已有的Activity
+//
+// i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
+// 有一点特殊：CustomSceneCountingGame 没写question_i18n时，会自动拼一句
+// "一共有多少个{类型}？"——句子结构本身会跟着翻译，但{类型}这部分是
+// designer自己打的标签(比如"苹果")，这部分文字不会跟着变(那是authored
+// 内容，不在这次范围内)，所以英文/马来文模式下这句自动生成的题目可能
+// 会中英文混着("How many 苹果 are there?")，这是已知的限制，不是bug——
+// 真的要完全翻译的话，需要designer把每个类型标签本身也维护成多语言，
+// 这次没有做到这么深。
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
+import { type Locale, type Dict, t, questionProgress } from "@/lib/gameLocale";
+
+const LOCAL: Record<string, Dict> = {
+  how_many_type:   { zh: "一共有多少个{type}？", en: "How many {type} are there in total?", ms: "Berapakah jumlah {type} semuanya?" },
+  how_many_types:  { zh: "{types}一共有多少个？", en: "How many {types} are there in total?", ms: "Berapakah jumlah {types} semuanya?" },
+  how_many:        { zh: "一共有多少个？", en: "How many are there in total?", ms: "Berapakah jumlahnya semua?" },
+  answer_is:       { zh: "答案是 {n}", en: "The answer is {n}", ms: "Jawapannya ialah {n}" },
+  custom_done:     { zh: "练习完成！用时 {s} 秒", en: "Practice complete! Time: {s}s", ms: "Latihan selesai! Masa: {s}s" },
+  streak_correct:  { zh: "🔥 连对 {n} 题！", en: "🔥 {n} in a row!", ms: "🔥 {n} berturut-turut!" },
+  answer_again:    { zh: "答案是 {n}，再数一次吧～", en: "The answer is {n} — try counting again", ms: "Jawapannya ialah {n} — cuba kira semula" },
+  wrong_try_again: { zh: "不对哦，再数一次看看～", en: "Not quite — try counting again", ms: "Kurang tepat — cuba kira semula" },
+  practice_done:   { zh: "答对 {c} / {n} 题", en: "{c} / {n} correct", ms: "{c} / {n} betul" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
 
 export interface CountingConfig {
   theme: string;
@@ -56,8 +85,8 @@ function shuffle<T>(arr: T[]): T[] {
 }
 function randInt(a: number, b: number) { return a + Math.floor(Math.random() * (b - a + 1)); }
 
-function CustomSceneCountingGame({ config, onComplete }: {
-  config: CountingConfig; onComplete: (result: CountingResult) => void;
+function CustomSceneCountingGame({ config, onComplete, locale }: {
+  config: CountingConfig; onComplete: (result: CountingResult) => void; locale: Locale;
 }) {
   const positions = config.positions ?? [];
   const targetTypes = (config.target_types ?? []).filter(Boolean);
@@ -72,9 +101,9 @@ function CustomSceneCountingGame({ config, onComplete }: {
   const questionText = config.question_i18n?.zh || config.question_i18n?.en || (
     hasTypedTargets
       ? targetTypes.length === 1
-        ? `一共有多少个${targetTypes[0]}？`
-        : `${targetTypes.join("和")}一共有多少个？`
-      : "一共有多少个？"
+        ? lt("how_many_type", locale, { type: targetTypes[0] })
+        : lt("how_many_types", locale, { types: targetTypes.join(locale === "zh" ? "和" : ", ") })
+      : lt("how_many", locale)
   );
 
   const [choices] = useState<number[]>(() => {
@@ -107,7 +136,7 @@ function CustomSceneCountingGame({ config, onComplete }: {
     if (answered) return;
     setAnswered(true);
     const correct = val === target;
-    setStatus(correct ? { msg: "🎉 答对了！", kind: "good" } : { msg: `答案是 ${target}`, kind: "bad" });
+    setStatus(correct ? { msg: t("correct_exclaim", locale), kind: "good" } : { msg: lt("answer_is", locale, { n: target }), kind: "bad" });
     setTimeout(() => {
       setFinished(true);
       onComplete({
@@ -122,7 +151,7 @@ function CustomSceneCountingGame({ config, onComplete }: {
     return (
       <div className="text-center py-10">
         <div className="text-6xl">{status.kind === "good" ? "🎉" : "🔢"}</div>
-        <div className="text-xl font-semibold mt-3 text-foreground">练习完成！用时 {elapsed.toFixed(1)} 秒</div>
+        <div className="text-xl font-semibold mt-3 text-foreground">{lt("custom_done", locale, { s: elapsed.toFixed(1) })}</div>
       </div>
     );
   }
@@ -130,7 +159,7 @@ function CustomSceneCountingGame({ config, onComplete }: {
   return (
     <div className="max-w-5xl mx-auto w-full">
       <div className="flex justify-end text-base font-medium text-muted-foreground mb-3">
-        <span>⏱️ 用时 {elapsed.toFixed(1)}s</span>
+        <span>⏱️ {t("time_used", locale)} {elapsed.toFixed(1)}s</span>
       </div>
 
       <div
@@ -158,21 +187,21 @@ function CustomSceneCountingGame({ config, onComplete }: {
             />
           );
         })}
-        {(config.texts ?? []).map((t, i) => (
+        {(config.texts ?? []).map((tx, i) => (
           <span
             key={`text-${i}`}
             className="absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap"
             style={{
-              left: `${t.x * 100}%`, top: `${t.y * 100}%`,
-              fontSize: `${(t.fontSize / GAME_CANVAS_H) * 100}cqh`,
-              color: t.color, fontFamily: t.fontFamily,
-              fontWeight: t.bold ? "bold" : "normal",
-              fontStyle: t.italic ? "italic" : "normal",
-              textDecoration: t.underline ? "underline" : "none",
-              transform: `translate(-50%, -50%) rotate(${t.rotation ?? 0}deg)`,
+              left: `${tx.x * 100}%`, top: `${tx.y * 100}%`,
+              fontSize: `${(tx.fontSize / GAME_CANVAS_H) * 100}cqh`,
+              color: tx.color, fontFamily: tx.fontFamily,
+              fontWeight: tx.bold ? "bold" : "normal",
+              fontStyle: tx.italic ? "italic" : "normal",
+              textDecoration: tx.underline ? "underline" : "none",
+              transform: `translate(-50%, -50%) rotate(${tx.rotation ?? 0}deg)`,
             }}
           >
-            {t.text}
+            {tx.text}
           </span>
         ))}
       </div>
@@ -201,19 +230,21 @@ function CustomSceneCountingGame({ config, onComplete }: {
   );
 }
 
-export default function CountingGame({ config, onComplete }: {
+export default function CountingGame({ config, onComplete, locale = "zh" }: {
   config: CountingConfig;
   onComplete: (result: CountingResult) => void;
+  locale?: Locale;
 }) {
   if (config.mode === "custom_scene" && config.positions?.length) {
-    return <CustomSceneCountingGame config={config} onComplete={onComplete} />;
+    return <CustomSceneCountingGame config={config} onComplete={onComplete} locale={locale} />;
   }
-  return <RandomCountingGame config={config} onComplete={onComplete} />;
+  return <RandomCountingGame config={config} onComplete={onComplete} locale={locale} />;
 }
 
-function RandomCountingGame({ config, onComplete }: {
+function RandomCountingGame({ config, onComplete, locale }: {
   config: CountingConfig;
   onComplete: (result: CountingResult) => void;
+  locale: Locale;
 }) {
   const [qIndex, setQIndex] = useState(0);
   const [correctCount, setCorrectCount] = useState(0);
@@ -320,22 +351,22 @@ function RandomCountingGame({ config, onComplete }: {
       setAnswered(true);
       setCorrectCount((c) => c + 1);
       setStreak((s) => s + 1);
-      setStatus({ msg: streak + 1 >= 3 ? `🔥 连对 ${streak + 1} 题！` : "🎉 答对了！", kind: "good" });
+      setStatus({ msg: streak + 1 >= 3 ? lt("streak_correct", locale, { n: streak + 1 }) : t("correct_exclaim", locale), kind: "good" });
       setTimeout(nextQuestion, 1100);
     } else {
       setStreak(0);
       setMistakeCount((m) => m + 1);
       if (attempts + 1 >= 2) {
-        setStatus({ msg: `答案是 ${target}，再数一次吧～`, kind: "bad" });
+        setStatus({ msg: lt("answer_again", locale, { n: target }), kind: "bad" });
         setAnswered(true);
         setTimeout(nextQuestion, 1400);
       } else {
-        setStatus({ msg: "不对哦，再数一次看看～", kind: "bad" });
+        setStatus({ msg: lt("wrong_try_again", locale), kind: "bad" });
       }
     }
   }
 
-  const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
+  const timerLabel = config.timer_mode === "countdown" ? t("time_left", locale) : t("time_used", locale);
   const timerValue = config.timer_mode === "countdown"
     ? Math.max(0, (config.time_limit ?? 0) - elapsed)
     : elapsed;
@@ -345,7 +376,7 @@ function RandomCountingGame({ config, onComplete }: {
       <div className="text-center py-10">
         <div className="text-6xl">🎉</div>
         <div className="text-xl font-semibold mt-3 text-foreground">
-          练习完成！答对 {correctCount} / {config.total_questions} 题
+          {t("practice_complete", locale)}{lt("practice_done", locale, { c: correctCount, n: config.total_questions })}
         </div>
       </div>
     );
@@ -354,7 +385,7 @@ function RandomCountingGame({ config, onComplete }: {
   return (
     <div className="max-w-2xl mx-auto w-full">
       <div className="flex justify-between text-base font-medium text-muted-foreground mb-3">
-        <span>第 {qIndex} / {config.total_questions} 题</span>
+        <span>{questionProgress(qIndex, config.total_questions, locale)}</span>
         <span>✅ {correctCount}　⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
 
@@ -389,4 +420,3 @@ function RandomCountingGame({ config, onComplete }: {
     </div>
   );
 }
-

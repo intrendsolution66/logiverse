@@ -19,9 +19,45 @@
 // 方格棋盘的path)直接跟着config发给前端，client端直接核对，不是隐藏
 // 答案server端核对那一套，见 courses_controller.ts 对应 getLevel 分支的
 // 注释。
+//
+// i18n: zh/en/ms 已支持(界面文字) — 见 frontend/src/lib/gameLocale.ts。
+// question_i18n 是designer自己填的authored题目文字，这次没扩展它加ms。
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
+import { type Locale, type Dict, t as tt } from "@/lib/gameLocale";
+
+// 两个子组件各自的短语都放这一份本地词典里——文件顶部 import 了
+// gameLocale 的翻译函数，为了避免跟这个文件里到处出现的局部变量 t(比如
+// setTrail((t) => ...))撞名，这里把导入的翻译函数改叫 tt，本地词典查
+// 函数叫 lt，两个都跟"t"这个短名字错开。
+const LOCAL: Record<string, Dict> = {
+  path_default:    { zh: "拖着小球，走到分岔点要先选对数字才能继续前进～", en: "Drag the ball — pick the right number at each fork to continue", ms: "Seret bola — pilih nombor yang betul di setiap persimpangan untuk teruskan" },
+  pick_first:      { zh: "先选对数字才能继续往前走～", en: "Pick the right number first to continue", ms: "Pilih nombor yang betul dahulu untuk teruskan" },
+  hit_wall:        { zh: "撞墙了，沿着路走走看～", en: "Bumped a wall — try following the path", ms: "Terlanggar dinding — cuba ikut laluan" },
+  arrived:         { zh: "🎉 到终点了！", en: "🎉 Reached the finish!", ms: "🎉 Sampai ke penamat!" },
+  keep_going:      { zh: "继续沿着路走～", en: "Keep following the path", ms: "Teruskan ikut laluan" },
+  correct_continue:{ zh: "答对了！继续拖着走～", en: "Correct! Keep dragging along", ms: "Betul! Teruskan menyeret" },
+  loading:         { zh: "加载中...", en: "Loading...", ms: "Memuatkan..." },
+  maze_title:      { zh: "🔀 数字迷宫", en: "🔀 Number Maze", ms: "🔀 Labirin Nombor" },
+  bumps_short:     { zh: "💥 {n} 次", en: "💥 {n} times", ms: "💥 {n} kali" },
+  pick_prompt:     { zh: "选一个正确的数字才能继续前进", en: "Pick the correct number to continue", ms: "Pilih nombor yang betul untuk teruskan" },
+  path_done:       { zh: "到终点了！用时 {s} 秒", en: "Reached the finish! Time: {s}s", ms: "Sampai ke penamat! Masa: {s}s" },
+  time_up:         { zh: "时间到", en: "Time's up", ms: "Masa tamat" },
+  path_bumps:      { zh: "💥 撞墙/答错 {n} 次", en: "💥 Bumped/wrong {n} times", ms: "💥 Terlanggar/salah {n} kali" },
+  grid_progress:   { zh: "🔀 数字迷宫　{a}/{b}", en: "🔀 Number Maze　{a}/{b}", ms: "🔀 Labirin Nombor　{a}/{b}" },
+  grid_done:       { zh: "走到终点了！用时 {s} 秒", en: "Reached the finish! Time: {s}s", ms: "Sampai ke penamat! Masa: {s}s" },
+  grid_time_up:    { zh: "时间到，走了 {a} / {b} 步", en: "Time's up — {a} / {b} steps", ms: "Masa tamat — {a} / {b} langkah" },
+  grid_mistakes:   { zh: "共错了 {n} 次", en: "{n} mistakes total", ms: "Jumlah {n} kesilapan" },
+  grid_hint:       { zh: "点小鸡🐣旁边相邻的格子（上下左右），走对数字才能前进～", en: "Tap a cell next to the chick 🐣 (up/down/left/right) — the right number moves you forward", ms: "Ketik petak bersebelahan anak ayam 🐣 (atas/bawah/kiri/kanan) — nombor yang betul membawa anda ke depan" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
 
 // ---------- 共用类型 ----------
 export interface NumberMazeOption { value: string }
@@ -60,8 +96,8 @@ const GRAB_R = PLAYER_R * 2;
 const DECISION_R = 34; // 分岔点没解锁之前，这个半径范围内直接当"不可走"
 const WALK_TOLERANCE = 5; // 跟 MazeGame 一样的容错半径，避免起点没精确对齐蒙版就卡死
 
-function PathDecisionMazeGame({ config, onComplete }: {
-  config: NumberMazeConfig; onComplete: (r: NumberMazeResult) => void;
+function PathDecisionMazeGame({ config, onComplete, locale }: {
+  config: NumberMazeConfig; onComplete: (r: NumberMazeResult) => void; locale: Locale;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -84,7 +120,7 @@ function PathDecisionMazeGame({ config, onComplete }: {
   const [finished, setFinished] = useState(false);
   const [done, setDone] = useState(false);
   const [status, setStatus] = useState(
-    config.question_i18n?.zh || config.question_i18n?.en || "拖着小球，走到分岔点要先选对数字才能继续前进～"
+    config.question_i18n?.zh || config.question_i18n?.en || lt("path_default", locale)
   );
   const startRef = useRef(Date.now());
   const offPathRef = useRef(false);
@@ -227,8 +263,8 @@ function PathDecisionMazeGame({ config, onComplete }: {
     } else {
       hitWall = true;
       for (let i = 1; i <= STEPS; i++) {
-        const t = i / STEPS;
-        const px = pos.x + (x - pos.x) * t, py = pos.y + (y - pos.y) * t;
+        const step = i / STEPS;
+        const px = pos.x + (x - pos.x) * step, py = pos.y + (y - pos.y) * step;
         if (isWalkable(px, py)) landing = { x: px, y: py };
         else break;
       }
@@ -240,22 +276,22 @@ function PathDecisionMazeGame({ config, onComplete }: {
       if (blocking) {
         setDragging(false);
         setActiveDecisionId(blocking.id);
-        setStatus("先选对数字才能继续往前走～");
+        setStatus(lt("pick_first", locale));
       } else {
-        setStatus("撞墙了，沿着路走走看～");
+        setStatus(lt("hit_wall", locale));
       }
     }
     offPathRef.current = hitWall;
 
     setPos(landing);
-    setTrail((t) => [...t, landing]);
+    setTrail((prevTrail) => [...prevTrail, landing]);
 
     if (Math.hypot(landing.x - endPx.x, landing.y - endPx.y) < END_R) {
       setDone(true); setDragging(false);
-      setStatus("🎉 到终点了！");
+      setStatus(lt("arrived", locale));
       setTimeout(() => finish(true), 400);
     } else if (!hitWall) {
-      setStatus("继续沿着路走～");
+      setStatus(lt("keep_going", locale));
     }
   }
 
@@ -265,7 +301,7 @@ function PathDecisionMazeGame({ config, onComplete }: {
     if (idx === dp.correctIndex) {
       setUnlockedIds((s) => new Set(s).add(dp.id));
       setActiveDecisionId(null);
-      setStatus("答对了！继续拖着走～");
+      setStatus(lt("correct_continue", locale));
     } else {
       setBumps((n) => n + 1);
       setWrongOptionFlash(idx);
@@ -273,7 +309,7 @@ function PathDecisionMazeGame({ config, onComplete }: {
     }
   }
 
-  const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
+  const timerLabel = config.timer_mode === "countdown" ? tt("time_left", locale) : tt("time_used", locale);
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
   const activeDecision = decisionPoints.find((d) => d.id === activeDecisionId) ?? null;
 
@@ -281,8 +317,8 @@ function PathDecisionMazeGame({ config, onComplete }: {
     return (
       <div className="text-center py-10">
         <div className="text-6xl">🏁</div>
-        <div className="text-xl font-semibold mt-3 text-foreground">{done ? `到终点了！用时 ${timerValue.toFixed(1)} 秒` : "时间到"}</div>
-        <div className="text-sm text-muted-foreground mt-1">💥 撞墙/答错 {bumps} 次</div>
+        <div className="text-xl font-semibold mt-3 text-foreground">{done ? lt("path_done", locale, { s: timerValue.toFixed(1) }) : lt("time_up", locale)}</div>
+        <div className="text-sm text-muted-foreground mt-1">{lt("path_bumps", locale, { n: bumps })}</div>
       </div>
     );
   }
@@ -290,13 +326,13 @@ function PathDecisionMazeGame({ config, onComplete }: {
   return (
     <div className="max-w-5xl mx-auto w-full">
       <div className="flex justify-between items-center text-base font-medium text-muted-foreground mb-3 flex-wrap gap-2">
-        <span>🔀 数字迷宫</span>
+        <span>{lt("maze_title", locale)}</span>
         <div className="flex items-center gap-3">
-          <span>💥 {bumps} 次</span>
+          <span>{lt("bumps_short", locale, { n: bumps })}</span>
           <span>⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
         </div>
       </div>
-      {!imagesLoaded && <div className="text-center py-10 text-muted-foreground">加载中...</div>}
+      {!imagesLoaded && <div className="text-center py-10 text-muted-foreground">{lt("loading", locale)}</div>}
       <div className={`relative ${imagesLoaded ? "block" : "hidden"}`}>
         <canvas
           ref={canvasRef} width={W} height={H}
@@ -308,7 +344,7 @@ function PathDecisionMazeGame({ config, onComplete }: {
         {activeDecision && (
           <div className="absolute inset-0 bg-black/40 rounded-2xl flex items-center justify-center p-6">
             <div className="bg-white rounded-2xl shadow-xl p-5 space-y-3 max-w-xs w-full">
-              <p className="text-center text-sm font-medium text-muted-foreground">选一个正确的数字才能继续前进</p>
+              <p className="text-center text-sm font-medium text-muted-foreground">{lt("pick_prompt", locale)}</p>
               <div className="grid grid-cols-2 gap-2">
                 {activeDecision.options.map((opt, i) => (
                   <button
@@ -334,8 +370,8 @@ function PathDecisionMazeGame({ config, onComplete }: {
 // layout === "grid" —— 方格棋盘/跳格子
 // ============================================================
 
-function GridPathMazeGame({ config, onComplete }: {
-  config: NumberMazeConfig; onComplete: (r: NumberMazeResult) => void;
+function GridPathMazeGame({ config, onComplete, locale }: {
+  config: NumberMazeConfig; onComplete: (r: NumberMazeResult) => void; locale: Locale;
 }) {
   const rows = config.rows ?? 1, cols = config.cols ?? 1;
   const cells = config.cells ?? [];
@@ -394,7 +430,7 @@ function GridPathMazeGame({ config, onComplete }: {
     }
   }
 
-  const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
+  const timerLabel = config.timer_mode === "countdown" ? tt("time_left", locale) : tt("time_used", locale);
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
 
   if (finished) {
@@ -402,9 +438,9 @@ function GridPathMazeGame({ config, onComplete }: {
       <div className="text-center py-10">
         <div className="text-6xl">🔀</div>
         <div className="text-xl font-semibold mt-3 text-foreground">
-          {stepIndex === path.length - 1 ? `走到终点了！用时 ${timerValue.toFixed(1)} 秒` : `时间到，走了 ${stepIndex + 1} / ${path.length} 步`}
+          {stepIndex === path.length - 1 ? lt("grid_done", locale, { s: timerValue.toFixed(1) }) : lt("grid_time_up", locale, { a: stepIndex + 1, b: path.length })}
         </div>
-        <div className="text-sm text-muted-foreground mt-1">共错了 {mistakes} 次</div>
+        <div className="text-sm text-muted-foreground mt-1">{lt("grid_mistakes", locale, { n: mistakes })}</div>
       </div>
     );
   }
@@ -412,7 +448,7 @@ function GridPathMazeGame({ config, onComplete }: {
   return (
     <div className="max-w-2xl mx-auto w-full">
       <div className="flex justify-between items-center text-base font-medium text-muted-foreground mb-3 flex-wrap gap-2">
-        <span>🔀 数字迷宫　{stepIndex + 1}/{path.length}</span>
+        <span>{lt("grid_progress", locale, { a: stepIndex + 1, b: path.length })}</span>
         <span>⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
       {(config.question_i18n?.zh || config.question_i18n?.en) && (
@@ -449,7 +485,7 @@ function GridPathMazeGame({ config, onComplete }: {
           );
         })}
       </div>
-      <p className="text-center text-sm font-medium text-muted-foreground mt-2">点小鸡🐣旁边相邻的格子（上下左右），走对数字才能前进～</p>
+      <p className="text-center text-sm font-medium text-muted-foreground mt-2">{lt("grid_hint", locale)}</p>
     </div>
   );
 }
@@ -457,9 +493,9 @@ function GridPathMazeGame({ config, onComplete }: {
 // ============================================================
 // 入口——按 layout 分流
 // ============================================================
-export default function NumberMazeGame({ config, onComplete }: {
-  config: NumberMazeConfig; onComplete: (r: NumberMazeResult) => void;
+export default function NumberMazeGame({ config, onComplete, locale = "zh" }: {
+  config: NumberMazeConfig; onComplete: (r: NumberMazeResult) => void; locale?: Locale;
 }) {
-  if (config.layout === "grid") return <GridPathMazeGame config={config} onComplete={onComplete} />;
-  return <PathDecisionMazeGame config={config} onComplete={onComplete} />;
+  if (config.layout === "grid") return <GridPathMazeGame config={config} onComplete={onComplete} locale={locale} />;
+  return <PathDecisionMazeGame config={config} onComplete={onComplete} locale={locale} />;
 }
