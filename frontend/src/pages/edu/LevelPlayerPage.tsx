@@ -312,25 +312,25 @@ export default function LevelPlayerPage() {
 
           {(!isGameModule || playState !== "idle") && (
             <>
-              {level.module_type === "counting" && <CountingGame key={playKey} config={level.config as unknown as CountingConfig} onComplete={handleComplete} />}
-              {level.module_type === "spot_diff" && <SpotDiffGame key={playKey} config={level.config as unknown as SpotDiffConfig} onComplete={handleComplete} />}
-              {level.module_type === "focus_tap" && <FocusTapGame key={playKey} config={level.config as unknown as FocusTapConfig} onComplete={handleComplete} />}
-              {level.module_type === "memory" && <MemoryGame key={playKey} config={level.config as unknown as MemoryConfig} onComplete={handleComplete} />}
-              {level.module_type === "pattern" && <PatternGame key={playKey} config={level.config as unknown as PatternConfig} onComplete={handleComplete} />}
+              {level.module_type === "counting" && <CountingGame key={playKey} config={level.config as unknown as CountingConfig} onComplete={handleComplete} locale={locale} />}
+              {level.module_type === "spot_diff" && <SpotDiffGame key={playKey} config={level.config as unknown as SpotDiffConfig} onComplete={handleComplete} locale={locale} />}
+              {level.module_type === "focus_tap" && <FocusTapGame key={playKey} config={level.config as unknown as FocusTapConfig} onComplete={handleComplete} locale={locale} />}
+              {level.module_type === "memory" && <MemoryGame key={playKey} config={level.config as unknown as MemoryConfig} onComplete={handleComplete} locale={locale} />}
+              {level.module_type === "pattern" && <PatternGame key={playKey} config={level.config as unknown as PatternConfig} onComplete={handleComplete} locale={locale} />}
               {level.module_type === "word_problem" && levelId && <WordProblemGame key={playKey} levelId={levelId} config={level.config as unknown as WordProblemConfig} onComplete={handleComplete} locale={locale} />}
-              {level.module_type === "maze" && <MazeGame key={playKey} config={level.config as unknown as MazeConfig} onComplete={handleComplete} />}
-              {level.module_type === "number_maze" && <NumberMazeGame key={playKey} config={level.config as unknown as NumberMazeConfig} onComplete={handleComplete} />}
-              {level.module_type === "sudoku" && levelId && <SudokuGame key={playKey} levelId={levelId} config={level.config as unknown as SudokuConfig} onComplete={handleComplete} />}
-              {level.module_type === "line_match" && levelId && <LineMatchGame key={playKey} levelId={levelId} config={level.config as unknown as LineMatchConfig} onComplete={handleComplete} />}
-              {level.module_type === "coloring" && levelId && <ColoringGame key={playKey} levelId={levelId} config={level.config as unknown as ColoringConfig} onComplete={handleComplete} />}
-              {level.module_type === "sticker_game" && <StickerGame key={playKey} config={level.config as unknown as StickerGameConfig} onComplete={handleComplete} />}
+              {level.module_type === "maze" && <MazeGame key={playKey} config={level.config as unknown as MazeConfig} onComplete={handleComplete} locale={locale} />}
+              {level.module_type === "number_maze" && <NumberMazeGame key={playKey} config={level.config as unknown as NumberMazeConfig} onComplete={handleComplete} locale={locale} />}
+              {level.module_type === "sudoku" && levelId && <SudokuGame key={playKey} levelId={levelId} config={level.config as unknown as SudokuConfig} onComplete={handleComplete} locale={locale} />}
+              {level.module_type === "line_match" && levelId && <LineMatchGame key={playKey} levelId={levelId} config={level.config as unknown as LineMatchConfig} onComplete={handleComplete} locale={locale} />}
+              {level.module_type === "coloring" && levelId && <ColoringGame key={playKey} levelId={levelId} config={level.config as unknown as ColoringConfig} onComplete={handleComplete} locale={locale} />}
+              {level.module_type === "sticker_game" && <StickerGame key={playKey} config={level.config as unknown as StickerGameConfig} onComplete={handleComplete} locale={locale} />}
               {level.module_type === "cube_stack" && <CubeStackGame key={playKey} config={level.config as unknown as CubeStackConfig} onComplete={handleComplete} locale={locale} />}
               {level.module_type === "cube_layer_count" && <CubeLayerCountGame key={playKey} config={level.config as unknown as CubeLayerCountConfig} onComplete={handleComplete} locale={locale} />}
               {level.module_type === "cube_find_hidden" && <CubeFindHiddenGame key={playKey} config={level.config as unknown as CubeFindHiddenConfig} onComplete={handleComplete} locale={locale} />}
               {level.module_type === "cube_free_rotate" && <CubeFreeRotateGame key={playKey} config={level.config as unknown as CubeFreeRotateConfig} onComplete={handleComplete} locale={locale} />}
               {level.module_type === "cube_build" && <CubeBuildGame key={playKey} config={level.config as unknown as CubeBuildConfig} onComplete={handleComplete} locale={locale} />}
               {level.module_type === "cube_three_view" && <CubeThreeViewGame key={playKey} config={level.config as unknown as CubeThreeViewConfig} onComplete={handleComplete} locale={locale} />}
-              {level.module_type === "shape_count" && <ShapeCountGame key={playKey} config={level.config as unknown as ShapeCountConfig} onComplete={handleComplete} />}
+              {level.module_type === "shape_count" && <ShapeCountGame key={playKey} config={level.config as unknown as ShapeCountConfig} onComplete={handleComplete} locale={locale} />}
               {level.module_type === "clock" && <ClockGame key={playKey} config={level.config as unknown as ClockConfig} onComplete={handleComplete} />}
               {level.module_type === "latin_square" && <LatinSquareGame key={playKey} config={level.config as unknown as LatinSquareConfig} onComplete={handleComplete} />}
 
@@ -448,4 +448,4 @@ export default function LevelPlayerPage() {
     </div>
   );
 }
-
+git 
