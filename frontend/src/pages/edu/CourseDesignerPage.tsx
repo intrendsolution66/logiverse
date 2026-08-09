@@ -8,7 +8,7 @@
 // existing scale instead of ad-hoc inline styles.
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Boxes, Rows3, Eye, RotateCw, Hammer, Frame, Square, Clock, Grid2x2, ListOrdered, TreePine, Search, Scale, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
+import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Boxes, Rows3, Eye, RotateCw, Hammer, Frame, Square, Clock, Grid2x2, ListOrdered, TreePine, Search, Scale, Plus, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { eduApi, lessonsApi, exerciseClassificationApi, taxonomyApi } from "@/api";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
@@ -69,6 +69,7 @@ const MODULE_LABELS: Record<string, { emoji: string; label: string }> = {
   number_sequence:  { emoji: "🔢", label: "数列填空" },
   number_bond:      { emoji: "🌳", label: "数的分解与合成" },
   number_compare:   { emoji: "⚖️", label: "数字比大小" },
+  number_addition:  { emoji: "➕", label: "加法算式" },
 };
 
 // 每个游戏类型一个专属色系——像玩具架上的游戏卡带，一眼就能从颜色分辨
@@ -103,6 +104,7 @@ const MODULE_COLORS: Record<string, { bg: string; text: string; ring: string }> 
   number_sequence:  { bg: "#FEF08A", text: "#854D0E", ring: "#EAB308" },
   number_bond:      { bg: "#BFDBFE", text: "#1E3A8A", ring: "#3B82F6" },
   number_compare:   { bg: "#FDE68A", text: "#78350F", ring: "#D97706" },
+  number_addition:  { bg: "#A7F3D0", text: "#065F46", ring: "#10B981" },
 };
 const FALLBACK_COLOR = { bg: "#F1F5F9", text: "#334155", ring: "#94A3B8" };
 
@@ -116,7 +118,7 @@ const MODULE_ICONS: Record<string, LucideIcon> = {
   play_along: Music2, sticker_game: Sticker, cube_stack: Boxes,
   cube_layer_count: Rows3, cube_find_hidden: Eye, cube_free_rotate: RotateCw,
   cube_build: Hammer, cube_three_view: Frame, shape_count: Square, clock: Clock, latin_square: Grid2x2,
-  number_find: Search, number_sequence: ListOrdered, number_bond: TreePine, number_compare: Scale,
+  number_find: Search, number_sequence: ListOrdered, number_bond: TreePine, number_compare: Scale, number_addition: Plus,
 };
 
 function readAsDataURL(file: File): Promise<string> {
@@ -2157,7 +2159,7 @@ function PlayAlongMarkerEditor({ pages, audioUrl, markers, setMarkers, currentPa
 // 里用 typeof moduleType 反过来引用它自己（TS 处理不了这种循环引用，
 // 会报 "implicitly has type any"）。这两个地方（下面 useState 的初始值、
 // presetModuleType 转型）都要用这个命名类型，不要图省事写 typeof。
-type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game" | "cube_stack" | "cube_layer_count" | "cube_find_hidden" | "cube_free_rotate" | "cube_build" | "cube_three_view" | "shape_count" | "clock" | "latin_square" | "number_find" | "number_sequence" | "number_bond" | "number_compare";
+type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game" | "cube_stack" | "cube_layer_count" | "cube_find_hidden" | "cube_free_rotate" | "cube_build" | "cube_three_view" | "shape_count" | "clock" | "latin_square" | "number_find" | "number_sequence" | "number_bond" | "number_compare" | "number_addition";
 
 function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleType }: {
   open: boolean; onClose: () => void; editingLevelId?: string | null; onSaved: () => void;
@@ -2325,7 +2327,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   // 数独）共用同一个"自定义题目句子"栏位——一次只编辑一个 Activity，共用
   // 一个 state 就够了，不用给每个模块各开一个。counting 自己已经有独立的
   // 一套（上面那个 countingQuestionText），这里不重复。
-  const CUSTOM_QUESTION_MODULES = ["spot_diff", "focus_tap", "memory", "pattern", "maze", "coloring", "line_match", "sudoku", "shape_count", "number_find", "number_sequence", "number_bond", "number_compare"];
+  const CUSTOM_QUESTION_MODULES = ["spot_diff", "focus_tap", "memory", "pattern", "maze", "coloring", "line_match", "sudoku", "shape_count", "number_find", "number_sequence", "number_bond", "number_compare", "number_addition"];
   // 自定义题目文字——同样从单一输入框改成三语言对象，跟标题那边同一个
   // 处理方式。buildQuestionI18n() 三个语言都没填时回传undefined(维持
   // "没设置自定义题目文字，用模块自己默认文案"这个原本的行为)。
@@ -2396,6 +2398,10 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   const [numberCompareIcons, setNumberCompareIcons] = useState<string[]>([]);
   const [numberCompareMin, setNumberCompareMin] = useState(1);
   const [numberCompareMax, setNumberCompareMax] = useState(10);
+  // number_addition fields
+  const [numberAdditionIcons, setNumberAdditionIcons] = useState<string[]>([]);
+  const [numberAdditionMin, setNumberAdditionMin] = useState(1);
+  const [numberAdditionMax, setNumberAdditionMax] = useState(5);
 
   // word_problem fields
   const [wpCategories, setWpCategories] = useState<string[]>(["chicken_rabbit"]);
@@ -2995,6 +3001,12 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         setNumberCompareMax((cfg.number_max as number) ?? 10);
         setCubeStackStartingLevel((cfg.starting_level as number) ?? 1);
         setTotalQuestions((cfg.total_questions as number) ?? 5);
+      } else if (level.module_type === "number_addition") {
+        setNumberAdditionIcons((cfg.icon_urls as string[]) ?? []);
+        setNumberAdditionMin((cfg.number_min as number) ?? 1);
+        setNumberAdditionMax((cfg.number_max as number) ?? 5);
+        setCubeStackStartingLevel((cfg.starting_level as number) ?? 1);
+        setTotalQuestions((cfg.total_questions as number) ?? 5);
       } else if (level.module_type === "word_problem") {
         setWpCategories((cfg.categories as string[]) ?? ["chicken_rabbit"]);
         setWpAnswerMode(((cfg.answer_mode as string) ?? "select") as "select" | "input");
@@ -3554,6 +3566,22 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
           config: {
             icon_urls: numberCompareIcons, number_min: numberCompareMin, number_max: numberCompareMax,
+            starting_level: cubeStackStartingLevel, total_questions: totalQuestions, timer_mode: "stopwatch",
+            question_i18n: buildQuestionI18n(),
+          },
+        });
+      } else if (moduleType === "number_addition") {
+        if (numberAdditionIcons.length === 0) { toast.error("请至少上传1张图标图片"); return; }
+        await saveLevel({
+          module_type: "number_addition",
+          title_i18n: buildTitleI18n("加法算式", "Number Addition"),
+          explanation_text: explanationText || undefined,
+          explanation_image_url: explanationImageUrl || undefined,
+          explanation_video_url: explanationVideoUrl || undefined,
+          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: {
+            icon_urls: numberAdditionIcons, number_min: numberAdditionMin, number_max: numberAdditionMax,
             starting_level: cubeStackStartingLevel, total_questions: totalQuestions, timer_mode: "stopwatch",
             question_i18n: buildQuestionI18n(),
           },
@@ -4718,6 +4746,45 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             </div>
             <p className="text-xs text-muted-foreground">
               给两组图标，学生数一数、选出正确的比较符号(&lt; = &gt;)。难度决定"同时比几组"(1-4级一组，5-7级两组，8-10级三组以上)。系统会故意让约三分之一的题目两边数量相等，确保"="这个符号也有机会练到。
+            </p>
+          </div>
+        )}
+
+        {moduleType === "number_addition" && (
+          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Plus size={16} className="text-primary" /> 加法算式 · 内容设置
+            </div>
+            <div className="space-y-2">
+              <span className="text-xs text-muted-foreground block">图标（至少1张，多张时每道算式随机挑一张用）</span>
+              <div className="flex flex-wrap gap-2">
+                {numberAdditionIcons.map((url, i) => (
+                  <div key={i} className="relative w-14 h-14 rounded-lg border border-border overflow-hidden group">
+                    <img src={url} alt="" className="w-full h-full object-contain" />
+                    <button
+                      type="button" onClick={() => setNumberAdditionIcons((arr) => arr.filter((_, idx) => idx !== i))}
+                      className="absolute inset-0 bg-black/50 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                    >
+                      删除
+                    </button>
+                  </div>
+                ))}
+                <AssetPicker category="object" label="🧸 加一张" moduleType="number_addition" onSelect={(url) => setNumberAdditionIcons((arr) => [...arr, url])} />
+              </div>
+            </div>
+            <div className="flex gap-3 flex-wrap items-center">
+              <label className="flex items-center gap-1.5">每个加数范围
+                <input type="number" min={0} value={numberAdditionMin} onChange={(e) => setNumberAdditionMin(Math.max(0, +e.target.value))} className={`${MINI_INPUT_CLASS} w-16`} />
+                <span className="text-muted-foreground">～</span>
+                <input type="number" value={numberAdditionMax} onChange={(e) => setNumberAdditionMax(+e.target.value)} className={`${MINI_INPUT_CLASS} w-16`} />
+              </label>
+              <label className="flex items-center gap-1.5">起始难度等级
+                <input type="number" min={1} max={10} value={cubeStackStartingLevel} onChange={(e) => setCubeStackStartingLevel(Math.min(10, Math.max(1, +e.target.value)))} className={MINI_INPUT_CLASS} />
+              </label>
+              <label className="flex items-center gap-1.5">题数 <input type="number" value={totalQuestions} onChange={(e) => setTotalQuestions(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              经典"图1 + 图2 = ?"横向算式练习，两个加数永远用图片给好(数一数就知道)，只留答案这一个空。难度决定"同时出几道算式"(1-4级一道，5-7级两道，8-10级三道以上)。
             </p>
           </div>
         )}
@@ -5915,5 +5982,4 @@ export default function CourseDesignerPage() {
     </div>
   );
 }
-
 
