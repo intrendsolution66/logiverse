@@ -26,7 +26,7 @@
 // i18n: zh/en/ms 已支持 — 见 frontend/src/lib/gameLocale.ts
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import HanziWriter from "hanzi-writer";
+import HanziWriter, { type CharDataLoaderFn } from "hanzi-writer";
 import { eduApi } from "@/api";
 import { type Locale, type Dict, t, questionProgress } from "@/lib/gameLocale";
 
@@ -89,11 +89,13 @@ function pickCharacters(pool: string[], count: number): string[] {
 // json发回来。用这个方式而不是前端静态文件，是为了让designer在
 // CourseDesignerPage随便加什么常用字都能立刻用，不需要额外跑脚本、
 // 重新部署那一步——见 backend/src/modules/edu/hanzi.controller.ts。
-const charDataLoader = (
-  char: string,
-  onLoad: (data: unknown) => void,
-  onError: (err?: unknown) => void
-) => {
+//
+// 类型标注直接用 hanzi-writer 库自己导出的 CharDataLoaderFn，而不是自
+// 己随手写 unknown——这样 onLoad/onError 的参数类型由库本身的类型定义
+// 推导出来(具体是 CharacterJson 这个形状：{strokes, medians, radStrokes?})，
+// 跟库内部真正调用这个函数的地方类型对得上，不会出现"类型不兼容"的
+// 编译错误。
+const charDataLoader: CharDataLoaderFn = (char, onLoad, onError) => {
   eduApi.getHanziStrokeData(char).then(onLoad).catch(onError);
 };
 

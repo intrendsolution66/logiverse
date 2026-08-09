@@ -6072,6 +6072,7 @@ export default function CourseDesignerPage() {
         presetModuleType={viewMode === "list" ? activeModuleType : null}
         onSaved={handleModalSaved}
       />
+      
     </div>
   );
 }
