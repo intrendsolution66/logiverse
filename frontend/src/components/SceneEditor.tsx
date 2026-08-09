@@ -291,8 +291,21 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   function ensureImgLoaded(url: string) {
     if (imgCacheRef.current.has(url)) return;
     const img = new Image();
-    img.crossOrigin = "anonymous"; // 图片可能来自不同源（比如后端:4000 vs 前端:3000），不设这个的话画到canvas上之后会被浏览器判定"跨域污染"，之后所有 toDataURL/getImageData 都会报错
+    // crossOrigin 只在图片真的来自"别的源"（比如素材库选的图，网址指向
+    // 后端服务器）时才需要——不设的话画到canvas上之后会被浏览器判定
+    // "跨域污染"，之后所有 toDataURL/getImageData 都会报错。但本地上传
+    // 生成的是 data: 网址(base64编码的图片数据，不是真正的网络请求)，
+    // 本身就不存在跨域这回事——给 data: 网址也设 crossOrigin 反而会导致
+    // 浏览器加载失败(而且失败得无声无息，因为下面这行以前没有 onerror
+    // 处理，图裂了都不会有任何提示，这正是"从电脑上传背景图卡住、完全
+    // 没反应"这个问题的根源——素材库选图不受影响是因为那边给的一直是
+    // 真正的HTTP网址，只有本地上传这条路径会踩到这个坑)。
+    if (!url.startsWith("data:")) img.crossOrigin = "anonymous";
     img.onload = () => forceRedraw((n) => n + 1);
+    img.onerror = () => {
+      imgCacheRef.current.delete(url); // 加载失败别缓存住，不然下次同一张图连重试的机会都没有
+      toast.error("图片加载失败，请换一张再试");
+    };
     img.src = url;
     imgCacheRef.current.set(url, img);
   }
