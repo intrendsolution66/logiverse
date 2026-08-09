@@ -17,8 +17,30 @@
 // 难度曲线：等级决定"分钟只能是几的倍数"——等级1-3只有整点(0)，4-6是
 // 半点(0/30)，7-8是刻钟(0/15/30/45)，9-10任意5分钟刻度。小时永远是
 // 1-12(12小时制，不是24小时)，这是小孩子认钟表通常学的范围。
+//
+// i18n: zh/en/ms 已支持 — 见 frontend/src/lib/gameLocale.ts
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { type Locale, type Dict, t, questionProgress } from "@/lib/gameLocale";
+
+const LOCAL: Record<string, Dict> = {
+  read_prompt:    { zh: "钟面现在是几点？", en: "What time does the clock show?", ms: "Pukul berapakah jam sekarang?" },
+  set_prompt:     { zh: "请把钟面拨到 {h} 点 {m} 分", en: "Set the clock to {h}:{m2}", ms: "Tetapkan jam kepada pukul {h}:{m2}" },
+  submit:         { zh: "✅ 提交", en: "✅ Submit", ms: "✅ Hantar" },
+  correct_level_up: { zh: "🎉 答对了！难度提升一级", en: "🎉 Correct! Level up", ms: "🎉 Betul! Naik tahap" },
+  wrong_answer_was: { zh: "正确答案是 {h} 点 {m} 分（难度降一级）", en: "The correct time is {h}:{m2} (level down)", ms: "Masa yang betul ialah {h}:{m2} (tahap turun)" },
+  next_question:  { zh: "下一题", en: "Next question", ms: "Soalan seterusnya" },
+  practice_done:  { zh: "练习完成！答对 {c} / {n} 题", en: "Practice complete! {c} / {n} correct", ms: "Latihan selesai! {c} / {n} betul" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
+// 英文/马来文习惯用 H:MM 补零格式，中文"3点5分"不用补零
+function pad2(n: number): string { return String(n).padStart(2, "0"); }
 
 export type ClockMode = "read" | "set";
 export interface ClockConfig {
@@ -123,28 +145,30 @@ function ClockFace({ hour, minute, size = 220 }: { hour: number; minute: number;
 }
 
 // ── 小时/分钟调整器——read/set两种模式共用同一个组件，只是文案不同 ──────────────
-function TimeAdjuster({ hour, minute, minuteStep, onChangeHour, onChangeMinute, disabled }: {
+function TimeAdjuster({ hour, minute, minuteStep, onChangeHour, onChangeMinute, disabled, locale }: {
   hour: number; minute: number; minuteStep: number;
-  onChangeHour: (h: number) => void; onChangeMinute: (m: number) => void; disabled: boolean;
+  onChangeHour: (h: number) => void; onChangeMinute: (m: number) => void; disabled: boolean; locale: Locale;
 }) {
+  const hourLabel = locale === "zh" ? `${hour}点` : String(hour);
+  const minuteLabel = locale === "zh" ? `${minute}分` : pad2(minute);
   return (
     <div className="flex items-center justify-center gap-6 flex-wrap">
       <div className="flex items-center gap-2">
         <button disabled={disabled} onClick={() => onChangeHour(hour === 1 ? 12 : hour - 1)} className="w-10 h-10 rounded-lg border-2 border-border bg-card text-lg font-semibold disabled:opacity-50">−</button>
-        <span className="w-16 text-center text-2xl font-bold">{hour}点</span>
+        <span className="w-16 text-center text-2xl font-bold">{hourLabel}</span>
         <button disabled={disabled} onClick={() => onChangeHour(hour === 12 ? 1 : hour + 1)} className="w-10 h-10 rounded-lg border-2 border-border bg-card text-lg font-semibold disabled:opacity-50">+</button>
       </div>
       <div className="flex items-center gap-2">
         <button disabled={disabled} onClick={() => onChangeMinute((minute - minuteStep + 60) % 60)} className="w-10 h-10 rounded-lg border-2 border-border bg-card text-lg font-semibold disabled:opacity-50">−</button>
-        <span className="w-20 text-center text-2xl font-bold">{minute}分</span>
+        <span className="w-20 text-center text-2xl font-bold">{minuteLabel}</span>
         <button disabled={disabled} onClick={() => onChangeMinute((minute + minuteStep) % 60)} className="w-10 h-10 rounded-lg border-2 border-border bg-card text-lg font-semibold disabled:opacity-50">+</button>
       </div>
     </div>
   );
 }
 
-export default function ClockGame({ config, onComplete }: {
-  config: ClockConfig; onComplete: (r: ClockResult) => void;
+export default function ClockGame({ config, onComplete, locale = "zh" }: {
+  config: ClockConfig; onComplete: (r: ClockResult) => void; locale?: Locale;
 }) {
   const [qIndex, setQIndex] = useState(0);
   const [level, setLevel] = useState(() => Math.min(LEVEL_MAX, Math.max(1, config.starting_level || 1)));
@@ -222,7 +246,7 @@ export default function ClockGame({ config, onComplete }: {
     }
   }
 
-  const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
+  const timerLabel = config.timer_mode === "countdown" ? t("time_left", locale) : t("time_used", locale);
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
   const accuracy = correctCount + mistakeCount > 0 ? Math.round((correctCount / (correctCount + mistakeCount)) * 100) : 0;
 
@@ -231,9 +255,9 @@ export default function ClockGame({ config, onComplete }: {
       <div className="text-center py-10">
         <div className="text-6xl">🕐</div>
         <div className="text-xl font-semibold mt-3 text-foreground">
-          练习完成！答对 {correctCount} / {config.total_questions} 题
+          {lt("practice_done", locale, { c: correctCount, n: config.total_questions })}
         </div>
-        <div className="text-sm text-muted-foreground mt-1">最长连对 {bestStreak} 题　结束时等级 Lv.{level}</div>
+        <div className="text-sm text-muted-foreground mt-1">{t("best_streak", locale)} {bestStreak}　{t("ending_level", locale)} Lv.{level}</div>
       </div>
     );
   }
@@ -249,12 +273,12 @@ export default function ClockGame({ config, onComplete }: {
   return (
     <div className="max-w-xl mx-auto w-full">
       <div className="flex justify-between text-base font-medium text-muted-foreground mb-3 flex-wrap gap-1">
-        <span>第 {qIndex} / {config.total_questions} 题　Lv.{level}</span>
-        <span>✅ 正确率 {accuracy}%　🔥 连对 {streak}　⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
+        <span>{questionProgress(qIndex, config.total_questions, locale)}　Lv.{level}</span>
+        <span>✅ {t("accuracy", locale)} {accuracy}%　🔥 {t("streak", locale)} {streak}　⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
 
       <p className="text-center text-lg font-semibold text-foreground mb-3">
-        {puzzle.mode === "read" ? "钟面现在是几点？" : `请把钟面拨到 ${puzzle.hour} 点 ${puzzle.minute} 分`}
+        {puzzle.mode === "read" ? lt("read_prompt", locale) : lt("set_prompt", locale, { h: puzzle.hour, m: locale === "zh" ? puzzle.minute : pad2(puzzle.minute) })}
       </p>
 
       <div className="bg-white dark:bg-card rounded-2xl p-5 mb-4 shadow-lg ring-1 ring-black/5">
@@ -266,14 +290,14 @@ export default function ClockGame({ config, onComplete }: {
           <TimeAdjuster
             hour={guessHour} minute={guessMinute} minuteStep={puzzle.minuteStep}
             onChangeHour={setGuessHour} onChangeMinute={setGuessMinute}
-            disabled={answered}
+            disabled={answered} locale={locale}
           />
           <div className="flex justify-center mt-4">
             <button
               onClick={submitAnswer}
               className="text-lg font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground transition-colors"
             >
-              ✅ 提交
+              {lt("submit", locale)}
             </button>
           </div>
         </>
@@ -283,14 +307,14 @@ export default function ClockGame({ config, onComplete }: {
             correct ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400"
             : "bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-400"
           }`}>
-            {correct ? "🎉 答对了！难度提升一级" : `正确答案是 ${puzzle.hour} 点 ${puzzle.minute} 分（难度降一级）`}
+            {correct ? lt("correct_level_up", locale) : lt("wrong_answer_was", locale, { h: puzzle.hour, m: locale === "zh" ? puzzle.minute : pad2(puzzle.minute) })}
           </div>
           <div className="flex justify-center">
             <button
               onClick={nextQuestion}
               className="text-lg font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground transition-colors"
             >
-              下一题
+              {lt("next_question", locale)}
             </button>
           </div>
         </div>
