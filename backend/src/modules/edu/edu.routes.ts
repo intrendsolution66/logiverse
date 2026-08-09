@@ -46,6 +46,7 @@ import { listLessons, createLesson, updateLesson, deleteLesson, getLesson, creat
 import { listActivitiesWithData, purgeActivity, purgeActivitiesBulk } from "./dataCleanup.controller.js";
 import { listAssets, getAsset, createAsset, updateAsset, deleteAsset, listAllTags, convertPptToSlides } from "./assets.controller.js";
 import { listParentPreviewCourses, getParentPreviewCourse, listParentPreviewTopics, listParentPreviewActivities } from "./parentPreview.controller.js";
+import { getHanziStrokeData } from "./hanzi.controller.js";
 
 const router = Router();
 
@@ -212,4 +213,10 @@ router.get("/parent-preview/courses", authenticate, listParentPreviewCourses);
 router.get("/parent-preview/courses/:courseId", authenticate, getParentPreviewCourse);
 router.get("/parent-preview/topics",     authenticate, listParentPreviewTopics);     // ?programme_id=&subject_id=&grade_tier_id=
 router.get("/parent-preview/activities", authenticate, listParentPreviewActivities); // ?category_id=xxx&grade_tier_id=
+
+// ── 中文字笔顺练习 (笔顺数据来自后端node_modules里的hanzi-writer-data，
+//    不是前端静态文件——designer在CourseDesignerPage加新字，立刻能用，
+//    不需要额外的数据提取/重新部署步骤，见hanzi.controller.ts文件头) ──
+router.get("/hanzi-data/:char", authenticate, getHanziStrokeData);
+
 export default router;

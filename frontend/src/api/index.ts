@@ -565,6 +565,12 @@ export const eduApi = {
       id: string; exercise_number?: string; title_i18n?: Record<string,string>;
       module_type: string; difficulty?: string; duration_minutes?: number;
     }>>),
+
+  // ── 中文字笔顺练习 ──────────────────────────────────────────────────────────
+  // 笔顺数据来自后端自己的node_modules(hanzi-writer-data)，不是前端静态
+  // 文件——见 ChineseStrokeGame.tsx 的 charDataLoader 怎么用这个方法。
+  getHanziStrokeData: (char: string) =>
+    api.get(`/hanzi-data/${encodeURIComponent(char)}`).then(d<{ strokes: string[]; medians: number[][][] }>),
 };
 
 // ── Orgs (school/branch) ──────────────────────────────────────────────────────
