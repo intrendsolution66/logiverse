@@ -17,6 +17,15 @@
 import type { Request, Response } from "express";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+
+// 项目用的是 ES Module("type": "module")，不是 CommonJS——__dirname 这个
+// 变量是CommonJS专属的全局变量，ESM模式下根本不存在，直接用会导致整个
+// 后端进程启动时崩溃(ReferenceError: __dirname is not defined)。ESM底下
+// 要拿"这个文件所在目录"，得从 import.meta.url 这个ESM才有的东西，手动
+// 转换出来。
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // hanzi-writer-data 装在后端根目录的 node_modules 里(package.json的
 // dependencies)，__dirname 是这个文件编译后所在的目录(dist/modules/edu/)，
