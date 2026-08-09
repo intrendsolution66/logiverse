@@ -13,8 +13,28 @@
 // 判定：直接跟生成时留存的这份完整方阵比对(不是"任何合法拉丁方阵都算
 // 对"，是"必须填出跟生成的这一份一样")，逻辑最简单，小孩子的练习也
 // 不需要真的做"多解验证"。
+//
+// i18n: zh/en/ms 已支持 — 见 frontend/src/lib/gameLocale.ts
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { type Locale, type Dict, t, questionProgress } from "@/lib/gameLocale";
+
+const LOCAL: Record<string, Dict> = {
+  no_repeat_hint: { zh: "每一行、每一列的图形都不能重复哦", en: "No shape can repeat in any row or column", ms: "Tiada bentuk boleh berulang dalam mana-mana baris atau lajur" },
+  pick_prompt:    { zh: "选一个图形放进去", en: "Pick a shape to place here", ms: "Pilih bentuk untuk diletakkan di sini" },
+  submit:         { zh: "✅ 提交", en: "✅ Submit", ms: "✅ Hantar" },
+  next_question:  { zh: "下一题", en: "Next question", ms: "Soalan seterusnya" },
+  correct_level_up: { zh: "🎉 全部排对了！难度提升一级", en: "🎉 All correct! Level up", ms: "🎉 Semua betul! Naik tahap" },
+  wrong_level_down: { zh: "有几格不对哦，红色标出来了（难度降一级）", en: "Some cells are wrong — shown in red (level down)", ms: "Ada sel yang salah — ditunjukkan merah (tahap turun)" },
+  practice_done:  { zh: "练习完成！答对 {c} / {n} 题", en: "Practice complete! {c} / {n} correct", ms: "Latihan selesai! {c} / {n} betul" },
+};
+function lt(key: string, locale: Locale, vars?: Record<string, string | number>): string {
+  const entry = LOCAL[key];
+  if (!entry) return key;
+  let s = entry[locale] ?? entry.zh;
+  if (vars) Object.entries(vars).forEach(([k, v]) => { s = s.replaceAll(`{${k}}`, String(v)); });
+  return s;
+}
 
 export type LatinTheme = "shape" | "animal" | "fruit" | "emotion";
 export interface LatinSquareConfig {
@@ -87,8 +107,8 @@ function genPuzzle(level: number, theme: LatinTheme): Puzzle {
   return { n, icons, solution: grid, blanks };
 }
 
-export default function LatinSquareGame({ config, onComplete }: {
-  config: LatinSquareConfig; onComplete: (r: LatinSquareResult) => void;
+export default function LatinSquareGame({ config, onComplete, locale = "zh" }: {
+  config: LatinSquareConfig; onComplete: (r: LatinSquareResult) => void; locale?: Locale;
 }) {
   const [qIndex, setQIndex] = useState(0);
   const [level, setLevel] = useState(() => Math.min(LEVEL_MAX, Math.max(1, config.starting_level || 1)));
@@ -177,16 +197,16 @@ export default function LatinSquareGame({ config, onComplete }: {
       setCorrectCount((c) => c + 1);
       setStreak((s) => { const next = s + 1; setBestStreak((b) => Math.max(b, next)); return next; });
       setLevel((lv) => Math.min(LEVEL_MAX, lv + 1));
-      setStatus({ msg: "🎉 全部排对了！难度提升一级", kind: "good" });
+      setStatus({ msg: lt("correct_level_up", locale), kind: "good" });
     } else {
       setMistakeCount((m) => m + 1);
       setStreak(0);
       setLevel((lv) => Math.max(1, lv - 1));
-      setStatus({ msg: "有几格不对哦，红色标出来了（难度降一级）", kind: "bad" });
+      setStatus({ msg: lt("wrong_level_down", locale), kind: "bad" });
     }
   }
 
-  const timerLabel = config.timer_mode === "countdown" ? "剩余" : "用时";
+  const timerLabel = config.timer_mode === "countdown" ? t("time_left", locale) : t("time_used", locale);
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
   const accuracy = correctCount + mistakeCount > 0 ? Math.round((correctCount / (correctCount + mistakeCount)) * 100) : 0;
 
@@ -195,9 +215,9 @@ export default function LatinSquareGame({ config, onComplete }: {
       <div className="text-center py-10">
         <div className="text-6xl">🧩</div>
         <div className="text-xl font-semibold mt-3 text-foreground">
-          练习完成！答对 {correctCount} / {config.total_questions} 题
+          {lt("practice_done", locale, { c: correctCount, n: config.total_questions })}
         </div>
-        <div className="text-sm text-muted-foreground mt-1">最长连对 {bestStreak} 题　结束时等级 Lv.{level}</div>
+        <div className="text-sm text-muted-foreground mt-1">{t("best_streak", locale)} {bestStreak}　{t("ending_level", locale)} Lv.{level}</div>
       </div>
     );
   }
@@ -207,11 +227,11 @@ export default function LatinSquareGame({ config, onComplete }: {
   return (
     <div className="max-w-xl mx-auto w-full">
       <div className="flex justify-between text-base font-medium text-muted-foreground mb-3 flex-wrap gap-1">
-        <span>第 {qIndex} / {config.total_questions} 题　Lv.{level}　{puzzle.n}×{puzzle.n}</span>
-        <span>✅ 正确率 {accuracy}%　🔥 连对 {streak}　⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
+        <span>{questionProgress(qIndex, config.total_questions, locale)}　Lv.{level}　{puzzle.n}×{puzzle.n}</span>
+        <span>✅ {t("accuracy", locale)} {accuracy}%　🔥 {t("streak", locale)} {streak}　⏱️ {timerLabel} {timerValue.toFixed(1)}s</span>
       </div>
 
-      <p className="text-center text-sm text-muted-foreground mb-3">每一行、每一列的图形都不能重复哦</p>
+      <p className="text-center text-sm text-muted-foreground mb-3">{lt("no_repeat_hint", locale)}</p>
 
       <div className="bg-white dark:bg-card rounded-2xl p-3 mb-4 shadow-lg ring-1 ring-black/5">
         <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${puzzle.n}, minmax(0, 1fr))` }}>
@@ -245,7 +265,7 @@ export default function LatinSquareGame({ config, onComplete }: {
       {pickerCell && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setPickerCell(null)}>
           <div className="bg-card rounded-2xl p-4 shadow-xl max-w-xs w-full" onClick={(e) => e.stopPropagation()}>
-            <p className="text-center text-sm font-medium text-muted-foreground mb-3">选一个图形放进去</p>
+            <p className="text-center text-sm font-medium text-muted-foreground mb-3">{lt("pick_prompt", locale)}</p>
             <div className="grid grid-cols-4 gap-2">
               {puzzle.icons.map((icon, idx) => (
                 <button
@@ -269,7 +289,7 @@ export default function LatinSquareGame({ config, onComplete }: {
             disabled={!allBlanksFilled}
             className="text-lg font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground disabled:opacity-50 transition-colors"
           >
-            ✅ 提交
+            {lt("submit", locale)}
           </button>
         </div>
       ) : (
@@ -278,7 +298,7 @@ export default function LatinSquareGame({ config, onComplete }: {
             onClick={nextQuestion}
             className="text-lg font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground transition-colors"
           >
-            下一题
+            {lt("next_question", locale)}
           </button>
         </div>
       )}

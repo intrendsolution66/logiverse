@@ -330,7 +330,7 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
     const categoryIds = Array.from(new Set((category_ids && category_ids.length ? category_ids : (category_id ? [category_id] : [])).filter(Boolean)));
     const primaryCategoryId = categoryIds[0] ?? null; // 旧栏位/编号生成还是要挑一个"主"分类，用第一个
 
-    const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "ppt_lecture", "video_lecture", "play_along", "sticker_game", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count", "clock", "latin_square"];
+    const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "ppt_lecture", "video_lecture", "play_along", "sticker_game", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count", "clock", "latin_square", "number_find", "number_sequence", "number_bond", "number_compare"];
     if (!SUPPORTED.includes(module_type)) {
       badRequest(res, `Unsupported module_type: ${module_type} (supported: ${SUPPORTED.join(", ")})`);
       return;
@@ -664,6 +664,48 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
           `INSERT INTO edu.latin_square_configs (starting_level, total_questions, theme, timer_mode, time_limit)
            VALUES ($1,$2,$3,$4,$5) RETURNING id`,
           [startingLevel, cfg.total_questions ?? 5, cfg.theme ?? "shape", cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "number_find") { // 数字大搜寻——grid模式纯生成，custom模式的背景图/装饰物件是纯装饰authored内容
+        const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+        const layout = (cfg.layout as string) === "custom" ? "custom" : "grid";
+        if (layout === "custom" && !cfg.bg_image_url) throw new Error("自定义画面模式要先选一张背景图");
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.number_find_configs (layout, bg_image_url, decorations, grid_area, target_count, number_min, number_max, starting_level, total_questions, timer_mode, time_limit, question_i18n)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+          [layout, cfg.bg_image_url ?? null, cfg.decorations ? JSON.stringify(cfg.decorations) : null, cfg.grid_area ? JSON.stringify(cfg.grid_area) : null,
+           cfg.target_count ?? 1, cfg.number_min ?? 1, cfg.number_max ?? 10, startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
+           cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "number_sequence") { // 数列填空——纯生成参数，没有素材图
+        const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.number_sequence_configs (starting_level, total_questions, timer_mode, time_limit, question_i18n)
+           VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+          [startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "number_bond") { // 数的分解与合成——icon_urls是designer上传的图标，数量/拆分是现场生成
+        const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+        const iconUrls = cfg.icon_urls as string[] | undefined;
+        if (!iconUrls?.length) throw new Error("请至少上传1张图标图片");
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.number_bond_configs (icon_urls, number_min, number_max, starting_level, total_questions, timer_mode, time_limit, question_i18n)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+          [JSON.stringify(iconUrls), cfg.number_min ?? 2, cfg.number_max ?? 10, startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
+           cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "number_compare") { // 数字比大小——icon_urls是designer上传的图标，两边数量/比较符号是现场生成
+        const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+        const iconUrls = cfg.icon_urls as string[] | undefined;
+        if (!iconUrls?.length) throw new Error("请至少上传1张图标图片");
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.number_compare_configs (icon_urls, number_min, number_max, starting_level, total_questions, timer_mode, time_limit, question_i18n)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+          [JSON.stringify(iconUrls), cfg.number_min ?? 1, cfg.number_max ?? 10, startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
+           cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
         );
         configId = cfgRows[0].id;
       } else if (module_type === "cube_stack") { // 生成参数，不是authored内容——没有素材图/隐藏答案，题目运行时现场生成
@@ -1059,6 +1101,40 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
             `UPDATE edu.latin_square_configs SET starting_level=$2, total_questions=$3, theme=$4, timer_mode=$5, time_limit=$6 WHERE id=$1`,
             [module_config_id, startingLevel, cfg.total_questions ?? 5, cfg.theme ?? "shape", cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
           );
+        } else if (module_type === "number_find") {
+          const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+          const layout = (cfg.layout as string) === "custom" ? "custom" : "grid";
+          if (layout === "custom" && !cfg.bg_image_url) throw new Error("自定义画面模式要先选一张背景图");
+          await client.query(
+            `UPDATE edu.number_find_configs SET layout=$2, bg_image_url=$3, decorations=$4, grid_area=$5, target_count=$6, number_min=$7, number_max=$8, starting_level=$9, total_questions=$10, timer_mode=$11, time_limit=$12, question_i18n=$13 WHERE id=$1`,
+            [module_config_id, layout, cfg.bg_image_url ?? null, cfg.decorations ? JSON.stringify(cfg.decorations) : null, cfg.grid_area ? JSON.stringify(cfg.grid_area) : null,
+             cfg.target_count ?? 1, cfg.number_min ?? 1, cfg.number_max ?? 10, startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
+             cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+          );
+        } else if (module_type === "number_sequence") {
+          const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+          await client.query(
+            `UPDATE edu.number_sequence_configs SET starting_level=$2, total_questions=$3, timer_mode=$4, time_limit=$5, question_i18n=$6 WHERE id=$1`,
+            [module_config_id, startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+          );
+        } else if (module_type === "number_bond") {
+          const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+          const iconUrls = cfg.icon_urls as string[] | undefined;
+          if (!iconUrls?.length) throw new Error("请至少上传1张图标图片");
+          await client.query(
+            `UPDATE edu.number_bond_configs SET icon_urls=$2, number_min=$3, number_max=$4, starting_level=$5, total_questions=$6, timer_mode=$7, time_limit=$8, question_i18n=$9 WHERE id=$1`,
+            [module_config_id, JSON.stringify(iconUrls), cfg.number_min ?? 2, cfg.number_max ?? 10, startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
+             cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+          );
+        } else if (module_type === "number_compare") {
+          const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
+          const iconUrls = cfg.icon_urls as string[] | undefined;
+          if (!iconUrls?.length) throw new Error("请至少上传1张图标图片");
+          await client.query(
+            `UPDATE edu.number_compare_configs SET icon_urls=$2, number_min=$3, number_max=$4, starting_level=$5, total_questions=$6, timer_mode=$7, time_limit=$8, question_i18n=$9 WHERE id=$1`,
+            [module_config_id, JSON.stringify(iconUrls), cfg.number_min ?? 1, cfg.number_max ?? 10, startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
+             cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+          );
         } else if (module_type === "cube_stack") {
           const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
           await client.query(
@@ -1429,6 +1505,30 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
     } else if (level.module_type === "latin_square") {
       const { rows: cfgRows } = await query(
         `SELECT starting_level, total_questions, theme, timer_mode, time_limit FROM edu.latin_square_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "number_find") {
+      const { rows: cfgRows } = await query(
+        `SELECT layout, bg_image_url, decorations, grid_area, target_count, number_min, number_max, starting_level, total_questions, timer_mode, time_limit, question_i18n FROM edu.number_find_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "number_sequence") {
+      const { rows: cfgRows } = await query(
+        `SELECT starting_level, total_questions, timer_mode, time_limit, question_i18n FROM edu.number_sequence_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "number_bond") {
+      const { rows: cfgRows } = await query(
+        `SELECT icon_urls, number_min, number_max, starting_level, total_questions, timer_mode, time_limit, question_i18n FROM edu.number_bond_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "number_compare") {
+      const { rows: cfgRows } = await query(
+        `SELECT icon_urls, number_min, number_max, starting_level, total_questions, timer_mode, time_limit, question_i18n FROM edu.number_compare_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
@@ -1851,6 +1951,30 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
     } else if (level.module_type === "latin_square") {
       const { rows: cfgRows } = await query(
         `SELECT starting_level, total_questions, theme, timer_mode, time_limit FROM edu.latin_square_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "number_find") {
+      const { rows: cfgRows } = await query(
+        `SELECT layout, bg_image_url, decorations, grid_area, target_count, number_min, number_max, starting_level, total_questions, timer_mode, time_limit, question_i18n FROM edu.number_find_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "number_sequence") {
+      const { rows: cfgRows } = await query(
+        `SELECT starting_level, total_questions, timer_mode, time_limit, question_i18n FROM edu.number_sequence_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "number_bond") {
+      const { rows: cfgRows } = await query(
+        `SELECT icon_urls, number_min, number_max, starting_level, total_questions, timer_mode, time_limit, question_i18n FROM edu.number_bond_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "number_compare") {
+      const { rows: cfgRows } = await query(
+        `SELECT icon_urls, number_min, number_max, starting_level, total_questions, timer_mode, time_limit, question_i18n FROM edu.number_compare_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
