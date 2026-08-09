@@ -330,7 +330,7 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
     const categoryIds = Array.from(new Set((category_ids && category_ids.length ? category_ids : (category_id ? [category_id] : [])).filter(Boolean)));
     const primaryCategoryId = categoryIds[0] ?? null; // 旧栏位/编号生成还是要挑一个"主"分类，用第一个
 
-    const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "ppt_lecture", "video_lecture", "play_along", "sticker_game", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count", "clock", "latin_square", "number_find", "number_sequence", "number_bond", "number_compare", "number_addition"];
+    const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "ppt_lecture", "video_lecture", "play_along", "sticker_game", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count", "clock", "latin_square", "number_find", "number_sequence", "number_bond", "number_compare", "number_addition", "chinese_stroke"];
     if (!SUPPORTED.includes(module_type)) {
       badRequest(res, `Unsupported module_type: ${module_type} (supported: ${SUPPORTED.join(", ")})`);
       return;
@@ -716,6 +716,16 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
           `INSERT INTO edu.number_addition_configs (icon_urls, number_min, number_max, starting_level, total_questions, timer_mode, time_limit, question_i18n)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
           [JSON.stringify(iconUrls), cfg.number_min ?? 1, cfg.number_max ?? 5, startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
+           cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "chinese_stroke") { // 中文字笔顺练习——characters是designer指定的固定字库，笔顺数据本身不存数据库(前端从自己的静态资源目录读)
+        const characters = cfg.characters as string[] | undefined;
+        if (!characters?.length) throw new Error("请至少输入1个字");
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.chinese_stroke_configs (characters, total_questions, timer_mode, time_limit, question_i18n)
+           VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+          [JSON.stringify(characters), cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
            cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
         );
         configId = cfgRows[0].id;
@@ -1155,6 +1165,14 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
             [module_config_id, JSON.stringify(iconUrls), cfg.number_min ?? 1, cfg.number_max ?? 5, startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
              cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
           );
+        } else if (module_type === "chinese_stroke") {
+          const characters = cfg.characters as string[] | undefined;
+          if (!characters?.length) throw new Error("请至少输入1个字");
+          await client.query(
+            `UPDATE edu.chinese_stroke_configs SET characters=$2, total_questions=$3, timer_mode=$4, time_limit=$5, question_i18n=$6 WHERE id=$1`,
+            [module_config_id, JSON.stringify(characters), cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
+             cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+          );
         } else if (module_type === "cube_stack") {
           const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
           await client.query(
@@ -1555,6 +1573,12 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
     } else if (level.module_type === "number_addition") {
       const { rows: cfgRows } = await query(
         `SELECT icon_urls, number_min, number_max, starting_level, total_questions, timer_mode, time_limit, question_i18n FROM edu.number_addition_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "chinese_stroke") {
+      const { rows: cfgRows } = await query(
+        `SELECT characters, total_questions, timer_mode, time_limit, question_i18n FROM edu.chinese_stroke_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
@@ -2007,6 +2031,12 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
     } else if (level.module_type === "number_addition") {
       const { rows: cfgRows } = await query(
         `SELECT icon_urls, number_min, number_max, starting_level, total_questions, timer_mode, time_limit, question_i18n FROM edu.number_addition_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "chinese_stroke") {
+      const { rows: cfgRows } = await query(
+        `SELECT characters, total_questions, timer_mode, time_limit, question_i18n FROM edu.chinese_stroke_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;

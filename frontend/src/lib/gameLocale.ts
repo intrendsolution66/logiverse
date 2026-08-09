@@ -93,5 +93,5 @@ export function questionProgress(i: number, n: number, locale: Locale): string {
 export const I18N_READY_MODULES: string[] = [
   "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "word_problem",
   "focus_tap", "pattern", "memory", "spot_diff", "maze", "number_maze", "sudoku", "line_match", "coloring", "sticker_game", "counting", "shape_count",
-  "clock", "latin_square", "number_find", "number_sequence", "number_bond", "number_compare", "number_addition",
+  "clock", "latin_square", "number_find", "number_sequence", "number_bond", "number_compare", "number_addition", "chinese_stroke",
 ];
