@@ -8,7 +8,7 @@
 // existing scale instead of ad-hoc inline styles.
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Boxes, Rows3, Eye, RotateCw, Hammer, Frame, Square, Clock, Grid2x2, ListOrdered, TreePine, Search, Scale, Plus, PenLine, X, CheckSquare, PencilLine, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
+import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Boxes, Rows3, Eye, RotateCw, Hammer, Frame, Square, Clock, Grid2x2, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { eduApi, lessonsApi, exerciseClassificationApi, taxonomyApi } from "@/api";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
@@ -65,14 +65,6 @@ const MODULE_LABELS: Record<string, { emoji: string; label: string }> = {
   shape_count:      { emoji: "🔲", label: "数方块(平面图形)" },
   clock:            { emoji: "🕐", label: "认钟表" },
   latin_square:     { emoji: "🎲", label: "图形排排看" },
-  number_find:      { emoji: "🔎", label: "数字大搜寻" },
-  number_sequence:  { emoji: "🔢", label: "数列填空" },
-  number_bond:      { emoji: "🌳", label: "数的分解与合成" },
-  number_compare:   { emoji: "⚖️", label: "数字比大小" },
-  number_addition:  { emoji: "➕", label: "加法算式" },
-  chinese_stroke:   { emoji: "✍️", label: "中文字笔顺练习" },
-  multiple_choice:  { emoji: "☑️", label: "选择题" },
-  fill_blank:       { emoji: "📝", label: "填充题" },
 };
 
 // 每个游戏类型一个专属色系——像玩具架上的游戏卡带，一眼就能从颜色分辨
@@ -103,14 +95,6 @@ const MODULE_COLORS: Record<string, { bg: string; text: string; ring: string }> 
   shape_count:      { bg: "#DBEAFE", text: "#1E40AF", ring: "#60A5FA" },
   clock:            { bg: "#ECFCCB", text: "#3F6212", ring: "#84CC16" },
   latin_square:     { bg: "#FAE8FF", text: "#86198F", ring: "#E879F9" },
-  number_find:      { bg: "#DCFCE7", text: "#166534", ring: "#22C55E" },
-  number_sequence:  { bg: "#FEF08A", text: "#854D0E", ring: "#EAB308" },
-  number_bond:      { bg: "#BFDBFE", text: "#1E3A8A", ring: "#3B82F6" },
-  number_compare:   { bg: "#FDE68A", text: "#78350F", ring: "#D97706" },
-  number_addition:  { bg: "#A7F3D0", text: "#065F46", ring: "#10B981" },
-  chinese_stroke:   { bg: "#FBCFE8", text: "#831843", ring: "#EC4899" },
-  multiple_choice:  { bg: "#C7D2FE", text: "#3730A3", ring: "#6366F1" },
-  fill_blank:       { bg: "#FED7AA", text: "#7C2D12", ring: "#EA580C" },
 };
 const FALLBACK_COLOR = { bg: "#F1F5F9", text: "#334155", ring: "#94A3B8" };
 
@@ -124,8 +108,6 @@ const MODULE_ICONS: Record<string, LucideIcon> = {
   play_along: Music2, sticker_game: Sticker, cube_stack: Boxes,
   cube_layer_count: Rows3, cube_find_hidden: Eye, cube_free_rotate: RotateCw,
   cube_build: Hammer, cube_three_view: Frame, shape_count: Square, clock: Clock, latin_square: Grid2x2,
-  number_find: Search, number_sequence: ListOrdered, number_bond: TreePine, number_compare: Scale, number_addition: Plus, chinese_stroke: PenLine,
-  multiple_choice: CheckSquare, fill_blank: PencilLine,
 };
 
 function readAsDataURL(file: File): Promise<string> {
@@ -2166,7 +2148,7 @@ function PlayAlongMarkerEditor({ pages, audioUrl, markers, setMarkers, currentPa
 // 里用 typeof moduleType 反过来引用它自己（TS 处理不了这种循环引用，
 // 会报 "implicitly has type any"）。这两个地方（下面 useState 的初始值、
 // presetModuleType 转型）都要用这个命名类型，不要图省事写 typeof。
-type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game" | "cube_stack" | "cube_layer_count" | "cube_find_hidden" | "cube_free_rotate" | "cube_build" | "cube_three_view" | "shape_count" | "clock" | "latin_square" | "number_find" | "number_sequence" | "number_bond" | "number_compare" | "number_addition" | "chinese_stroke" | "multiple_choice" | "fill_blank";
+type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game" | "cube_stack" | "cube_layer_count" | "cube_find_hidden" | "cube_free_rotate" | "cube_build" | "cube_three_view" | "shape_count" | "clock" | "latin_square";
 
 function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleType }: {
   open: boolean; onClose: () => void; editingLevelId?: string | null; onSaved: () => void;
@@ -2183,19 +2165,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   const [moduleType, setModuleType] = useState<ModuleType>(
     (presetModuleType as ModuleType) ?? "counting"
   );
-  // 标题——之前是单一输入框levelTitle，中英文两个key直接塞同一个值，
-  // en这个key形同虚设从来没真正填过英文。改成真正的三语言对象，中/英/
-  // 马来各自独立输入，不再互相复制。buildTitleI18n() 统一构造保存用的
-  // {zh,en,ms}，46处保存逻辑(30个标题+16个自定义题目)都改成调用共用
-  // helper，不再各自手写字面量——以后要再调整格式，只用改这一个地方。
-  const [titleI18n, setTitleI18n] = useState<{ zh: string; en: string; ms: string }>({ zh: "", en: "", ms: "" });
-  function buildTitleI18n(defaultZh: string, defaultEn: string): { zh: string; en: string; ms?: string } {
-    return {
-      zh: titleI18n.zh.trim() || defaultZh,
-      en: titleI18n.en.trim() || defaultEn,
-      ms: titleI18n.ms.trim() || undefined,
-    };
-  }
+  const [levelTitle, setLevelTitle] = useState("");
   const [explanationText, setExplanationText] = useState("");
   const [hintText, setHintText] = useState("");
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -2320,30 +2290,14 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   const [countingTargetTypes, setCountingTargetTypes] = useState<string[]>([]);
   // 自定义题目句子（选填）——不填的话游戏画面按 target_types 自动生成
   // 一句话；这个只改"怎么问"，答案还是由 target_types 决定，不受这个影响。
-  // 同样从单一输入框改成三语言对象，处理方式跟下面共用的 questionI18n
-  // 一致，只是这个专属counting、不跟其他8个模块共用同一个state（这个
-  // 输入框在表单里的位置不一样，在counting自己的自定义场景区块里）。
-  const [countingQuestionI18n, setCountingQuestionI18n] = useState<{ zh: string; en: string; ms: string }>({ zh: "", en: "", ms: "" });
-  function buildCountingQuestionI18n(): { zh?: string; en?: string; ms?: string } | undefined {
-    const zh = countingQuestionI18n.zh.trim(), en = countingQuestionI18n.en.trim(), ms = countingQuestionI18n.ms.trim();
-    if (!zh && !en && !ms) return undefined;
-    return { zh: zh || undefined, en: en || undefined, ms: ms || undefined };
-  }
+  const [countingQuestionText, setCountingQuestionText] = useState("");
 
   // 其它8个模块（找不同/专注力点数字/Memory配对/找规律/迷宫/填色/连线配对/
   // 数独）共用同一个"自定义题目句子"栏位——一次只编辑一个 Activity，共用
   // 一个 state 就够了，不用给每个模块各开一个。counting 自己已经有独立的
   // 一套（上面那个 countingQuestionText），这里不重复。
-  const CUSTOM_QUESTION_MODULES = ["spot_diff", "focus_tap", "memory", "pattern", "maze", "coloring", "line_match", "sudoku", "shape_count", "number_find", "number_sequence", "number_bond", "number_compare", "number_addition", "chinese_stroke", "multiple_choice"];
-  // 自定义题目文字——同样从单一输入框改成三语言对象，跟标题那边同一个
-  // 处理方式。buildQuestionI18n() 三个语言都没填时回传undefined(维持
-  // "没设置自定义题目文字，用模块自己默认文案"这个原本的行为)。
-  const [questionI18n, setQuestionI18n] = useState<{ zh: string; en: string; ms: string }>({ zh: "", en: "", ms: "" });
-  function buildQuestionI18n(): { zh?: string; en?: string; ms?: string } | undefined {
-    const zh = questionI18n.zh.trim(), en = questionI18n.en.trim(), ms = questionI18n.ms.trim();
-    if (!zh && !en && !ms) return undefined;
-    return { zh: zh || undefined, en: en || undefined, ms: ms || undefined };
-  }
+  const CUSTOM_QUESTION_MODULES = ["spot_diff", "focus_tap", "memory", "pattern", "maze", "coloring", "line_match", "sudoku", "shape_count"];
+  const [customQuestionText, setCustomQuestionText] = useState("");
 
   // focus_tap fields (grid mode only for now)
   const [gridSize, setGridSize] = useState(4);
@@ -2389,50 +2343,6 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   const [clockMode, setClockMode] = useState<"read" | "set" | "both">("both");
   // latin_square fields — starting_level/total_questions复用共用state
   const [latinSquareTheme, setLatinSquareTheme] = useState<"shape" | "animal" | "fruit" | "emotion">("shape");
-  // number_find fields
-  const [numberFindLayout, setNumberFindLayout] = useState<"grid" | "custom">("grid");
-  const [numberFindTargetCount, setNumberFindTargetCount] = useState(1);
-  const [numberFindMin, setNumberFindMin] = useState(1);
-  const [numberFindMax, setNumberFindMax] = useState(10);
-  const [numberFindScene, setNumberFindScene] = useState<StructuredSceneOutput | null>(null); // custom模式的背景图+装饰物件(纯装饰，不参与判定，跟shape_count自定义模式用同一套SceneEditor组件，只取里面的bgUrl/objects)
-  const [numberFindGridArea, setNumberFindGridArea] = useState({ x: 0.5, y: 0.5, w: 0.9, h: 0.7 });
-  // number_sequence fields — 只有共用的starting_level/total_questions，没有专属字段
-  // number_bond fields
-  const [numberBondIcons, setNumberBondIcons] = useState<string[]>([]);
-  const [numberBondMin, setNumberBondMin] = useState(2);
-  const [numberBondMax, setNumberBondMax] = useState(10);
-  // number_compare fields
-  const [numberCompareIcons, setNumberCompareIcons] = useState<string[]>([]);
-  const [numberCompareMin, setNumberCompareMin] = useState(1);
-  const [numberCompareMax, setNumberCompareMax] = useState(10);
-  // number_addition fields
-  const [numberAdditionIcons, setNumberAdditionIcons] = useState<string[]>([]);
-  const [numberAdditionMin, setNumberAdditionMin] = useState(1);
-  const [numberAdditionMax, setNumberAdditionMax] = useState(5);
-  // chinese_stroke fields
-  const [chineseStrokeChars, setChineseStrokeChars] = useState<string[]>([]);
-  const [chineseStrokeInput, setChineseStrokeInput] = useState(""); // 输入框里正在打的字，还没确认加进字库
-
-  // multiple_choice fields——选项列表(每个选项独立三语言+是否正确)，
-  // 场景(SceneEditor组合的背景，选填)复用跟点点数数自定义模式同一套
-  // StructuredSceneOutput类型。
-  interface MCOption { id: string; zh: string; en: string; ms: string; correct: boolean }
-  const [mcScene, setMcScene] = useState<StructuredSceneOutput | null>(null);
-  const [mcAnswerMode, setMcAnswerMode] = useState<"single" | "multi">("single");
-  const [mcOptions, setMcOptions] = useState<MCOption[]>([
-    { id: "opt1", zh: "", en: "", ms: "", correct: false },
-    { id: "opt2", zh: "", en: "", ms: "", correct: false },
-  ]);
-
-  // fill_blank fields——题目句子(三语言，各自的"___"数量应该一致，用
-  // 中文那份句子的"___"数量决定要显示几个"接受答案"输入框)，场景同
-  // 选择题一样复用SceneEditor。
-  const [fbScene, setFbScene] = useState<StructuredSceneOutput | null>(null);
-  const [fbSentenceZh, setFbSentenceZh] = useState("");
-  const [fbSentenceEn, setFbSentenceEn] = useState("");
-  const [fbSentenceMs, setFbSentenceMs] = useState("");
-  // 每个空一条，逗号分隔"这个空所有算对的写法"(比如"5,五")
-  const [fbBlankAnswers, setFbBlankAnswers] = useState<string[]>([""]);
 
   // word_problem fields
   const [wpCategories, setWpCategories] = useState<string[]>(["chicken_rabbit"]);
@@ -2795,11 +2705,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   // reset when the modal is closed so re-opening starts fresh
   useEffect(() => {
     if (!open) {
-      setTitleI18n({ zh: "", en: "", ms: "" }); setModuleType((presetModuleType as ModuleType) ?? "counting");
-      setChineseStrokeChars([]); setChineseStrokeInput("");
-      setMcScene(null); setMcAnswerMode("single");
-      setMcOptions([{ id: "opt1", zh: "", en: "", ms: "", correct: false }, { id: "opt2", zh: "", en: "", ms: "", correct: false }]);
-      setFbScene(null); setFbSentenceZh(""); setFbSentenceEn(""); setFbSentenceMs(""); setFbBlankAnswers([""]);
+      setLevelTitle(""); setModuleType((presetModuleType as ModuleType) ?? "counting");
       setExplanationText(""); setExplanationImageUrl(null); setExplanationVideoUrl("");
       setHintText(""); setAudioUrl(null); setAudioFileName("");
       setSubjectId(""); setCategoryId(""); setCategoryIds([]); setGroupId(""); setCurriculumTypeId("");
@@ -2811,7 +2717,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       setParentPreviewEnabled(false);
       setCoverImageUrl(null);
       setTheme("apple"); setMinVal(1); setMaxVal(10); setNumChoices(3); setTotalQuestions(5);
-      setCountingMode("random"); setCountingScene(null); setCountingTargetTypes([]); setCountingQuestionI18n({ zh: "", en: "", ms: "" }); setQuestionI18n({ zh: "", en: "", ms: "" });
+      setCountingMode("random"); setCountingScene(null); setCountingTargetTypes([]); setCountingQuestionText(""); setCustomQuestionText("");
       setGridSize(4);
       setFtMode("grid"); setFtScene(null);
       setMemoryTheme("animal"); setPairsCount(6); setPreviewSeconds(3);
@@ -2845,7 +2751,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
     if (!open || !editingLevelId) return;
     eduApi.getLevelForEdit(editingLevelId).then((level) => {
       setModuleType(level.module_type as typeof moduleType);
-      setTitleI18n({ zh: level.title_i18n?.zh ?? "", en: level.title_i18n?.en ?? "", ms: (level.title_i18n as Record<string, string> | undefined)?.ms ?? "" });
+      setLevelTitle(level.title_i18n?.zh ?? level.title_i18n?.en ?? "");
       setExplanationText(level.explanation_text ?? "");
       setExplanationImageUrl(level.explanation_image_url ?? null);
       setExplanationVideoUrl(level.explanation_video_url ?? "");
@@ -2874,7 +2780,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       // 通用读取——8个模块共用同一个栏位，这里统一处理一次，不用在每个
       // module_type 分支里各写一遍。counting自己有独立的一套，不受影响。
       const sharedQi18n = cfg.question_i18n as Record<string, string> | undefined;
-      setQuestionI18n({ zh: sharedQi18n?.zh ?? "", en: sharedQi18n?.en ?? "", ms: sharedQi18n?.ms ?? "" });
+      setCustomQuestionText(sharedQi18n?.zh ?? sharedQi18n?.en ?? "");
       if (level.module_type === "counting") {
         if (cfg.mode === "custom_scene") {
           setCountingMode("custom_scene");
@@ -2892,7 +2798,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           });
           setCountingTargetTypes((cfg.target_types as string[]) ?? []);
           const qi18n = cfg.question_i18n as Record<string, string> | undefined;
-          setCountingQuestionI18n({ zh: qi18n?.zh ?? "", en: qi18n?.en ?? "", ms: qi18n?.ms ?? "" });
+          setCountingQuestionText(qi18n?.zh ?? qi18n?.en ?? "");
         } else {
           setCountingMode("random");
           setTheme((cfg.theme as string) ?? "apple");
@@ -2998,94 +2904,6 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         setCubeStackStartingLevel((cfg.starting_level as number) ?? 1);
         setTotalQuestions((cfg.total_questions as number) ?? 5);
         setLatinSquareTheme((cfg.theme as "shape" | "animal" | "fruit" | "emotion") ?? "shape");
-      } else if (level.module_type === "number_find") {
-        setCubeStackStartingLevel((cfg.starting_level as number) ?? 1);
-        setTotalQuestions((cfg.total_questions as number) ?? 5);
-        setNumberFindTargetCount((cfg.target_count as number) ?? 1);
-        setNumberFindMin((cfg.number_min as number) ?? 1);
-        setNumberFindMax((cfg.number_max as number) ?? 10);
-        const nfLayout = ((cfg.layout as string) ?? "grid") as "grid" | "custom";
-        setNumberFindLayout(nfLayout);
-        if (nfLayout === "custom") {
-          const decos = (cfg.decorations as Array<{ image_url: string; x: number; y: number; w: number; h: number; rotation: number; flip_x?: boolean; flip_y?: boolean; opacity?: number }>) ?? [];
-          setNumberFindScene({
-            bgUrl: (cfg.bg_image_url as string) ?? null,
-            objects: decos.map((d) => ({
-              imageUrl: d.image_url, x: d.x * GAME_CANVAS_W, y: d.y * GAME_CANVAS_H,
-              w: d.w, h: d.h, rotation: d.rotation, flipX: d.flip_x, flipY: d.flip_y, opacity: d.opacity,
-            })),
-            texts: [],
-          });
-          const ga = cfg.grid_area as { x: number; y: number; w: number; h: number } | undefined;
-          if (ga) setNumberFindGridArea(ga);
-        } else {
-          setNumberFindScene(null);
-        }
-      } else if (level.module_type === "number_sequence") {
-        setCubeStackStartingLevel((cfg.starting_level as number) ?? 1);
-        setTotalQuestions((cfg.total_questions as number) ?? 5);
-      } else if (level.module_type === "number_bond") {
-        setNumberBondIcons((cfg.icon_urls as string[]) ?? []);
-        setNumberBondMin((cfg.number_min as number) ?? 2);
-        setNumberBondMax((cfg.number_max as number) ?? 10);
-        setCubeStackStartingLevel((cfg.starting_level as number) ?? 1);
-        setTotalQuestions((cfg.total_questions as number) ?? 5);
-      } else if (level.module_type === "number_compare") {
-        setNumberCompareIcons((cfg.icon_urls as string[]) ?? []);
-        setNumberCompareMin((cfg.number_min as number) ?? 1);
-        setNumberCompareMax((cfg.number_max as number) ?? 10);
-        setCubeStackStartingLevel((cfg.starting_level as number) ?? 1);
-        setTotalQuestions((cfg.total_questions as number) ?? 5);
-      } else if (level.module_type === "number_addition") {
-        setNumberAdditionIcons((cfg.icon_urls as string[]) ?? []);
-        setNumberAdditionMin((cfg.number_min as number) ?? 1);
-        setNumberAdditionMax((cfg.number_max as number) ?? 5);
-        setCubeStackStartingLevel((cfg.starting_level as number) ?? 1);
-        setTotalQuestions((cfg.total_questions as number) ?? 5);
-      } else if (level.module_type === "chinese_stroke") {
-        setChineseStrokeChars((cfg.characters as string[]) ?? []);
-        setChineseStrokeInput("");
-        setTotalQuestions((cfg.total_questions as number) ?? 5);
-      } else if (level.module_type === "multiple_choice") {
-        const decos = (cfg.objects as Array<{ image_url: string; x: number; y: number; w: number; h: number; rotation: number; flip_x?: boolean; flip_y?: boolean; opacity?: number }>) ?? [];
-        const txts = (cfg.texts as Array<{ text: string; x: number; y: number; fontSize: number; color: string; fontFamily: string; rotation: number; bold?: boolean; italic?: boolean; underline?: boolean }>) ?? [];
-        setMcScene(cfg.bg_image_url || decos.length || txts.length ? {
-          bgUrl: (cfg.bg_image_url as string) ?? null,
-          objects: decos.map((d) => ({
-            imageUrl: d.image_url, x: d.x * GAME_CANVAS_W, y: d.y * GAME_CANVAS_H,
-            w: d.w, h: d.h, rotation: d.rotation, flipX: d.flip_x, flipY: d.flip_y, opacity: d.opacity,
-          })),
-          texts: txts.map((tx) => ({
-            text: tx.text, x: tx.x * GAME_CANVAS_W, y: tx.y * GAME_CANVAS_H, fontSize: tx.fontSize,
-            color: tx.color, fontFamily: tx.fontFamily, rotation: tx.rotation, bold: tx.bold, italic: tx.italic, underline: tx.underline,
-          })),
-        } : null);
-        setMcAnswerMode(((cfg.answer_mode as string) ?? "single") as "single" | "multi");
-        const opts = (cfg.options as Array<{ id: string; text_i18n?: Record<string, string> }>) ?? [];
-        const correctIds = new Set((cfg.correct_option_ids as string[]) ?? []);
-        setMcOptions(opts.length >= 2 ? opts.map((o) => ({
-          id: o.id, zh: o.text_i18n?.zh ?? "", en: o.text_i18n?.en ?? "", ms: o.text_i18n?.ms ?? "", correct: correctIds.has(o.id),
-        })) : [{ id: "opt1", zh: "", en: "", ms: "", correct: false }, { id: "opt2", zh: "", en: "", ms: "", correct: false }]);
-        const mcQi18n = cfg.question_i18n as Record<string, string> | undefined;
-        setQuestionI18n({ zh: mcQi18n?.zh ?? "", en: mcQi18n?.en ?? "", ms: mcQi18n?.ms ?? "" });
-      } else if (level.module_type === "fill_blank") {
-        const decos = (cfg.objects as Array<{ image_url: string; x: number; y: number; w: number; h: number; rotation: number; flip_x?: boolean; flip_y?: boolean; opacity?: number }>) ?? [];
-        const txts = (cfg.texts as Array<{ text: string; x: number; y: number; fontSize: number; color: string; fontFamily: string; rotation: number; bold?: boolean; italic?: boolean; underline?: boolean }>) ?? [];
-        setFbScene(cfg.bg_image_url || decos.length || txts.length ? {
-          bgUrl: (cfg.bg_image_url as string) ?? null,
-          objects: decos.map((d) => ({
-            imageUrl: d.image_url, x: d.x * GAME_CANVAS_W, y: d.y * GAME_CANVAS_H,
-            w: d.w, h: d.h, rotation: d.rotation, flipX: d.flip_x, flipY: d.flip_y, opacity: d.opacity,
-          })),
-          texts: txts.map((tx) => ({
-            text: tx.text, x: tx.x * GAME_CANVAS_W, y: tx.y * GAME_CANVAS_H, fontSize: tx.fontSize,
-            color: tx.color, fontFamily: tx.fontFamily, rotation: tx.rotation, bold: tx.bold, italic: tx.italic, underline: tx.underline,
-          })),
-        } : null);
-        const sentI18n = cfg.sentence_i18n as Record<string, string> | undefined;
-        setFbSentenceZh(sentI18n?.zh ?? ""); setFbSentenceEn(sentI18n?.en ?? ""); setFbSentenceMs(sentI18n?.ms ?? "");
-        const blanksArr = (cfg.blanks as Array<{ accepted_answers: string[] }>) ?? [];
-        setFbBlankAnswers(blanksArr.length ? blanksArr.map((b) => (b.accepted_answers ?? []).join(",")) : [""]);
       } else if (level.module_type === "word_problem") {
         setWpCategories((cfg.categories as string[]) ?? ["chicken_rabbit"]);
         setWpAnswerMode(((cfg.answer_mode as string) ?? "select") as "select" | "input");
@@ -3313,7 +3131,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           if (countingScene.objects.length < 1) { toast.error("请至少加1个要数的物件"); return; }
           await saveLevel({
             module_type: "counting",
-            title_i18n: buildTitleI18n("点点数数", "Counting"),
+            title_i18n: { zh: levelTitle || "点点数数", en: levelTitle || "Counting" },
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3325,13 +3143,15 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               texts: countingScene.texts.map((t) => ({ ...t, x: t.x / GAME_CANVAS_W, y: t.y / GAME_CANVAS_H })),
               num_choices: numChoices, timer_mode: "stopwatch",
               target_types: countingTargetTypes.length > 0 ? countingTargetTypes : undefined,
-              question_i18n: buildCountingQuestionI18n(),
+              question_i18n: countingQuestionText.trim()
+                ? { zh: countingQuestionText.trim(), en: countingQuestionText.trim() }
+                : undefined,
             },
           });
         } else {
           await saveLevel({
             module_type: "counting",
-            title_i18n: buildTitleI18n("点点数数", "Counting"),
+            title_i18n: { zh: levelTitle || "点点数数", en: levelTitle || "Counting" },
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3346,7 +3166,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         if (hotspots.length < 1) { toast.error("请至少标记一个差异点"); return; }
         await saveLevel({
           module_type: "spot_diff",
-          title_i18n: buildTitleI18n("找不同之处", "Spot the Difference"),
+          title_i18n: { zh: levelTitle || "找不同之处", en: levelTitle || "Spot the Difference" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3354,7 +3174,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           hint_text: hintText || undefined, audio_url: audioUrl || undefined,
 
           category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-          config: { image_a_url: imgAUrl, image_b_url: imgBUrl, hotspots, timer_mode: "stopwatch", question_i18n: buildQuestionI18n() },
+          config: { image_a_url: imgAUrl, image_b_url: imgBUrl, hotspots, timer_mode: "stopwatch", question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined },
         });
       } else if (moduleType === "focus_tap") {
         if (ftMode === "custom") {
@@ -3362,7 +3182,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           if (ftScene.objects.length < 2) { toast.error("请至少加2个数字位置标记"); return; }
           await saveLevel({
             module_type: "focus_tap",
-            title_i18n: buildTitleI18n("专注力点数字", "Focus Tap"),
+            title_i18n: { zh: levelTitle || "专注力点数字", en: levelTitle || "Focus Tap" },
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3373,13 +3193,13 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             config: {
               mode: "custom", bg_image_url: ftScene.bgUrl,
               positions: ftScene.objects.map((o) => ({ x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H, w: o.w, h: o.h, rotation: o.rotation })),
-              timer_mode: "stopwatch", question_i18n: buildQuestionI18n(),
+              timer_mode: "stopwatch", question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
             },
           });
         } else {
           await saveLevel({
             module_type: "focus_tap",
-            title_i18n: buildTitleI18n("专注力点数字", "Focus Tap"),
+            title_i18n: { zh: levelTitle || "专注力点数字", en: levelTitle || "Focus Tap" },
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3387,7 +3207,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             hint_text: hintText || undefined, audio_url: audioUrl || undefined,
 
             category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-            config: { mode: "grid", grid_size: gridSize, timer_mode: "stopwatch", question_i18n: buildQuestionI18n() },
+            config: { mode: "grid", grid_size: gridSize, timer_mode: "stopwatch", question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined },
           });
         }
       } else if (moduleType === "memory") {
@@ -3403,7 +3223,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           }
           await saveLevel({
             module_type: "memory",
-            title_i18n: buildTitleI18n("Memory配对", "Memory Match"),
+            title_i18n: { zh: levelTitle || "Memory配对", en: levelTitle || "Memory Match" },
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3413,7 +3233,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             config: {
               theme: "custom", custom_icons: memoryCustomIcons, bg_image_url: memoryBgUrl || undefined,
               pairs_count: memoryCustomIcons.length, preview_seconds: previewSeconds, timer_mode: "stopwatch",
-              question_i18n: buildQuestionI18n(),
+              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
               layout: memoryLayout,
               positions: memoryLayout === "free" && memoryScene
                 ? memoryScene.objects.map((o) => ({ x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H }))
@@ -3423,21 +3243,21 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         } else {
           await saveLevel({
             module_type: "memory",
-            title_i18n: buildTitleI18n("Memory配对", "Memory Match"),
+            title_i18n: { zh: levelTitle || "Memory配对", en: levelTitle || "Memory Match" },
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
 
             hint_text: hintText || undefined, audio_url: audioUrl || undefined,
             category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-            config: { theme: memoryTheme, pairs_count: pairsCount, preview_seconds: previewSeconds, timer_mode: "stopwatch", question_i18n: buildQuestionI18n() },
+            config: { theme: memoryTheme, pairs_count: pairsCount, preview_seconds: previewSeconds, timer_mode: "stopwatch", question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined },
           });
         }
       } else if (moduleType === "pattern") {
         if (patternTypes.length === 0) { toast.error("请至少选一种规律类型"); return; }
         await saveLevel({
           module_type: "pattern",
-          title_i18n: buildTitleI18n("找规律", "Pattern"),
+          title_i18n: { zh: levelTitle || "找规律", en: levelTitle || "Pattern" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3445,12 +3265,12 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           hint_text: hintText || undefined, audio_url: audioUrl || undefined,
 
           category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-          config: { theme: patternTheme, pattern_types: patternTypes, seq_length: seqLength, num_choices: 3, total_questions: totalQuestions, timer_mode: "stopwatch", question_i18n: buildQuestionI18n() },
+          config: { theme: patternTheme, pattern_types: patternTypes, seq_length: seqLength, num_choices: 3, total_questions: totalQuestions, timer_mode: "stopwatch", question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined },
         });
       } else if (moduleType === "cube_stack") {
         await saveLevel({
           module_type: "cube_stack",
-          title_i18n: buildTitleI18n("立体方块计数", "Cube Stack"),
+          title_i18n: { zh: levelTitle || "立体方块计数", en: levelTitle || "Cube Stack" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3463,7 +3283,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       } else if (moduleType === "cube_layer_count") {
         await saveLevel({
           module_type: "cube_layer_count",
-          title_i18n: buildTitleI18n("立体方块-逐层计数", "Cube Layer Count"),
+          title_i18n: { zh: levelTitle || "立体方块-逐层计数", en: levelTitle || "Cube Layer Count" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3474,7 +3294,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       } else if (moduleType === "cube_find_hidden") {
         await saveLevel({
           module_type: "cube_find_hidden",
-          title_i18n: buildTitleI18n("立体方块-找隐藏方块", "Cube Find Hidden"),
+          title_i18n: { zh: levelTitle || "立体方块-找隐藏方块", en: levelTitle || "Cube Find Hidden" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3485,7 +3305,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       } else if (moduleType === "cube_free_rotate") {
         await saveLevel({
           module_type: "cube_free_rotate",
-          title_i18n: buildTitleI18n("立体方块-自由旋转观察", "Cube Free Rotate"),
+          title_i18n: { zh: levelTitle || "立体方块-自由旋转观察", en: levelTitle || "Cube Free Rotate" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3496,7 +3316,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       } else if (moduleType === "cube_build") {
         await saveLevel({
           module_type: "cube_build",
-          title_i18n: buildTitleI18n("立体方块-自己搭积木", "Cube Build"),
+          title_i18n: { zh: levelTitle || "立体方块-自己搭积木", en: levelTitle || "Cube Build" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3507,7 +3327,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       } else if (moduleType === "cube_three_view") {
         await saveLevel({
           module_type: "cube_three_view",
-          title_i18n: buildTitleI18n("立体方块-三视图", "Cube Three View"),
+          title_i18n: { zh: levelTitle || "立体方块-三视图", en: levelTitle || "Cube Three View" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3523,7 +3343,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           }
           await saveLevel({
             module_type: "shape_count",
-            title_i18n: buildTitleI18n("数方块(平面图形)", "Shape Count"),
+            title_i18n: { zh: levelTitle || "数方块(平面图形)", en: levelTitle || "Shape Count" },
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3541,13 +3361,13 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
                 object_type: o.objectType || undefined, flip_x: o.flipX, flip_y: o.flipY, opacity: o.opacity,
               })),
               timer_mode: "stopwatch",
-              question_i18n: buildQuestionI18n(),
+              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
             },
           });
         } else {
           await saveLevel({
             module_type: "shape_count",
-            title_i18n: buildTitleI18n("数方块(平面图形)", "Shape Count"),
+            title_i18n: { zh: levelTitle || "数方块(平面图形)", en: levelTitle || "Shape Count" },
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3559,7 +3379,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       } else if (moduleType === "clock") {
         await saveLevel({
           module_type: "clock",
-          title_i18n: buildTitleI18n("认钟表", "Clock"),
+          title_i18n: { zh: levelTitle || "认钟表", en: levelTitle || "Clock" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3570,7 +3390,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       } else if (moduleType === "latin_square") {
         await saveLevel({
           module_type: "latin_square",
-          title_i18n: buildTitleI18n("图形排排看", "Latin Square"),
+          title_i18n: { zh: levelTitle || "图形排排看", en: levelTitle || "Latin Square" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3578,173 +3398,11 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
           config: { starting_level: cubeStackStartingLevel, total_questions: totalQuestions, theme: latinSquareTheme, timer_mode: "stopwatch" },
         });
-      } else if (moduleType === "number_find") {
-        if (numberFindLayout === "custom" && !numberFindScene?.bgUrl) {
-          toast.error("自定义画面模式要先选一张背景图");
-          return;
-        }
-        await saveLevel({
-          module_type: "number_find",
-          title_i18n: buildTitleI18n("数字大搜寻", "Number Find"),
-          explanation_text: explanationText || undefined,
-          explanation_image_url: explanationImageUrl || undefined,
-          explanation_video_url: explanationVideoUrl || undefined,
-          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
-          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-          config: {
-            layout: numberFindLayout,
-            target_count: numberFindTargetCount, number_min: numberFindMin, number_max: numberFindMax,
-            starting_level: cubeStackStartingLevel, total_questions: totalQuestions, timer_mode: "stopwatch",
-            question_i18n: buildQuestionI18n(),
-            ...(numberFindLayout === "custom" ? {
-              bg_image_url: numberFindScene?.bgUrl ?? undefined,
-              decorations: (numberFindScene?.objects ?? []).map((o) => ({
-                image_url: o.imageUrl, x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H, w: o.w, h: o.h, rotation: o.rotation,
-                flip_x: o.flipX, flip_y: o.flipY, opacity: o.opacity,
-              })),
-              grid_area: numberFindGridArea,
-            } : {}),
-          },
-        });
-      } else if (moduleType === "number_sequence") {
-        await saveLevel({
-          module_type: "number_sequence",
-          title_i18n: buildTitleI18n("数列填空", "Number Sequence"),
-          explanation_text: explanationText || undefined,
-          explanation_image_url: explanationImageUrl || undefined,
-          explanation_video_url: explanationVideoUrl || undefined,
-          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
-          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-          config: { starting_level: cubeStackStartingLevel, total_questions: totalQuestions, timer_mode: "stopwatch", question_i18n: buildQuestionI18n() },
-        });
-      } else if (moduleType === "number_bond") {
-        if (numberBondIcons.length === 0) { toast.error("请至少上传1张图标图片"); return; }
-        await saveLevel({
-          module_type: "number_bond",
-          title_i18n: buildTitleI18n("数的分解与合成", "Number Bond"),
-          explanation_text: explanationText || undefined,
-          explanation_image_url: explanationImageUrl || undefined,
-          explanation_video_url: explanationVideoUrl || undefined,
-          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
-          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-          config: {
-            icon_urls: numberBondIcons, number_min: numberBondMin, number_max: numberBondMax,
-            starting_level: cubeStackStartingLevel, total_questions: totalQuestions, timer_mode: "stopwatch",
-            question_i18n: buildQuestionI18n(),
-          },
-        });
-      } else if (moduleType === "number_compare") {
-        if (numberCompareIcons.length === 0) { toast.error("请至少上传1张图标图片"); return; }
-        await saveLevel({
-          module_type: "number_compare",
-          title_i18n: buildTitleI18n("数字比大小", "Number Compare"),
-          explanation_text: explanationText || undefined,
-          explanation_image_url: explanationImageUrl || undefined,
-          explanation_video_url: explanationVideoUrl || undefined,
-          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
-          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-          config: {
-            icon_urls: numberCompareIcons, number_min: numberCompareMin, number_max: numberCompareMax,
-            starting_level: cubeStackStartingLevel, total_questions: totalQuestions, timer_mode: "stopwatch",
-            question_i18n: buildQuestionI18n(),
-          },
-        });
-      } else if (moduleType === "number_addition") {
-        if (numberAdditionIcons.length === 0) { toast.error("请至少上传1张图标图片"); return; }
-        await saveLevel({
-          module_type: "number_addition",
-          title_i18n: buildTitleI18n("加法算式", "Number Addition"),
-          explanation_text: explanationText || undefined,
-          explanation_image_url: explanationImageUrl || undefined,
-          explanation_video_url: explanationVideoUrl || undefined,
-          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
-          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-          config: {
-            icon_urls: numberAdditionIcons, number_min: numberAdditionMin, number_max: numberAdditionMax,
-            starting_level: cubeStackStartingLevel, total_questions: totalQuestions, timer_mode: "stopwatch",
-            question_i18n: buildQuestionI18n(),
-          },
-        });
-      } else if (moduleType === "chinese_stroke") {
-        if (chineseStrokeChars.length === 0) { toast.error("请至少输入1个字"); return; }
-        await saveLevel({
-          module_type: "chinese_stroke",
-          title_i18n: buildTitleI18n("中文字笔顺练习", "Chinese Stroke Order"),
-          explanation_text: explanationText || undefined,
-          explanation_image_url: explanationImageUrl || undefined,
-          explanation_video_url: explanationVideoUrl || undefined,
-          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
-          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-          config: {
-            characters: chineseStrokeChars,
-            total_questions: totalQuestions, timer_mode: "stopwatch",
-            question_i18n: buildQuestionI18n(),
-          },
-        });
-      } else if (moduleType === "multiple_choice") {
-        const filledOptions = mcOptions.filter((o) => o.zh.trim() || o.en.trim() || o.ms.trim());
-        if (filledOptions.length < 2) { toast.error("至少要有2个选项(至少填中文)"); return; }
-        const correctOptions = filledOptions.filter((o) => o.correct);
-        if (correctOptions.length === 0) { toast.error("请至少勾选1个正确答案"); return; }
-        if (!questionI18n.zh.trim()) { toast.error("请填写题目文字(至少中文)"); return; }
-        await saveLevel({
-          module_type: "multiple_choice",
-          title_i18n: buildTitleI18n("选择题", "Multiple Choice"),
-          explanation_text: explanationText || undefined,
-          explanation_image_url: explanationImageUrl || undefined,
-          explanation_video_url: explanationVideoUrl || undefined,
-          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
-          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-          config: {
-            bg_image_url: mcScene?.bgUrl ?? undefined,
-            objects: (mcScene?.objects ?? []).map((o) => ({
-              image_url: o.imageUrl, x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H, w: o.w, h: o.h, rotation: o.rotation,
-              flip_x: o.flipX, flip_y: o.flipY, opacity: o.opacity,
-            })),
-            texts: (mcScene?.texts ?? []).map((tx) => ({
-              text: tx.text, x: tx.x / GAME_CANVAS_W, y: tx.y / GAME_CANVAS_H, fontSize: tx.fontSize,
-              color: tx.color, fontFamily: tx.fontFamily, rotation: tx.rotation, bold: tx.bold, italic: tx.italic, underline: tx.underline,
-            })),
-            answer_mode: mcAnswerMode,
-            options: filledOptions.map((o) => ({ id: o.id, text_i18n: { zh: o.zh || undefined, en: o.en || undefined, ms: o.ms || undefined } })),
-            correct_option_ids: correctOptions.map((o) => o.id),
-            question_i18n: { zh: questionI18n.zh.trim() || undefined, en: questionI18n.en.trim() || undefined, ms: questionI18n.ms.trim() || undefined },
-            timer_mode: "stopwatch",
-          },
-        });
-      } else if (moduleType === "fill_blank") {
-        const zhBlankCount = (fbSentenceZh.match(/___/g) ?? []).length;
-        if (!fbSentenceZh.trim() || zhBlankCount === 0) { toast.error('请填写题目句子(中文)，并用"___"标记至少1个空'); return; }
-        const blanks = fbBlankAnswers.slice(0, zhBlankCount).map((s) => s.split(",").map((x) => x.trim()).filter(Boolean));
-        if (blanks.length < zhBlankCount || blanks.some((b) => b.length === 0)) { toast.error("每个空都要至少填1个正确答案"); return; }
-        await saveLevel({
-          module_type: "fill_blank",
-          title_i18n: buildTitleI18n("填充题", "Fill in the Blank"),
-          explanation_text: explanationText || undefined,
-          explanation_image_url: explanationImageUrl || undefined,
-          explanation_video_url: explanationVideoUrl || undefined,
-          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
-          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
-          config: {
-            bg_image_url: fbScene?.bgUrl ?? undefined,
-            objects: (fbScene?.objects ?? []).map((o) => ({
-              image_url: o.imageUrl, x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H, w: o.w, h: o.h, rotation: o.rotation,
-              flip_x: o.flipX, flip_y: o.flipY, opacity: o.opacity,
-            })),
-            texts: (fbScene?.texts ?? []).map((tx) => ({
-              text: tx.text, x: tx.x / GAME_CANVAS_W, y: tx.y / GAME_CANVAS_H, fontSize: tx.fontSize,
-              color: tx.color, fontFamily: tx.fontFamily, rotation: tx.rotation, bold: tx.bold, italic: tx.italic, underline: tx.underline,
-            })),
-            sentence_i18n: { zh: fbSentenceZh.trim() || undefined, en: fbSentenceEn.trim() || undefined, ms: fbSentenceMs.trim() || undefined },
-            blanks: blanks.map((accepted) => ({ accepted_answers: accepted })),
-            timer_mode: "stopwatch",
-          },
-        });
       } else if (moduleType === "word_problem") {
         if (wpCategories.length === 0) { toast.error("请至少选一种题型"); return; }
         await saveLevel({
           module_type: "word_problem",
-          title_i18n: buildTitleI18n("应用题", "Word Problems"),
+          title_i18n: { zh: levelTitle || "应用题", en: levelTitle || "Word Problems" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3764,7 +3422,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         const completePairs = mazePairs as { start: { x: number; y: number }; end: { x: number; y: number } }[];
         await saveLevel({
           module_type: "maze",
-          title_i18n: buildTitleI18n("迷宫", "Maze"),
+          title_i18n: { zh: levelTitle || "迷宫", en: levelTitle || "Maze" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3779,7 +3437,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             end_x: completePairs[0].end.x, end_y: completePairs[0].end.y,
             pairs: completePairs,
             timer_mode: "stopwatch",
-            question_i18n: buildQuestionI18n(),
+            question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
           },
         });
       } else if (moduleType === "line_match") { // authored: every pair/edge IS the puzzle, same shape as maze/sudoku
@@ -3797,7 +3455,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           if (soloKeys.length > 0) { toast.error(`配对标记「${soloKeys.join("、")}」只有1个物件，至少要2个才能连线`); return; }
           await saveLevel({
             module_type: "line_match",
-            title_i18n: buildTitleI18n("连线配对", "Line Match"),
+            title_i18n: { zh: levelTitle || "连线配对", en: levelTitle || "Line Match" },
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3817,7 +3475,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
                 opacity: o.opacity,
               })),
               timer_mode: "stopwatch",
-              question_i18n: buildQuestionI18n(),
+              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
             },
           });
         } else {
@@ -3829,7 +3487,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           if (cleanEdges.length === 0) { toast.error("至少要连1条线——点左边一项、再点右边一项来连线"); return; }
           await saveLevel({
             module_type: "line_match",
-            title_i18n: buildTitleI18n("连线配对", "Line Match"),
+            title_i18n: { zh: levelTitle || "连线配对", en: levelTitle || "Line Match" },
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3842,7 +3500,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               left_items: cleanLeft, right_items: cleanRight, edges: cleanEdges,
               shuffle_right: lineMatchShuffleRight,
               timer_mode: "stopwatch",
-              question_i18n: buildQuestionI18n(),
+              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
             },
           });
         }
@@ -3850,7 +3508,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         if (pptSlideUrls.length === 0) { toast.error("请先上传并转换 PPT，至少要有1页幻灯片"); return; }
         await saveLevel({
           module_type: "ppt_lecture",
-          title_i18n: buildTitleI18n("PPT讲义", "PPT Lecture"),
+          title_i18n: { zh: levelTitle || "PPT讲义", en: levelTitle || "PPT Lecture" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3867,7 +3525,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         if (!videoUrl) { toast.error("请填视频链接或上传视频"); return; }
         await saveLevel({
           module_type: "video_lecture",
-          title_i18n: buildTitleI18n("视频讲义", "Video Lecture"),
+          title_i18n: { zh: levelTitle || "视频讲义", en: levelTitle || "Video Lecture" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3887,7 +3545,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         if (!paOriginalBpm || paOriginalBpm < 1) { toast.error("请填这首曲子的原速 BPM"); return; }
         await saveLevel({
           module_type: "play_along",
-          title_i18n: buildTitleI18n("跟弹练习", "Play Along"),
+          title_i18n: { zh: levelTitle || "跟弹练习", en: levelTitle || "Play Along" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3910,7 +3568,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         if (coloringRegions.some((r) => r.rule === "specific" && !r.target_color)) { toast.error("选了「指定颜色」的区块，要填要求的颜色"); return; }
         await saveLevel({
           module_type: "coloring",
-          title_i18n: buildTitleI18n("填色游戏", "Coloring"),
+          title_i18n: { zh: levelTitle || "填色游戏", en: levelTitle || "Coloring" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -3923,7 +3581,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             region_mask_url: coloringMaskDataUrl,
             regions: coloringRegions,
             timer_mode: "stopwatch",
-            question_i18n: buildQuestionI18n(),
+            question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
           },
         });
       } else if (moduleType === "sudoku") { // authored: a puzzle image + which cells are blank + each one's correct digit
@@ -3937,10 +3595,13 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             else if (cell.value.trim()) givenCells.push({ row: r, col: c, value: cell.value.trim() });
           }));
           if (blankCells.length === 0) { toast.error("至少要有1个留空的格子给学生填"); return; }
+          // 🔍 临时诊断日志——排查"明明填了答案，保存还是报错"这个问题用，
+          // 确认没问题之后记得删掉这几行。
+          console.log("[数独诊断] blankCells:", JSON.parse(JSON.stringify(blankCells)));
           if (blankCells.some((c) => !c.answer)) { toast.error("每个留空的格子都要填答案（1-9），点画布上那个格子在右边填"); return; }
           await saveLevel({
             module_type: "sudoku",
-            title_i18n: buildTitleI18n("数独", "Sudoku"),
+            title_i18n: { zh: levelTitle || "数独", en: levelTitle || "Sudoku" },
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3956,7 +3617,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               bg_color: grid.bgColor, bg_enabled: grid.bgEnabled, opacity: grid.opacity,
               difficulty: sudokuDifficulty,
               timer_mode: "stopwatch",
-              question_i18n: buildQuestionI18n(),
+              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
             },
           });
         } else {
@@ -3965,7 +3626,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           if (sudokuCells.some((c) => !c.answer)) { toast.error("每个空格都要填答案（1-9）"); return; }
           await saveLevel({
             module_type: "sudoku",
-            title_i18n: buildTitleI18n("数独", "Sudoku"),
+            title_i18n: { zh: levelTitle || "数独", en: levelTitle || "Sudoku" },
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -3979,7 +3640,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               cells: sudokuCells.map((c) => ({ x: c.x, y: c.y, answer: parseInt(c.answer, 10) })),
               difficulty: sudokuDifficulty,
               timer_mode: "stopwatch",
-              question_i18n: buildQuestionI18n(),
+              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
             },
           });
         }
@@ -4003,7 +3664,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           }
           await saveLevel({
             module_type: "number_maze",
-            title_i18n: buildTitleI18n("数字迷宫", "Number Maze"),
+            title_i18n: { zh: levelTitle || "数字迷宫", en: levelTitle || "Number Maze" },
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -4019,7 +3680,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               line_color: grid.lineColor, given_color: grid.givenColor,
               bg_color: grid.bgColor, bg_enabled: grid.bgEnabled, opacity: grid.opacity,
               timer_mode: "stopwatch",
-              question_i18n: buildQuestionI18n(),
+              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
             },
           });
         } else {
@@ -4029,7 +3690,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           if (nmDecisionPoints.some((d) => d.options.some((o) => !o.value.trim()))) { toast.error("每个分岔点的每个选项都要填数字，不能留空"); return; }
           await saveLevel({
             module_type: "number_maze",
-            title_i18n: buildTitleI18n("数字迷宫", "Number Maze"),
+            title_i18n: { zh: levelTitle || "数字迷宫", en: levelTitle || "Number Maze" },
             explanation_text: explanationText || undefined,
             explanation_image_url: explanationImageUrl || undefined,
             explanation_video_url: explanationVideoUrl || undefined,
@@ -4043,7 +3704,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               start: nmStart, end: nmEnd,
               decision_points: nmDecisionPoints,
               timer_mode: "stopwatch",
-              question_i18n: buildQuestionI18n(),
+              question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
             },
           });
         }
@@ -4052,7 +3713,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         if (stickerScene.objects.length < 1) { toast.error("请至少放1个贴纸"); return; }
         await saveLevel({
           module_type: "sticker_game",
-          title_i18n: buildTitleI18n("贴纸游戏", "Sticker Game"),
+          title_i18n: { zh: levelTitle || "贴纸游戏", en: levelTitle || "Sticker Game" },
           explanation_text: explanationText || undefined,
           explanation_image_url: explanationImageUrl || undefined,
           explanation_video_url: explanationVideoUrl || undefined,
@@ -4068,7 +3729,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               flip_x: o.flipX || undefined, flip_y: o.flipY || undefined,
             })),
             timer_mode: "stopwatch",
-            question_i18n: buildQuestionI18n(),
+            question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
           },
         });
       } else { // fallback — should be unreachable given the exhaustive branches above, kept only so TS doesn't flag a missing final else
@@ -4197,23 +3858,17 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           </div>
           <div className="space-y-1.5">
             <Label>Activity 名称</Label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <Input placeholder="中文（必填，留空用模块默认名称）" value={titleI18n.zh} onChange={(e) => setTitleI18n((v) => ({ ...v, zh: e.target.value }))} />
-              <Input placeholder="English（选填）" value={titleI18n.en} onChange={(e) => setTitleI18n((v) => ({ ...v, en: e.target.value }))} />
-              <Input placeholder="Bahasa Melayu（选填）" value={titleI18n.ms} onChange={(e) => setTitleI18n((v) => ({ ...v, ms: e.target.value }))} />
-            </div>
+            <Input placeholder="Activity 名称" value={levelTitle} onChange={(e) => setLevelTitle(e.target.value)} />
           </div>
           {CUSTOM_QUESTION_MODULES.includes(moduleType) && (
             <div className="space-y-1.5">
-              <Label>{moduleType === "multiple_choice" ? "题目文字（必填，至少中文）" : "自定义题目句子（选填）"}</Label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <Input placeholder="中文" value={questionI18n.zh} onChange={(e) => setQuestionI18n((v) => ({ ...v, zh: e.target.value }))} />
-                <Input placeholder="English" value={questionI18n.en} onChange={(e) => setQuestionI18n((v) => ({ ...v, en: e.target.value }))} />
-                <Input placeholder="Bahasa Melayu" value={questionI18n.ms} onChange={(e) => setQuestionI18n((v) => ({ ...v, ms: e.target.value }))} />
-              </div>
-              <p className="text-xs text-muted-foreground/80">
-                {moduleType === "multiple_choice" ? "这是选择题的题目本身，至少要填中文才能保存。" : "三个语言都不填的话，游戏画面用模块默认提示文字；只改\"怎么问\"，不影响判分逻辑本身。"}
-              </p>
+              <Label>自定义题目句子（选填）</Label>
+              <Input
+                placeholder="不填的话游戏画面用默认提示文字"
+                value={customQuestionText}
+                onChange={(e) => setCustomQuestionText(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground/80">只改"怎么问"，不影响判分逻辑本身。</p>
             </div>
           )}
         </div>
@@ -4279,13 +3934,13 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
 
     <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
       <Label className="text-xs">自定义题目句子（选填）</Label>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        <Input value={countingQuestionI18n.zh} onChange={(e) => setCountingQuestionI18n((v) => ({ ...v, zh: e.target.value }))} placeholder="中文，例如：苹果和西瓜一共有几个？" />
-        <Input value={countingQuestionI18n.en} onChange={(e) => setCountingQuestionI18n((v) => ({ ...v, en: e.target.value }))} placeholder="English" />
-        <Input value={countingQuestionI18n.ms} onChange={(e) => setCountingQuestionI18n((v) => ({ ...v, ms: e.target.value }))} placeholder="Bahasa Melayu" />
-      </div>
+      <Input
+        value={countingQuestionText}
+        onChange={(e) => setCountingQuestionText(e.target.value)}
+        placeholder="例如：苹果和西瓜一共有几个？（不填的话系统会按下面勾选的类型自动生成一句）"
+      />
       <p className="text-xs text-muted-foreground/80">
-        三个语言都不填的话，系统会按下面勾选的类型自动生成一句。这里只是改"怎么问"——正确答案还是由下面"这一题要问哪几种"决定，跟画面里实际摆的物件数量对应，不会因为这句话改变。
+        这里只是改"怎么问"——正确答案还是由下面"这一题要问哪几种"决定，跟画面里实际摆的物件数量对应，不会因为这句话改变。
       </p>
     </div>
 
@@ -4742,403 +4397,6 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             <p className="text-xs text-muted-foreground">
               经典"每行每列图形都不重复"练习(拉丁方阵)，没有素材图要准备，网格是现场生成的。难度决定网格边长——从4×4起步，每2级加大一圈，最高8×8。学生点空格弹出图形选择面板，选一个放进去。
             </p>
-          </div>
-        )}
-
-        {moduleType === "number_find" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Search size={16} className="text-primary" /> 数字大搜寻 · 内容设置
-            </div>
-            <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
-              {(["grid", "custom"] as const).map((m) => (
-                <button
-                  key={m} type="button" onClick={() => setNumberFindLayout(m)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                    numberFindLayout === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {m === "grid" ? "🔲 纯随机网格" : "🖼️ 自定义画面"}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex gap-3 flex-wrap items-center">
-              <label className="flex items-center gap-1.5">同时找几种数字
-                <input type="number" min={1} max={5} value={numberFindTargetCount} onChange={(e) => setNumberFindTargetCount(Math.max(1, +e.target.value))} className={MINI_INPUT_CLASS} />
-              </label>
-              <label className="flex items-center gap-1.5">数字范围
-                <input type="number" value={numberFindMin} onChange={(e) => setNumberFindMin(+e.target.value)} className={`${MINI_INPUT_CLASS} w-16`} />
-                <span className="text-muted-foreground">～</span>
-                <input type="number" value={numberFindMax} onChange={(e) => setNumberFindMax(+e.target.value)} className={`${MINI_INPUT_CLASS} w-16`} />
-              </label>
-              <label className="flex items-center gap-1.5">起始难度等级
-                <input type="number" min={1} max={10} value={cubeStackStartingLevel} onChange={(e) => setCubeStackStartingLevel(Math.min(10, Math.max(1, +e.target.value)))} className={MINI_INPUT_CLASS} />
-              </label>
-              <label className="flex items-center gap-1.5">题数 <input type="number" value={totalQuestions} onChange={(e) => setTotalQuestions(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
-            </div>
-
-            {numberFindLayout === "grid" ? (
-              <p className="text-xs text-muted-foreground">
-                在网格里找出并标记所有指定的数字，网格边长跟着难度自适应(3×3起步，最高7×7)，不需要准备素材。漏标或多标都算错。
-              </p>
-            ) : (
-              <div className="space-y-3 pt-1 border-t border-border/60">
-                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
-                  选背景图、摆几个纯装饰用的物件(不参与判定，比如恐龙、铅笔这种插图)。网格本身还是现场随机生成的数字，只是摆在你指定的那块区域里，不会跟装饰物件重叠。
-                </p>
-                <SceneEditor
-                  structuredMode presetModuleType="number_find"
-                  onSaveStructured={setNumberFindScene} initial={numberFindScene ?? undefined}
-                />
-                {numberFindScene && (
-                  <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                    ✓ 场景已确认（{numberFindScene.objects.length} 个装饰物件），可以点上面"完成"重新调整
-                  </p>
-                )}
-                <div className="flex gap-3 flex-wrap items-center">
-                  <span className="text-xs text-muted-foreground">网格摆放区域（数字，0~1）：</span>
-                  {(["x", "y", "w", "h"] as const).map((k) => (
-                    <label key={k} className="flex items-center gap-1">
-                      <span className="text-xs text-muted-foreground uppercase">{k}</span>
-                      <input
-                        type="number" step={0.05} min={0} max={1} value={numberFindGridArea[k]}
-                        onChange={(e) => setNumberFindGridArea((prev) => ({ ...prev, [k]: Math.min(1, Math.max(0, +e.target.value)) }))}
-                        className="w-16 px-1.5 py-1 rounded border border-border text-xs"
-                      />
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {moduleType === "number_sequence" && (
-          <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3 text-sm">
-            <div className="flex gap-3 flex-wrap items-center">
-              <label className="flex items-center gap-1.5">起始难度等级
-                <input type="number" min={1} max={10} value={cubeStackStartingLevel} onChange={(e) => setCubeStackStartingLevel(Math.min(10, Math.max(1, +e.target.value)))} className={MINI_INPUT_CLASS} />
-              </label>
-              <label className="flex items-center gap-1.5">题数 <input type="number" value={totalQuestions} onChange={(e) => setTotalQuestions(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              固定10格的数字序列，按算术规律递增/递减(比如每次+1/-1/+2/+5/+10)，挖掉几格让学生填。没有素材图要准备。难度决定"允许的步长"(1-3级只有±1，逐级加入±2/±5/±10)和"挖空密度"。
-            </p>
-          </div>
-        )}
-
-        {moduleType === "number_bond" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <TreePine size={16} className="text-primary" /> 数的分解与合成 · 内容设置
-            </div>
-            <div className="space-y-2">
-              <span className="text-xs text-muted-foreground block">图标（至少1张，多张时每棵树随机挑一张用）</span>
-              <div className="flex flex-wrap gap-2">
-                {numberBondIcons.map((url, i) => (
-                  <div key={i} className="relative w-14 h-14 rounded-lg border border-border overflow-hidden group">
-                    <img src={url} alt="" className="w-full h-full object-contain" />
-                    <button
-                      type="button" onClick={() => setNumberBondIcons((arr) => arr.filter((_, idx) => idx !== i))}
-                      className="absolute inset-0 bg-black/50 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-                    >
-                      删除
-                    </button>
-                  </div>
-                ))}
-                <AssetPicker category="object" label="🧸 加一张" moduleType="number_bond" onSelect={(url) => setNumberBondIcons((arr) => [...arr, url])} />
-              </div>
-            </div>
-            <div className="flex gap-3 flex-wrap items-center">
-              <label className="flex items-center gap-1.5">总数范围
-                <input type="number" min={2} value={numberBondMin} onChange={(e) => setNumberBondMin(Math.max(2, +e.target.value))} className={`${MINI_INPUT_CLASS} w-16`} />
-                <span className="text-muted-foreground">～</span>
-                <input type="number" value={numberBondMax} onChange={(e) => setNumberBondMax(+e.target.value)} className={`${MINI_INPUT_CLASS} w-16`} />
-              </label>
-              <label className="flex items-center gap-1.5">起始难度等级
-                <input type="number" min={1} max={10} value={cubeStackStartingLevel} onChange={(e) => setCubeStackStartingLevel(Math.min(10, Math.max(1, +e.target.value)))} className={MINI_INPUT_CLASS} />
-              </label>
-              <label className="flex items-center gap-1.5">题数 <input type="number" value={totalQuestions} onChange={(e) => setTotalQuestions(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              经典"数感树"练习——总数框拆成两个部分框，摆好的图标数量随机生成，学生数每个框有几个、填进对应的圆圈。难度决定"同时出几棵树"(1-4级一棵，5-7级两棵，8-10级三棵)和"每棵树挖几个圆圈"(挖得越多，能对照的已知数字越少)。
-            </p>
-          </div>
-        )}
-
-        {moduleType === "number_compare" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Scale size={16} className="text-primary" /> 数字比大小 · 内容设置
-            </div>
-            <div className="space-y-2">
-              <span className="text-xs text-muted-foreground block">图标（至少1张，多张时每组比较随机挑一张用）</span>
-              <div className="flex flex-wrap gap-2">
-                {numberCompareIcons.map((url, i) => (
-                  <div key={i} className="relative w-14 h-14 rounded-lg border border-border overflow-hidden group">
-                    <img src={url} alt="" className="w-full h-full object-contain" />
-                    <button
-                      type="button" onClick={() => setNumberCompareIcons((arr) => arr.filter((_, idx) => idx !== i))}
-                      className="absolute inset-0 bg-black/50 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-                    >
-                      删除
-                    </button>
-                  </div>
-                ))}
-                <AssetPicker category="object" label="🧸 加一张" moduleType="number_compare" onSelect={(url) => setNumberCompareIcons((arr) => [...arr, url])} />
-              </div>
-            </div>
-            <div className="flex gap-3 flex-wrap items-center">
-              <label className="flex items-center gap-1.5">每边数量范围
-                <input type="number" min={0} value={numberCompareMin} onChange={(e) => setNumberCompareMin(Math.max(0, +e.target.value))} className={`${MINI_INPUT_CLASS} w-16`} />
-                <span className="text-muted-foreground">～</span>
-                <input type="number" value={numberCompareMax} onChange={(e) => setNumberCompareMax(+e.target.value)} className={`${MINI_INPUT_CLASS} w-16`} />
-              </label>
-              <label className="flex items-center gap-1.5">起始难度等级
-                <input type="number" min={1} max={10} value={cubeStackStartingLevel} onChange={(e) => setCubeStackStartingLevel(Math.min(10, Math.max(1, +e.target.value)))} className={MINI_INPUT_CLASS} />
-              </label>
-              <label className="flex items-center gap-1.5">题数 <input type="number" value={totalQuestions} onChange={(e) => setTotalQuestions(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              给两组图标，学生数一数、选出正确的比较符号(&lt; = &gt;)。难度决定"同时比几组"(1-4级一组，5-7级两组，8-10级三组以上)。系统会故意让约三分之一的题目两边数量相等，确保"="这个符号也有机会练到。
-            </p>
-          </div>
-        )}
-
-        {moduleType === "number_addition" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Plus size={16} className="text-primary" /> 加法算式 · 内容设置
-            </div>
-            <div className="space-y-2">
-              <span className="text-xs text-muted-foreground block">图标（至少1张，多张时每道算式随机挑一张用）</span>
-              <div className="flex flex-wrap gap-2">
-                {numberAdditionIcons.map((url, i) => (
-                  <div key={i} className="relative w-14 h-14 rounded-lg border border-border overflow-hidden group">
-                    <img src={url} alt="" className="w-full h-full object-contain" />
-                    <button
-                      type="button" onClick={() => setNumberAdditionIcons((arr) => arr.filter((_, idx) => idx !== i))}
-                      className="absolute inset-0 bg-black/50 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-                    >
-                      删除
-                    </button>
-                  </div>
-                ))}
-                <AssetPicker category="object" label="🧸 加一张" moduleType="number_addition" onSelect={(url) => setNumberAdditionIcons((arr) => [...arr, url])} />
-              </div>
-            </div>
-            <div className="flex gap-3 flex-wrap items-center">
-              <label className="flex items-center gap-1.5">每个加数范围
-                <input type="number" min={0} value={numberAdditionMin} onChange={(e) => setNumberAdditionMin(Math.max(0, +e.target.value))} className={`${MINI_INPUT_CLASS} w-16`} />
-                <span className="text-muted-foreground">～</span>
-                <input type="number" value={numberAdditionMax} onChange={(e) => setNumberAdditionMax(+e.target.value)} className={`${MINI_INPUT_CLASS} w-16`} />
-              </label>
-              <label className="flex items-center gap-1.5">起始难度等级
-                <input type="number" min={1} max={10} value={cubeStackStartingLevel} onChange={(e) => setCubeStackStartingLevel(Math.min(10, Math.max(1, +e.target.value)))} className={MINI_INPUT_CLASS} />
-              </label>
-              <label className="flex items-center gap-1.5">题数 <input type="number" value={totalQuestions} onChange={(e) => setTotalQuestions(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              经典"图1 + 图2 = ?"横向算式练习，两个加数永远用图片给好(数一数就知道)，只留答案这一个空。难度决定"同时出几道算式"(1-4级一道，5-7级两道，8-10级三道以上)。
-            </p>
-          </div>
-        )}
-
-        {moduleType === "chinese_stroke" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <PenLine size={16} className="text-primary" /> 中文字笔顺练习 · 内容设置
-            </div>
-            <div className="space-y-2">
-              <span className="text-xs text-muted-foreground block">字库（至少1个字，每次玩从这里随机抽题）</span>
-              <div className="flex flex-wrap gap-2">
-                {chineseStrokeChars.map((ch, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 pl-3 pr-1.5 py-1 rounded-full border border-border bg-muted/40 text-base font-medium">
-                    {ch}
-                    <button
-                      type="button"
-                      onClick={() => setChineseStrokeChars((arr) => arr.filter((_, idx) => idx !== i))}
-                      className="w-5 h-5 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                    >
-                      <X size={12} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={chineseStrokeInput}
-                  onChange={(e) => setChineseStrokeInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key !== "Enter") return;
-                    e.preventDefault();
-                    // 输入框里可能一次贴了好几个字(比如从教材里复制一整
-                    // 段词)，逐个拆开加进去，比只认第一个字更实用；already
-                    // 已经在字库里的字跳过，不重复加。
-                    const newChars = Array.from(chineseStrokeInput.trim()).filter((ch) => ch.trim());
-                    if (newChars.length > 0) {
-                      setChineseStrokeChars((arr) => Array.from(new Set([...arr, ...newChars])));
-                      setChineseStrokeInput("");
-                    }
-                  }}
-                  placeholder="打一个字或一段词，按Enter加进字库"
-                  className={MINI_INPUT_CLASS}
-                  style={{ width: 220 }}
-                />
-                <Button
-                  type="button" variant="outline" size="sm"
-                  onClick={() => {
-                    const newChars = Array.from(chineseStrokeInput.trim()).filter((ch) => ch.trim());
-                    if (newChars.length > 0) {
-                      setChineseStrokeChars((arr) => Array.from(new Set([...arr, ...newChars])));
-                      setChineseStrokeInput("");
-                    }
-                  }}
-                >
-                  + 加进字库
-                </Button>
-              </div>
-            </div>
-            <div className="flex gap-3 flex-wrap items-center">
-              <label className="flex items-center gap-1.5">每次玩练几个字
-                <input type="number" min={1} value={totalQuestions} onChange={(e) => setTotalQuestions(Math.max(1, +e.target.value))} className={MINI_INPUT_CLASS} />
-              </label>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              每次玩从字库里随机抽题(字库不够题数时允许重复抽)。每个字先播放一遍笔顺动画演示，再让学生自己描着写，系统判断每一笔的顺序/方向/形状对不对——这部分靠 hanzi-writer 这个开源库处理，笔顺数据来自后端服务器(designer这里随便加什么常用字都能立刻用，不需要额外准备数据)。极少数生僻字可能不在数据库里，练习时会跳过并提示。
-            </p>
-          </div>
-        )}
-
-        {moduleType === "multiple_choice" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <CheckSquare size={16} className="text-primary" /> 选择题 · 内容设置
-            </div>
-
-            <div className="space-y-2">
-              <span className="text-xs text-muted-foreground block">背景画面（选填）——想给题目配一张图/摆几个物件，可以用这个编辑器；不需要的话跳过这一块，直接往下设置选项就行</span>
-              <SceneEditor
-                structuredMode presetModuleType="multiple_choice"
-                onSaveStructured={setMcScene} initial={mcScene ?? undefined}
-              />
-              {mcScene && (
-                <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                  ✓ 背景已确认（{mcScene.objects.length} 个物件），可以点上面"完成"重新调整
-                </p>
-              )}
-            </div>
-
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground">答题方式：</span>
-              <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
-                {(["single", "multi"] as const).map((m) => (
-                  <button
-                    key={m} type="button" onClick={() => setMcAnswerMode(m)}
-                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                      mcAnswerMode === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {m === "single" ? "⚪ 单选" : "☑️ 多选"}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <span className="text-xs text-muted-foreground block">选项（至少2个，勾选✓标记正确答案；每个选项至少填中文）</span>
-              <div className="space-y-2">
-                {mcOptions.map((opt, i) => (
-                  <div key={opt.id} className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 p-2">
-                    <button
-                      type="button"
-                      onClick={() => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, correct: !o.correct } : o)))}
-                      className={`w-7 h-7 flex-shrink-0 rounded-md border-2 flex items-center justify-center text-xs font-bold transition-colors ${
-                        opt.correct ? "border-emerald-500 bg-emerald-500 text-white" : "border-border bg-white text-transparent"
-                      }`}
-                    >
-                      ✓
-                    </button>
-                    <Input placeholder="中文" value={opt.zh} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, zh: e.target.value } : o)))} className="flex-1" />
-                    <Input placeholder="English" value={opt.en} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, en: e.target.value } : o)))} className="flex-1" />
-                    <Input placeholder="Bahasa Melayu" value={opt.ms} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, ms: e.target.value } : o)))} className="flex-1" />
-                    <button
-                      type="button"
-                      onClick={() => setMcOptions((arr) => (arr.length > 2 ? arr.filter((o) => o.id !== opt.id) : arr))}
-                      disabled={mcOptions.length <= 2}
-                      className="w-7 h-7 flex-shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-30 transition-colors"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <Button
-                type="button" variant="outline" size="sm"
-                onClick={() => setMcOptions((arr) => [...arr, { id: `opt${Date.now()}`, zh: "", en: "", ms: "", correct: false }])}
-              >
-                + 加一个选项
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {moduleType === "fill_blank" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <PencilLine size={16} className="text-primary" /> 填充题 · 内容设置
-            </div>
-
-            <div className="space-y-2">
-              <span className="text-xs text-muted-foreground block">背景画面（选填）</span>
-              <SceneEditor
-                structuredMode presetModuleType="fill_blank"
-                onSaveStructured={setFbScene} initial={fbScene ?? undefined}
-              />
-              {fbScene && (
-                <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                  ✓ 背景已确认（{fbScene.objects.length} 个物件），可以点上面"完成"重新调整
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>题目句子（中文必填，用 ___ 三个下划线标记空的位置，几个下划线就有几个空）</Label>
-              <Input placeholder='中文，例如：1 + 1 = ___' value={fbSentenceZh} onChange={(e) => setFbSentenceZh(e.target.value)} />
-              <Input placeholder="English（选填，下划线数量也要对应）" value={fbSentenceEn} onChange={(e) => setFbSentenceEn(e.target.value)} />
-              <Input placeholder="Bahasa Melayu（选填）" value={fbSentenceMs} onChange={(e) => setFbSentenceMs(e.target.value)} />
-            </div>
-
-            <div className="space-y-2">
-              <span className="text-xs text-muted-foreground block">
-                每个空的正确答案（按中文句子里 ___ 的顺序，一空一行；一个空可以有好几种都算对的写法，用逗号隔开，比如"5,五"）
-              </span>
-              {(() => {
-                const blankCount = (fbSentenceZh.match(/___/g) ?? []).length;
-                if (blankCount === 0) return <p className="text-xs text-muted-foreground/60">先在上面句子里加至少一个 ___，这里才会出现对应的答案输入框</p>;
-                return (
-                  <div className="space-y-1.5">
-                    {Array.from({ length: blankCount }, (_, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground w-14 flex-shrink-0">第{i + 1}个空</span>
-                        <Input
-                          placeholder="正确答案，多个写法用逗号隔开"
-                          value={fbBlankAnswers[i] ?? ""}
-                          onChange={(e) => setFbBlankAnswers((arr) => {
-                            const next = [...arr];
-                            while (next.length <= i) next.push("");
-                            next[i] = e.target.value;
-                            return next;
-                          })}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
-            </div>
           </div>
         )}
 
