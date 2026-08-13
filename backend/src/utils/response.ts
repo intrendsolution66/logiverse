@@ -67,6 +67,6 @@ export function serverError(res: Response, err: unknown): Response {
     process.env.NODE_ENV === "development" && err instanceof Error
       ? err.message
       : "Internal server error";
-  if (process.env.NODE_ENV === "development") console.error(err);
+  console.error("[serverError]", err);
   return res.status(500).json({ success: false, message } satisfies ApiResponse);
 }
