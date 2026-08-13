@@ -761,20 +761,50 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
           [startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
         );
         configId = cfgRows[0].id;
-      } else { // sudoku — authored content: a puzzle IMAGE + which cells are blank + the correct digit for each. Never generates or validates a real sudoku's row/column/box constraints, same "authored answer, not computed" principle as everything else here.
-        const cells = cfg.cells as Array<{ x: number; y: number; answer: number }> | undefined;
-        if (!cfg.bg_image_url) throw new Error("bg_image_url is required for sudoku");
-        if (!cells?.length) throw new Error("至少要标记1个空格并填答案");
-        if (cells.some((c) => !Number.isInteger(c.answer) || c.answer < 1 || c.answer > 9)) {
-          throw new Error("每个空格的答案必须是1到9的数字");
+      } else { // sudoku — authored content，两种布局：
+        // "photo"(旧，默认)——一张图+标记哪些格子留空+每格答案。
+        // "grid"(新，SceneEditor"自己画网格"存出来的)——没有照片，网格
+        // 本身是前端画的，given_cells(明摆着给学生看的数字)要发给前端
+        // 才画得出来；blank_cells只送位置不送答案，答案还是只在
+        // 服务器端，跟photo模式同一套"答案不下发"的安全模型。
+        //
+        // ⚠️ 这两种模式之前只有前端做了(SceneEditor里的网格编辑器)，
+        // 后端一直没跟上、一律当成photo模式处理、强制要求bg_image_url，
+        // 导致grid模式保存必定失败(报"bg_image_url is required for
+        // sudoku")。这次补上分支处理，edu.sudoku_configs 那张表也补了
+        // 迁移(0YB_sudoku_grid_mode.sql)加上grid模式需要的字段。
+        const sudokuLayout = (cfg.layout as string) === "grid" ? "grid" : "photo";
+        if (sudokuLayout === "grid") {
+          const givenCells = cfg.given_cells as Array<{ row: number; col: number; value: string }> | undefined;
+          const blankCells = cfg.blank_cells as Array<{ row: number; col: number; answer: string }> | undefined;
+          if (!cfg.rows || !cfg.cols) throw new Error("请先在编辑器里画好网格");
+          if (!blankCells?.length) throw new Error("至少要有1个留空的格子给学生填");
+          if (blankCells.some((c) => !c.answer)) throw new Error("每个留空的格子都要填答案（1-9）");
+          const { rows: cfgRows } = await client.query(
+            `INSERT INTO edu.sudoku_configs (layout, rows, cols, given_cells, blank_cells, line_color, given_color, blank_bg, bg_color, bg_enabled, opacity, difficulty, timer_mode, time_limit, question_i18n)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+             RETURNING id`,
+            [sudokuLayout, cfg.rows, cfg.cols, JSON.stringify(givenCells ?? []), JSON.stringify(blankCells),
+             cfg.line_color ?? null, cfg.given_color ?? null, cfg.blank_bg ?? null, cfg.bg_color ?? null,
+             cfg.bg_enabled ?? null, cfg.opacity ?? null, cfg.difficulty ?? "medium", cfg.timer_mode ?? "stopwatch",
+             cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+          );
+          configId = cfgRows[0].id;
+        } else {
+          const cells = cfg.cells as Array<{ x: number; y: number; answer: number }> | undefined;
+          if (!cfg.bg_image_url) throw new Error("bg_image_url is required for sudoku");
+          if (!cells?.length) throw new Error("至少要标记1个空格并填答案");
+          if (cells.some((c) => !Number.isInteger(c.answer) || c.answer < 1 || c.answer > 9)) {
+            throw new Error("每个空格的答案必须是1到9的数字");
+          }
+          const { rows: cfgRows } = await client.query(
+            `INSERT INTO edu.sudoku_configs (layout, bg_image_url, cells, difficulty, timer_mode, time_limit, question_i18n)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)
+             RETURNING id`,
+            [sudokuLayout, cfg.bg_image_url, JSON.stringify(cells), cfg.difficulty ?? "medium", cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+          );
+          configId = cfgRows[0].id;
         }
-        const { rows: cfgRows } = await client.query(
-          `INSERT INTO edu.sudoku_configs (bg_image_url, cells, difficulty, timer_mode, time_limit, question_i18n)
-           VALUES ($1,$2,$3,$4,$5,$6)
-           RETURNING id`,
-          [cfg.bg_image_url, JSON.stringify(cells), cfg.difficulty ?? "medium", cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
-        );
-        configId = cfgRows[0].id;
       }
 
       const { rows: levelRows } = await client.query(
@@ -1222,16 +1252,36 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
             [module_config_id, startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
           );
         } else { // sudoku
-          const cells = cfg.cells as Array<{ x: number; y: number; answer: number }> | undefined;
-          if (!cfg.bg_image_url) throw new Error("bg_image_url is required for sudoku");
-          if (!cells?.length) throw new Error("至少要标记1个空格并填答案");
-          if (cells.some((c) => !Number.isInteger(c.answer) || c.answer < 1 || c.answer > 9)) {
-            throw new Error("每个空格的答案必须是1到9的数字");
+          const sudokuLayout = (cfg.layout as string) === "grid" ? "grid" : "photo";
+          if (sudokuLayout === "grid") {
+            const givenCells = cfg.given_cells as Array<{ row: number; col: number; value: string }> | undefined;
+            const blankCells = cfg.blank_cells as Array<{ row: number; col: number; answer: string }> | undefined;
+            if (!cfg.rows || !cfg.cols) throw new Error("请先在编辑器里画好网格");
+            if (!blankCells?.length) throw new Error("至少要有1个留空的格子给学生填");
+            if (blankCells.some((c) => !c.answer)) throw new Error("每个留空的格子都要填答案（1-9）");
+            // 切换成grid模式时，顺手把photo模式那两个字段清空(bg_image_url/
+            // cells)，不然编辑器如果之前存过photo模式的数据，会留着一份
+            // 没人用得到的旧图片网址混在数据库里。
+            await client.query(
+              `UPDATE edu.sudoku_configs SET layout=$2, bg_image_url=NULL, cells=NULL, rows=$3, cols=$4, given_cells=$5, blank_cells=$6, line_color=$7, given_color=$8, blank_bg=$9, bg_color=$10, bg_enabled=$11, opacity=$12, difficulty=$13, timer_mode=$14, time_limit=$15, question_i18n=$16 WHERE id=$1`,
+              [module_config_id, sudokuLayout, cfg.rows, cfg.cols, JSON.stringify(givenCells ?? []), JSON.stringify(blankCells),
+               cfg.line_color ?? null, cfg.given_color ?? null, cfg.blank_bg ?? null, cfg.bg_color ?? null,
+               cfg.bg_enabled ?? null, cfg.opacity ?? null, cfg.difficulty ?? "medium", cfg.timer_mode ?? "stopwatch",
+               cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+            );
+          } else {
+            const cells = cfg.cells as Array<{ x: number; y: number; answer: number }> | undefined;
+            if (!cfg.bg_image_url) throw new Error("bg_image_url is required for sudoku");
+            if (!cells?.length) throw new Error("至少要标记1个空格并填答案");
+            if (cells.some((c) => !Number.isInteger(c.answer) || c.answer < 1 || c.answer > 9)) {
+              throw new Error("每个空格的答案必须是1到9的数字");
+            }
+            // 切换回photo模式时，同样清空grid模式那些字段。
+            await client.query(
+              `UPDATE edu.sudoku_configs SET layout=$2, bg_image_url=$3, cells=$4, rows=NULL, cols=NULL, given_cells=NULL, blank_cells=NULL, difficulty=$5, timer_mode=$6, time_limit=$7, question_i18n=$8 WHERE id=$1`,
+              [module_config_id, sudokuLayout, cfg.bg_image_url, JSON.stringify(cells), cfg.difficulty ?? "medium", cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+            );
           }
-          await client.query(
-            `UPDATE edu.sudoku_configs SET bg_image_url=$2, cells=$3, difficulty=$4, timer_mode=$5, time_limit=$6, question_i18n=$7 WHERE id=$1`,
-            [module_config_id, cfg.bg_image_url, JSON.stringify(cells), cfg.difficulty ?? "medium", cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
-          );
         }
       }
 
@@ -1523,11 +1573,21 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
       }
     } else if (level.module_type === "sudoku") {
       const { rows: cfgRows } = await query(
-        `SELECT bg_image_url, cells, difficulty, timer_mode, time_limit, question_i18n FROM edu.sudoku_configs WHERE id = $1`,
+        `SELECT layout, bg_image_url, cells, rows, cols, given_cells, blank_cells, line_color, given_color, blank_bg, bg_color, bg_enabled, opacity, difficulty, timer_mode, time_limit, question_i18n FROM edu.sudoku_configs WHERE id = $1`,
         [level.module_config_id]
       );
       const row = cfgRows[0];
-      if (row) {
+      if (row && row.layout === "grid") {
+        // grid模式——given_cells本来就是"明摆着给学生看的数字"，原样发；
+        // blank_cells只送位置，answer这个字段(隐藏的答案)不能发给学生，
+        // 跟photo模式一样的"答案不下发"原则。
+        const blankCellsWithoutAnswers = (row.blank_cells as Array<{ row: number; col: number }>).map((c) => ({ row: c.row, col: c.col }));
+        config = {
+          layout: "grid", rows: row.rows, cols: row.cols, given_cells: row.given_cells, blank_cells: blankCellsWithoutAnswers,
+          line_color: row.line_color, given_color: row.given_color, blank_bg: row.blank_bg, bg_color: row.bg_color, bg_enabled: row.bg_enabled, opacity: row.opacity,
+          difficulty: row.difficulty, timer_mode: row.timer_mode, time_limit: row.time_limit, question_i18n: row.question_i18n,
+        };
+      } else if (row) {
         // 隐藏的答案 — the correct digit for each cell must NEVER reach the
         // client until checkSudoku validates it server-side. Sending the
         // full cell (including `answer`) here would put the solution
@@ -1535,7 +1595,7 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
         // to anyone who opens devtools before even attempting the puzzle —
         // defeats "隐藏答案" entirely. Only position survives the trip.
         const cellsWithoutAnswers = (row.cells as Array<{ x: number; y: number }>).map((c) => ({ x: c.x, y: c.y }));
-        config = { bg_image_url: row.bg_image_url, cells: cellsWithoutAnswers, difficulty: row.difficulty, timer_mode: row.timer_mode, time_limit: row.time_limit, question_i18n: row.question_i18n };
+        config = { layout: "photo", bg_image_url: row.bg_image_url, cells: cellsWithoutAnswers, difficulty: row.difficulty, timer_mode: row.timer_mode, time_limit: row.time_limit, question_i18n: row.question_i18n };
       }
     } else if (level.module_type === "cube_layer_count") {
       const { rows: cfgRows } = await query(
@@ -1845,15 +1905,21 @@ export async function checkSudoku(req: AuthRequest, res: Response): Promise<void
     );
     if (!levelRows.length) { notFound(res, "Sudoku level not found"); return; }
 
-    const { rows: cfgRows } = await query(`SELECT cells FROM edu.sudoku_configs WHERE id = $1`, [levelRows[0].module_config_id]);
+    const { rows: cfgRows } = await query(`SELECT layout, cells, blank_cells FROM edu.sudoku_configs WHERE id = $1`, [levelRows[0].module_config_id]);
     if (!cfgRows.length) { notFound(res, "Sudoku config not found"); return; }
-    const cells = cfgRows[0].cells as Array<{ x: number; y: number; answer: number }>;
+    // grid模式的答案在blank_cells里(row/col/answer，answer是字符串"1"~"9")，
+    // photo模式在cells里(x/y/answer，answer是数字1~9)——统一转成同一套
+    // "answer数字数组"格式，下面的比对逻辑两种模式完全共用，不用分开写。
+    const isGrid = cfgRows[0].layout === "grid";
+    const answers: number[] = isGrid
+      ? (cfgRows[0].blank_cells as Array<{ answer: string }>).map((c) => parseInt(c.answer, 10))
+      : (cfgRows[0].cells as Array<{ answer: number }>).map((c) => c.answer);
 
-    if (values.length !== cells.length) { badRequest(res, `values must have exactly ${cells.length} entries, matching the cells this puzzle has`); return; }
+    if (values.length !== answers.length) { badRequest(res, `values must have exactly ${answers.length} entries, matching the cells this puzzle has`); return; }
 
-    const correct = cells.map((c, i) => values[i] === c.answer);
+    const correct = answers.map((a, i) => values[i] === a);
     const allCorrect = correct.every(Boolean);
-    const solution = cells.map((c) => c.answer);
+    const solution = answers;
 
     ok(res, { correct, allCorrect, solution });
   } catch (err) { serverError(res, err); }
@@ -2004,9 +2070,9 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
       );
       config = cfgRows[0] ?? null;
     } else if (level.module_type === "sudoku") {
-      // the ONLY branch that differs from getLevel: cells keep `answer`
+      // the ONLY branch that differs from getLevel: cells/blank_cells keep `answer`
       const { rows: cfgRows } = await query(
-        `SELECT bg_image_url, cells, difficulty, timer_mode, time_limit, question_i18n FROM edu.sudoku_configs WHERE id = $1`,
+        `SELECT layout, bg_image_url, cells, rows, cols, given_cells, blank_cells, line_color, given_color, blank_bg, bg_color, bg_enabled, opacity, difficulty, timer_mode, time_limit, question_i18n FROM edu.sudoku_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
