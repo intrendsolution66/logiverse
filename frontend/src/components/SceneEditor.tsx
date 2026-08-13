@@ -506,7 +506,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
       ctx.restore();
       if (l.id === selectedId) drawSelectionBox(ctx, layerBounds(l, ctx), rot);
     });
-  }, [background, layers, strokes, selectedId]);
+  }, [background, layers, strokes, selectedId, selectedGridCell]);
 
   useEffect(() => { redraw(); });
 

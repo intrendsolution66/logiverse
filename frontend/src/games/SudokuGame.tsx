@@ -99,6 +99,23 @@ export default function SudokuGame({ levelId, config, onComplete, locale = "zh" 
   const [finished, setFinished] = useState(false);
   const startRef = useRef(Date.now());
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  // 给定数字（SVG text）的 fontSize 是 viewBox 相对单位，容器变大变小会
+  // 自动等比缩放；但输入框原本用 vw 算字号，跟屏幕宽度挂钩、跟这一格在
+  // 屏幕上实际有多大完全无关，两者会明显对不上（学生填的数字比给定的
+  // 数字小一截）。改成实测容器像素宽度，按跟 SVG 数字同一套比例换算，
+  // 这样两种数字视觉上大小一致。
+  const boardRef = useRef<HTMLDivElement>(null);
+  const [cellPx, setCellPx] = useState(0);
+  useEffect(() => {
+    const el = boardRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      setCellPx(isGrid ? w / cols : w * 0.065); // photo 模式格子原本按 6.5% 容器宽给的，沿用同一比例
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isGrid, cols]);
 
   useEffect(() => {
     if (finished) return;
@@ -164,6 +181,7 @@ export default function SudokuGame({ levelId, config, onComplete, locale = "zh" 
       )}
 
       <div
+        ref={boardRef}
         className="relative w-full aspect-[11/7] rounded-2xl mb-4 bg-white overflow-hidden shadow-lg ring-1 ring-black/5"
         style={isGrid ? undefined : { backgroundImage: `url(${config.bg_image_url})`, backgroundSize: "100% 100%", backgroundPosition: "center" }}
       >
@@ -207,7 +225,8 @@ export default function SudokuGame({ levelId, config, onComplete, locale = "zh" 
               style={{
                 left: `${pos.x * 100}%`, top: `${pos.y * 100}%`,
                 width: isGrid ? `${(1 / cols) * 100 * 0.8}%` : "6.5%",
-                aspectRatio: "1 / 1", fontSize: "clamp(12px, 2.2vw, 22px)",
+                aspectRatio: "1 / 1",
+                fontSize: cellPx ? `${cellPx * 0.55}px` : "clamp(12px, 2.2vw, 22px)", // 跟 SVG 给定数字用同一比例(0.55)，实测容器宽度出来之前先用旧写法兜底，避免首帧字号跳一下
               }}
             />
           );
