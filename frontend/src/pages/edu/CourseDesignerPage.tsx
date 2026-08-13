@@ -3596,8 +3596,12 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           }));
           if (blankCells.length === 0) { toast.error("至少要有1个留空的格子给学生填"); return; }
           // 🔍 临时诊断日志——排查"明明填了答案，保存还是报错"这个问题用，
-          // 确认没问题之后记得删掉这几行。
-          console.log("[数独诊断] blankCells:", JSON.parse(JSON.stringify(blankCells)));
+          // 直接摊开成文字，不用再点开任何折叠的对象，确认没问题之后记得
+          // 把这几行删掉。
+          console.log(
+            "[数独诊断] 一共" + blankCells.length + "个留空格子：\n" +
+            blankCells.map((c) => `  第${c.row + 1}行第${c.col + 1}列 → answer=${JSON.stringify(c.answer)}（长度${c.answer.length}）`).join("\n")
+          );
           if (blankCells.some((c) => !c.answer)) { toast.error("每个留空的格子都要填答案（1-9），点画布上那个格子在右边填"); return; }
           await saveLevel({
             module_type: "sudoku",
