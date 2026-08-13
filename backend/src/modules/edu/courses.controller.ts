@@ -330,7 +330,7 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
     const categoryIds = Array.from(new Set((category_ids && category_ids.length ? category_ids : (category_id ? [category_id] : [])).filter(Boolean)));
     const primaryCategoryId = categoryIds[0] ?? null; // 旧栏位/编号生成还是要挑一个"主"分类，用第一个
 
-    const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "ppt_lecture", "video_lecture", "play_along", "sticker_game", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count", "clock", "latin_square", "number_find", "number_sequence", "number_bond", "number_compare", "number_addition", "chinese_stroke"];
+    const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "ppt_lecture", "video_lecture", "play_along", "sticker_game", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count", "clock", "latin_square", "number_find", "number_sequence", "number_bond", "number_compare", "number_addition", "chinese_stroke", "multiple_choice", "fill_blank"];
     if (!SUPPORTED.includes(module_type)) {
       badRequest(res, `Unsupported module_type: ${module_type} (supported: ${SUPPORTED.join(", ")})`);
       return;
@@ -727,6 +727,29 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
            VALUES ($1,$2,$3,$4,$5) RETURNING id`,
           [JSON.stringify(characters), cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
            cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "multiple_choice") { // 选择题——一个Activity一题，options/correct_option_ids直接发给前端(答案本来就摆在选项里，藏不住)
+        const options = cfg.options as Array<{ id: string; text_i18n: Record<string, string> }> | undefined;
+        const correctIds = cfg.correct_option_ids as string[] | undefined;
+        if (!options || options.length < 2) throw new Error("至少要有2个选项");
+        if (!correctIds?.length) throw new Error("请至少勾选1个正确答案");
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.multiple_choice_configs (bg_image_url, objects, texts, answer_mode, options, correct_option_ids, question_i18n, timer_mode, time_limit)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+          [cfg.bg_image_url ?? null, cfg.objects ? JSON.stringify(cfg.objects) : null, cfg.texts ? JSON.stringify(cfg.texts) : null,
+           (cfg.answer_mode as string) === "multi" ? "multi" : "single", JSON.stringify(options), JSON.stringify(correctIds),
+           JSON.stringify(cfg.question_i18n ?? {}), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "fill_blank") { // 填充题——一个Activity一题，句子里"___"标记空的位置，blanks按顺序对应每个空的正确答案
+        const blanks = cfg.blanks as Array<{ accepted_answers: string[] }> | undefined;
+        if (!blanks?.length) throw new Error("至少要有1个空");
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.fill_blank_configs (bg_image_url, objects, texts, sentence_i18n, blanks, timer_mode, time_limit)
+           VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+          [cfg.bg_image_url ?? null, cfg.objects ? JSON.stringify(cfg.objects) : null, cfg.texts ? JSON.stringify(cfg.texts) : null,
+           JSON.stringify(cfg.sentence_i18n ?? {}), JSON.stringify(blanks), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
         );
         configId = cfgRows[0].id;
       } else if (module_type === "cube_stack") { // 生成参数，不是authored内容——没有素材图/隐藏答案，题目运行时现场生成
@@ -1173,6 +1196,25 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
             [module_config_id, JSON.stringify(characters), cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null,
              cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
           );
+        } else if (module_type === "multiple_choice") {
+          const options = cfg.options as Array<{ id: string; text_i18n: Record<string, string> }> | undefined;
+          const correctIds = cfg.correct_option_ids as string[] | undefined;
+          if (!options || options.length < 2) throw new Error("至少要有2个选项");
+          if (!correctIds?.length) throw new Error("请至少勾选1个正确答案");
+          await client.query(
+            `UPDATE edu.multiple_choice_configs SET bg_image_url=$2, objects=$3, texts=$4, answer_mode=$5, options=$6, correct_option_ids=$7, question_i18n=$8, timer_mode=$9, time_limit=$10 WHERE id=$1`,
+            [module_config_id, cfg.bg_image_url ?? null, cfg.objects ? JSON.stringify(cfg.objects) : null, cfg.texts ? JSON.stringify(cfg.texts) : null,
+             (cfg.answer_mode as string) === "multi" ? "multi" : "single", JSON.stringify(options), JSON.stringify(correctIds),
+             JSON.stringify(cfg.question_i18n ?? {}), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+          );
+        } else if (module_type === "fill_blank") {
+          const blanks = cfg.blanks as Array<{ accepted_answers: string[] }> | undefined;
+          if (!blanks?.length) throw new Error("至少要有1个空");
+          await client.query(
+            `UPDATE edu.fill_blank_configs SET bg_image_url=$2, objects=$3, texts=$4, sentence_i18n=$5, blanks=$6, timer_mode=$7, time_limit=$8 WHERE id=$1`,
+            [module_config_id, cfg.bg_image_url ?? null, cfg.objects ? JSON.stringify(cfg.objects) : null, cfg.texts ? JSON.stringify(cfg.texts) : null,
+             JSON.stringify(cfg.sentence_i18n ?? {}), JSON.stringify(blanks), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+          );
         } else if (module_type === "cube_stack") {
           const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
           await client.query(
@@ -1579,6 +1621,18 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
     } else if (level.module_type === "chinese_stroke") {
       const { rows: cfgRows } = await query(
         `SELECT characters, total_questions, timer_mode, time_limit, question_i18n FROM edu.chinese_stroke_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "multiple_choice") {
+      const { rows: cfgRows } = await query(
+        `SELECT bg_image_url, objects, texts, answer_mode, options, correct_option_ids, question_i18n, timer_mode, time_limit FROM edu.multiple_choice_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "fill_blank") {
+      const { rows: cfgRows } = await query(
+        `SELECT bg_image_url, objects, texts, sentence_i18n, blanks, timer_mode, time_limit FROM edu.fill_blank_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
@@ -2037,6 +2091,18 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
     } else if (level.module_type === "chinese_stroke") {
       const { rows: cfgRows } = await query(
         `SELECT characters, total_questions, timer_mode, time_limit, question_i18n FROM edu.chinese_stroke_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "multiple_choice") {
+      const { rows: cfgRows } = await query(
+        `SELECT bg_image_url, objects, texts, answer_mode, options, correct_option_ids, question_i18n, timer_mode, time_limit FROM edu.multiple_choice_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "fill_blank") {
+      const { rows: cfgRows } = await query(
+        `SELECT bg_image_url, objects, texts, sentence_i18n, blanks, timer_mode, time_limit FROM edu.fill_blank_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;

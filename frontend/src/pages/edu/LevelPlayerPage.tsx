@@ -39,6 +39,8 @@ import NumberBondGame, { type NumberBondConfig, type NumberBondResult } from "@/
 import NumberCompareGame, { type NumberCompareConfig, type NumberCompareResult } from "@/games/NumberCompareGame";
 import NumberAdditionGame, { type NumberAdditionConfig, type NumberAdditionResult } from "@/games/NumberAdditionGame";
 import ChineseStrokeGame, { type ChineseStrokeConfig, type ChineseStrokeResult } from "@/games/ChineseStrokeGame";
+import MultipleChoiceGame, { type MultipleChoiceConfig, type MultipleChoiceResult } from "@/games/MultipleChoiceGame";
+import FillBlankGame, { type FillBlankConfig, type FillBlankResult } from "@/games/FillBlankGame";
 import { useGameLocale, LOCALE_LABELS, ALL_LOCALES, I18N_READY_MODULES, type Dict } from "@/lib/gameLocale";
 
 // 这一圈"外层壳"的文字(待机封面+顶部控制按钮)——只有玩i18n已经接入的
@@ -92,7 +94,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import toast from "react-hot-toast";
 
-type GameResult = CountingResult | SpotDiffResult | FocusTapResult | MemoryResult | PatternResult | WordProblemResult | MazeResult | NumberMazeResult | SudokuResult | LineMatchResult | ColoringResult | StickerGameResult | CubeStackResult | CubeLayerCountResult | CubeFindHiddenResult | CubeFreeRotateResult | CubeBuildResult | CubeThreeViewResult | ShapeCountResult | ClockResult | LatinSquareResult | NumberFindResult | NumberSequenceResult | NumberBondResult | NumberCompareResult | NumberAdditionResult | ChineseStrokeResult;
+type GameResult = CountingResult | SpotDiffResult | FocusTapResult | MemoryResult | PatternResult | WordProblemResult | MazeResult | NumberMazeResult | SudokuResult | LineMatchResult | ColoringResult | StickerGameResult | CubeStackResult | CubeLayerCountResult | CubeFindHiddenResult | CubeFreeRotateResult | CubeBuildResult | CubeThreeViewResult | ShapeCountResult | ClockResult | LatinSquareResult | NumberFindResult | NumberSequenceResult | NumberBondResult | NumberCompareResult | NumberAdditionResult | ChineseStrokeResult | MultipleChoiceResult | FillBlankResult;
 
 export default function LevelPlayerPage() {
   const { levelId } = useParams<{ levelId: string }>();
@@ -234,7 +236,7 @@ export default function LevelPlayerPage() {
   if (loading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">加载中...</div>;
   if (!level) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">找不到这个 Activity</div>;
 
-  const KNOWN_GAME_MODULES = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "sticker_game", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count", "clock", "latin_square", "number_find", "number_sequence", "number_bond", "number_compare", "number_addition", "chinese_stroke"];
+  const KNOWN_GAME_MODULES = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "sticker_game", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count", "clock", "latin_square", "number_find", "number_sequence", "number_bond", "number_compare", "number_addition", "chinese_stroke", "multiple_choice", "fill_blank"];
   const isLecture = level.module_type === "video_lecture" || level.module_type === "ppt_lecture";
   const isKnown = KNOWN_GAME_MODULES.includes(level.module_type) || isLecture;
   // 只有真正的"游戏"套待机/开始/重玩/退出这套流程——讲义(video/ppt)
@@ -345,6 +347,8 @@ export default function LevelPlayerPage() {
               {level.module_type === "number_compare" && <NumberCompareGame key={playKey} config={level.config as unknown as NumberCompareConfig} onComplete={handleComplete} locale={locale} />}
               {level.module_type === "number_addition" && <NumberAdditionGame key={playKey} config={level.config as unknown as NumberAdditionConfig} onComplete={handleComplete} locale={locale} />}
               {level.module_type === "chinese_stroke" && <ChineseStrokeGame key={playKey} config={level.config as unknown as ChineseStrokeConfig} onComplete={handleComplete} locale={locale} />}
+              {level.module_type === "multiple_choice" && <MultipleChoiceGame key={playKey} config={level.config as unknown as MultipleChoiceConfig} onComplete={handleComplete} locale={locale} />}
+              {level.module_type === "fill_blank" && <FillBlankGame key={playKey} config={level.config as unknown as FillBlankConfig} onComplete={handleComplete} locale={locale} />}
 
               {level.module_type === "video_lecture" && (
                 <VideoPlayer src={config.video_url ?? ""} onProgress={(sec, dur, completed) => handleLectureProgress(sec, dur, completed)} />
