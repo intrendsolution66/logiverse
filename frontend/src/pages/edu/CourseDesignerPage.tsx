@@ -2986,7 +2986,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           bgUrl: (cfg.bg_image_url as string) ?? null,
           objects: objects.map((o) => ({
             imageUrl: o.image_url,
-            x: o.x * GAME_CANVAS_W, y: o.y * GAME_CANVAS_H,
+            x: o.x, y: o.y, // 保存端已经不再除以GAME_CANVAS_W/H了（原始像素值），这里也别再乘回去，两边要对称
             w: o.w, h: o.h, rotation: o.rotation,
             objectType: o.type ?? "",
             flipX: o.flip_x ?? false, flipY: o.flip_y ?? false,
@@ -3590,10 +3590,17 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           if (!grid) { toast.error("请先在编辑器里画好网格"); return; }
           const givenCells: Array<{ row: number; col: number; value: string }> = [];
           const blankCells: Array<{ row: number; col: number; answer: string }> = [];
+          const missingCells: Array<{ row: number; col: number }> = [];
           grid.cells.forEach((rowArr, r) => rowArr.forEach((cell, c) => {
             if (cell.blank) blankCells.push({ row: r, col: c, answer: (cell.answer ?? "").trim() });
             else if (cell.value.trim()) givenCells.push({ row: r, col: c, value: cell.value.trim() });
+            else missingCells.push({ row: r, col: c }); // 既没勾"留空给学生填"也没填数字——不能悄悄丢弃，否则这格在游戏里会彻底消失
           }));
+          if (missingCells.length > 0) {
+            const list = missingCells.map((m) => `第${m.row + 1}行第${m.col + 1}列`).join("、");
+            toast.error(`这些格子既没填数字也没勾"留空给学生填"：${list}，请点画布上对应格子处理`);
+            return;
+          }
           if (blankCells.length === 0) { toast.error("至少要有1个留空的格子给学生填"); return; }
           if (blankCells.some((c) => !c.answer)) { toast.error("每个留空的格子都要填答案（1-9），点画布上那个格子在右边填"); return; }
           await saveLevel({
@@ -3721,7 +3728,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           config: {
             bg_image_url: stickerScene.bgUrl,
             objects: stickerScene.objects.map((o) => ({
-              image_url: o.imageUrl, x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H,
+              image_url: o.imageUrl, x: o.x, y: o.y, // 保持原始画布像素坐标，别在这里提前除以GAME_CANVAS_W/H——播放端(StickerGame.tsx)本来就会统一做这个换算，w/h也是原样传的，x/y提前除了一次会跟w/h单位对不上，播放时位置全乱、贴纸也永远判定不了"贴对"
               w: o.w, h: o.h, rotation: o.rotation, type: o.objectType || undefined,
               flip_x: o.flipX || undefined, flip_y: o.flipY || undefined,
             })),
