@@ -8,7 +8,7 @@
 // existing scale instead of ad-hoc inline styles.
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Boxes, Rows3, Eye, RotateCw, Hammer, Frame, Square, Clock, Grid2x2, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
+import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Boxes, Rows3, Eye, RotateCw, Hammer, Frame, Square, Clock, Grid2x2, PenLine, X, CheckSquare, PencilLine, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { eduApi, lessonsApi, exerciseClassificationApi, taxonomyApi } from "@/api";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
@@ -65,6 +65,9 @@ const MODULE_LABELS: Record<string, { emoji: string; label: string }> = {
   shape_count:      { emoji: "🔲", label: "数方块(平面图形)" },
   clock:            { emoji: "🕐", label: "认钟表" },
   latin_square:     { emoji: "🎲", label: "图形排排看" },
+  chinese_stroke:   { emoji: "✍️", label: "中文字笔顺练习" },
+  multiple_choice:  { emoji: "☑️", label: "选择题" },
+  fill_blank:       { emoji: "📝", label: "填充题" },
 };
 
 // 每个游戏类型一个专属色系——像玩具架上的游戏卡带，一眼就能从颜色分辨
@@ -95,6 +98,9 @@ const MODULE_COLORS: Record<string, { bg: string; text: string; ring: string }> 
   shape_count:      { bg: "#DBEAFE", text: "#1E40AF", ring: "#60A5FA" },
   clock:            { bg: "#ECFCCB", text: "#3F6212", ring: "#84CC16" },
   latin_square:     { bg: "#FAE8FF", text: "#86198F", ring: "#E879F9" },
+  chinese_stroke:   { bg: "#FBCFE8", text: "#831843", ring: "#EC4899" },
+  multiple_choice:  { bg: "#DCFCE7", text: "#15803D", ring: "#22C55E" },
+  fill_blank:       { bg: "#FFF7ED", text: "#C2410C", ring: "#FB923C" },
 };
 const FALLBACK_COLOR = { bg: "#F1F5F9", text: "#334155", ring: "#94A3B8" };
 
@@ -108,6 +114,8 @@ const MODULE_ICONS: Record<string, LucideIcon> = {
   play_along: Music2, sticker_game: Sticker, cube_stack: Boxes,
   cube_layer_count: Rows3, cube_find_hidden: Eye, cube_free_rotate: RotateCw,
   cube_build: Hammer, cube_three_view: Frame, shape_count: Square, clock: Clock, latin_square: Grid2x2,
+  chinese_stroke: PenLine,
+  multiple_choice: CheckSquare, fill_blank: PencilLine,
 };
 
 function readAsDataURL(file: File): Promise<string> {
@@ -2148,7 +2156,7 @@ function PlayAlongMarkerEditor({ pages, audioUrl, markers, setMarkers, currentPa
 // 里用 typeof moduleType 反过来引用它自己（TS 处理不了这种循环引用，
 // 会报 "implicitly has type any"）。这两个地方（下面 useState 的初始值、
 // presetModuleType 转型）都要用这个命名类型，不要图省事写 typeof。
-type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game" | "cube_stack" | "cube_layer_count" | "cube_find_hidden" | "cube_free_rotate" | "cube_build" | "cube_three_view" | "shape_count" | "clock" | "latin_square";
+type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game" | "cube_stack" | "cube_layer_count" | "cube_find_hidden" | "cube_free_rotate" | "cube_build" | "cube_three_view" | "shape_count" | "clock" | "latin_square" | "chinese_stroke" | "multiple_choice" | "fill_blank";
 
 function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleType }: {
   open: boolean; onClose: () => void; editingLevelId?: string | null; onSaved: () => void;
@@ -2196,6 +2204,37 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   const [categoryIds, setCategoryIds] = useState<string[]>([]); // 这个 Activity 实际挂的全部 Topic（多对多）
   const [groupId, setGroupId] = useState("");
   const [curriculumTypeId, setCurriculumTypeId] = useState("");
+
+  // chinese_stroke fields
+  const [chineseStrokeChars, setChineseStrokeChars] = useState<string[]>([]);
+  const [chineseStrokeInput, setChineseStrokeInput] = useState(""); // 输入框里正在打的字，还没确认加进字库
+
+  // multiple_choice fields——选项列表(每个选项独立三语言+是否正确)，
+  // 场景(SceneEditor组合的背景，选填)复用跟点点数数自定义模式同一套
+  // StructuredSceneOutput类型。
+  interface MCOption { id: string; zh: string; en: string; ms: string; correct: boolean }
+  const [mcScene, setMcScene] = useState<StructuredSceneOutput | null>(null);
+  const [mcAnswerMode, setMcAnswerMode] = useState<"single" | "multi">("single");
+  const [mcOptions, setMcOptions] = useState<MCOption[]>([
+    { id: "opt1", zh: "", en: "", ms: "", correct: false },
+    { id: "opt2", zh: "", en: "", ms: "", correct: false },
+  ]);
+  // 题目文字（必填，至少中文）——选择题总要有个"问什么"，专属字段，
+  // 不跟其他模块共用 customQuestionText（那个是选填的辅助说明，这个是
+  // 选择题的核心内容）。
+  const [mcQuestionZh, setMcQuestionZh] = useState("");
+  const [mcQuestionEn, setMcQuestionEn] = useState("");
+  const [mcQuestionMs, setMcQuestionMs] = useState("");
+
+  // fill_blank fields——题目句子(三语言，各自的"___"数量应该一致，用
+  // 中文那份句子的"___"数量决定要显示几个"接受答案"输入框)，场景同
+  // 选择题一样复用SceneEditor。
+  const [fbScene, setFbScene] = useState<StructuredSceneOutput | null>(null);
+  const [fbSentenceZh, setFbSentenceZh] = useState("");
+  const [fbSentenceEn, setFbSentenceEn] = useState("");
+  const [fbSentenceMs, setFbSentenceMs] = useState("");
+  // 每个空一条，逗号分隔"这个空所有算对的写法"(比如"5,五")
+  const [fbBlankAnswers, setFbBlankAnswers] = useState<string[]>([""]);
 
   // Activity 属性 (LogiVerse Education Taxonomy v1.0) — all optional,
   // metadata about the activity itself rather than the numbering/content
@@ -2706,6 +2745,11 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   useEffect(() => {
     if (!open) {
       setLevelTitle(""); setModuleType((presetModuleType as ModuleType) ?? "counting");
+      setChineseStrokeChars([]); setChineseStrokeInput("");
+      setMcScene(null); setMcAnswerMode("single");
+      setMcOptions([{ id: "opt1", zh: "", en: "", ms: "", correct: false }, { id: "opt2", zh: "", en: "", ms: "", correct: false }]);
+      setMcQuestionZh(""); setMcQuestionEn(""); setMcQuestionMs("");
+      setFbScene(null); setFbSentenceZh(""); setFbSentenceEn(""); setFbSentenceMs(""); setFbBlankAnswers([""]);
       setExplanationText(""); setExplanationImageUrl(null); setExplanationVideoUrl("");
       setHintText(""); setAudioUrl(null); setAudioFileName("");
       setSubjectId(""); setCategoryId(""); setCategoryIds([]); setGroupId(""); setCurriculumTypeId("");
@@ -2904,6 +2948,50 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         setCubeStackStartingLevel((cfg.starting_level as number) ?? 1);
         setTotalQuestions((cfg.total_questions as number) ?? 5);
         setLatinSquareTheme((cfg.theme as "shape" | "animal" | "fruit" | "emotion") ?? "shape");
+      } else if (level.module_type === "chinese_stroke") {
+        setChineseStrokeChars((cfg.characters as string[]) ?? []);
+        setChineseStrokeInput("");
+        setTotalQuestions((cfg.total_questions as number) ?? 5);
+      } else if (level.module_type === "multiple_choice") {
+        const decos = (cfg.objects as Array<{ image_url: string; x: number; y: number; w: number; h: number; rotation: number; flip_x?: boolean; flip_y?: boolean; opacity?: number }>) ?? [];
+        const txts = (cfg.texts as Array<{ text: string; x: number; y: number; fontSize: number; color: string; fontFamily: string; rotation: number; bold?: boolean; italic?: boolean; underline?: boolean }>) ?? [];
+        setMcScene(cfg.bg_image_url || decos.length || txts.length ? {
+          bgUrl: (cfg.bg_image_url as string) ?? null,
+          objects: decos.map((d) => ({
+            imageUrl: d.image_url, x: d.x * GAME_CANVAS_W, y: d.y * GAME_CANVAS_H,
+            w: d.w, h: d.h, rotation: d.rotation, flipX: d.flip_x, flipY: d.flip_y, opacity: d.opacity,
+          })),
+          texts: txts.map((tx) => ({
+            text: tx.text, x: tx.x * GAME_CANVAS_W, y: tx.y * GAME_CANVAS_H, fontSize: tx.fontSize,
+            color: tx.color, fontFamily: tx.fontFamily, rotation: tx.rotation, bold: tx.bold, italic: tx.italic, underline: tx.underline,
+          })),
+        } : null);
+        setMcAnswerMode(((cfg.answer_mode as string) ?? "single") as "single" | "multi");
+        const opts = (cfg.options as Array<{ id: string; text_i18n?: Record<string, string> }>) ?? [];
+        const correctIds = new Set((cfg.correct_option_ids as string[]) ?? []);
+        setMcOptions(opts.length >= 2 ? opts.map((o) => ({
+          id: o.id, zh: o.text_i18n?.zh ?? "", en: o.text_i18n?.en ?? "", ms: o.text_i18n?.ms ?? "", correct: correctIds.has(o.id),
+        })) : [{ id: "opt1", zh: "", en: "", ms: "", correct: false }, { id: "opt2", zh: "", en: "", ms: "", correct: false }]);
+        const mcQi18n = cfg.question_i18n as Record<string, string> | undefined;
+        setMcQuestionZh(mcQi18n?.zh ?? ""); setMcQuestionEn(mcQi18n?.en ?? ""); setMcQuestionMs(mcQi18n?.ms ?? "");
+      } else if (level.module_type === "fill_blank") {
+        const decos = (cfg.objects as Array<{ image_url: string; x: number; y: number; w: number; h: number; rotation: number; flip_x?: boolean; flip_y?: boolean; opacity?: number }>) ?? [];
+        const txts = (cfg.texts as Array<{ text: string; x: number; y: number; fontSize: number; color: string; fontFamily: string; rotation: number; bold?: boolean; italic?: boolean; underline?: boolean }>) ?? [];
+        setFbScene(cfg.bg_image_url || decos.length || txts.length ? {
+          bgUrl: (cfg.bg_image_url as string) ?? null,
+          objects: decos.map((d) => ({
+            imageUrl: d.image_url, x: d.x * GAME_CANVAS_W, y: d.y * GAME_CANVAS_H,
+            w: d.w, h: d.h, rotation: d.rotation, flipX: d.flip_x, flipY: d.flip_y, opacity: d.opacity,
+          })),
+          texts: txts.map((tx) => ({
+            text: tx.text, x: tx.x * GAME_CANVAS_W, y: tx.y * GAME_CANVAS_H, fontSize: tx.fontSize,
+            color: tx.color, fontFamily: tx.fontFamily, rotation: tx.rotation, bold: tx.bold, italic: tx.italic, underline: tx.underline,
+          })),
+        } : null);
+        const sentI18n = cfg.sentence_i18n as Record<string, string> | undefined;
+        setFbSentenceZh(sentI18n?.zh ?? ""); setFbSentenceEn(sentI18n?.en ?? ""); setFbSentenceMs(sentI18n?.ms ?? "");
+        const blanksArr = (cfg.blanks as Array<{ accepted_answers: string[] }>) ?? [];
+        setFbBlankAnswers(blanksArr.length ? blanksArr.map((b) => (b.accepted_answers ?? []).join(",")) : [""]);
       } else if (level.module_type === "word_problem") {
         setWpCategories((cfg.categories as string[]) ?? ["chicken_rabbit"]);
         setWpAnswerMode(((cfg.answer_mode as string) ?? "select") as "select" | "input");
@@ -3397,6 +3485,77 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           hint_text: hintText || undefined, audio_url: audioUrl || undefined,
           category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
           config: { starting_level: cubeStackStartingLevel, total_questions: totalQuestions, theme: latinSquareTheme, timer_mode: "stopwatch" },
+        });
+      } else if (moduleType === "chinese_stroke") {
+        if (chineseStrokeChars.length === 0) { toast.error("请至少输入1个字"); return; }
+        await saveLevel({
+          module_type: "chinese_stroke",
+          title_i18n: { zh: levelTitle || "中文字笔顺练习", en: levelTitle || "Chinese Stroke Order" },
+          explanation_text: explanationText || undefined,
+          explanation_image_url: explanationImageUrl || undefined,
+          explanation_video_url: explanationVideoUrl || undefined,
+          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: { characters: chineseStrokeChars, total_questions: totalQuestions, timer_mode: "stopwatch" },
+        });
+      } else if (moduleType === "multiple_choice") {
+        const filledOptions = mcOptions.filter((o) => o.zh.trim() || o.en.trim() || o.ms.trim());
+        if (filledOptions.length < 2) { toast.error("至少要有2个选项(至少填中文)"); return; }
+        const correctOptions = filledOptions.filter((o) => o.correct);
+        if (correctOptions.length === 0) { toast.error("请至少勾选1个正确答案"); return; }
+        if (!mcQuestionZh.trim()) { toast.error("请填写题目文字(至少中文)"); return; }
+        await saveLevel({
+          module_type: "multiple_choice",
+          title_i18n: { zh: levelTitle || "选择题", en: levelTitle || "Multiple Choice" },
+          explanation_text: explanationText || undefined,
+          explanation_image_url: explanationImageUrl || undefined,
+          explanation_video_url: explanationVideoUrl || undefined,
+          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: {
+            bg_image_url: mcScene?.bgUrl ?? undefined,
+            objects: (mcScene?.objects ?? []).map((o) => ({
+              image_url: o.imageUrl, x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H, w: o.w, h: o.h, rotation: o.rotation,
+              flip_x: o.flipX, flip_y: o.flipY, opacity: o.opacity,
+            })),
+            texts: (mcScene?.texts ?? []).map((tx) => ({
+              text: tx.text, x: tx.x / GAME_CANVAS_W, y: tx.y / GAME_CANVAS_H, fontSize: tx.fontSize,
+              color: tx.color, fontFamily: tx.fontFamily, rotation: tx.rotation, bold: tx.bold, italic: tx.italic, underline: tx.underline,
+            })),
+            answer_mode: mcAnswerMode,
+            options: filledOptions.map((o) => ({ id: o.id, text_i18n: { zh: o.zh || undefined, en: o.en || undefined, ms: o.ms || undefined } })),
+            correct_option_ids: correctOptions.map((o) => o.id),
+            question_i18n: { zh: mcQuestionZh.trim() || undefined, en: mcQuestionEn.trim() || undefined, ms: mcQuestionMs.trim() || undefined },
+            timer_mode: "stopwatch",
+          },
+        });
+      } else if (moduleType === "fill_blank") {
+        const zhBlankCount = (fbSentenceZh.match(/___/g) ?? []).length;
+        if (!fbSentenceZh.trim() || zhBlankCount === 0) { toast.error('请填写题目句子(中文)，并用"___"标记至少1个空'); return; }
+        const blanks = fbBlankAnswers.slice(0, zhBlankCount).map((s) => s.split(",").map((x) => x.trim()).filter(Boolean));
+        if (blanks.length < zhBlankCount || blanks.some((b) => b.length === 0)) { toast.error("每个空都要至少填1个正确答案"); return; }
+        await saveLevel({
+          module_type: "fill_blank",
+          title_i18n: { zh: levelTitle || "填充题", en: levelTitle || "Fill in the Blank" },
+          explanation_text: explanationText || undefined,
+          explanation_image_url: explanationImageUrl || undefined,
+          explanation_video_url: explanationVideoUrl || undefined,
+          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: {
+            bg_image_url: fbScene?.bgUrl ?? undefined,
+            objects: (fbScene?.objects ?? []).map((o) => ({
+              image_url: o.imageUrl, x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H, w: o.w, h: o.h, rotation: o.rotation,
+              flip_x: o.flipX, flip_y: o.flipY, opacity: o.opacity,
+            })),
+            texts: (fbScene?.texts ?? []).map((tx) => ({
+              text: tx.text, x: tx.x / GAME_CANVAS_W, y: tx.y / GAME_CANVAS_H, fontSize: tx.fontSize,
+              color: tx.color, fontFamily: tx.fontFamily, rotation: tx.rotation, bold: tx.bold, italic: tx.italic, underline: tx.underline,
+            })),
+            sentence_i18n: { zh: fbSentenceZh.trim() || undefined, en: fbSentenceEn.trim() || undefined, ms: fbSentenceMs.trim() || undefined },
+            blanks: blanks.map((accepted) => ({ accepted_answers: accepted })),
+            timer_mode: "stopwatch",
+          },
         });
       } else if (moduleType === "word_problem") {
         if (wpCategories.length === 0) { toast.error("请至少选一种题型"); return; }
@@ -4401,6 +4560,209 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             <p className="text-xs text-muted-foreground">
               经典"每行每列图形都不重复"练习(拉丁方阵)，没有素材图要准备，网格是现场生成的。难度决定网格边长——从4×4起步，每2级加大一圈，最高8×8。学生点空格弹出图形选择面板，选一个放进去。
             </p>
+          </div>
+        )}
+
+        {moduleType === "chinese_stroke" && (
+          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <PenLine size={16} className="text-primary" /> 中文字笔顺练习 · 内容设置
+            </div>
+            <div className="space-y-2">
+              <span className="text-xs text-muted-foreground block">字库（至少1个字，每次玩从这里随机抽题）</span>
+              <div className="flex flex-wrap gap-2">
+                {chineseStrokeChars.map((ch, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 pl-3 pr-1.5 py-1 rounded-full border border-border bg-muted/40 text-base font-medium">
+                    {ch}
+                    <button
+                      type="button"
+                      onClick={() => setChineseStrokeChars((arr) => arr.filter((_, idx) => idx !== i))}
+                      className="w-5 h-5 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={chineseStrokeInput}
+                  onChange={(e) => setChineseStrokeInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault();
+                    const newChars = Array.from(chineseStrokeInput.trim()).filter((ch) => ch.trim());
+                    if (newChars.length > 0) {
+                      setChineseStrokeChars((arr) => Array.from(new Set([...arr, ...newChars])));
+                      setChineseStrokeInput("");
+                    }
+                  }}
+                  placeholder="打一个字或一段词，按Enter加进字库"
+                  className={MINI_INPUT_CLASS}
+                  style={{ width: 220 }}
+                />
+                <Button
+                  type="button" variant="outline" size="sm"
+                  onClick={() => {
+                    const newChars = Array.from(chineseStrokeInput.trim()).filter((ch) => ch.trim());
+                    if (newChars.length > 0) {
+                      setChineseStrokeChars((arr) => Array.from(new Set([...arr, ...newChars])));
+                      setChineseStrokeInput("");
+                    }
+                  }}
+                >
+                  + 加进字库
+                </Button>
+              </div>
+            </div>
+            <div className="flex gap-3 flex-wrap items-center">
+              <label className="flex items-center gap-1.5">每次玩练几个字
+                <input type="number" min={1} value={totalQuestions} onChange={(e) => setTotalQuestions(Math.max(1, +e.target.value))} className={MINI_INPUT_CLASS} />
+              </label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              每次玩从字库里随机抽题(字库不够题数时允许重复抽)。每个字先播放一遍笔顺动画演示，再让学生自己描着写，系统判断每一笔的顺序/方向/形状对不对——这部分靠 hanzi-writer 这个开源库处理，笔顺数据来自后端服务器(designer这里随便加什么常用字都能立刻用，不需要额外准备数据)。极少数生僻字可能不在数据库里，练习时会跳过并提示。
+            </p>
+          </div>
+        )}
+
+        {moduleType === "multiple_choice" && (
+          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <CheckSquare size={16} className="text-primary" /> 选择题 · 内容设置
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>题目文字（必填，至少中文）</Label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <Input placeholder="中文" value={mcQuestionZh} onChange={(e) => setMcQuestionZh(e.target.value)} />
+                <Input placeholder="English" value={mcQuestionEn} onChange={(e) => setMcQuestionEn(e.target.value)} />
+                <Input placeholder="Bahasa Melayu" value={mcQuestionMs} onChange={(e) => setMcQuestionMs(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <span className="text-xs text-muted-foreground block">背景画面（选填）——想给题目配一张图/摆几个物件，可以用这个编辑器；不需要的话跳过这一块，直接往下设置选项就行</span>
+              <SceneEditor
+                structuredMode presetModuleType="multiple_choice"
+                onSaveStructured={setMcScene} initial={mcScene ?? undefined}
+              />
+              {mcScene && (
+                <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                  ✓ 背景已确认（{mcScene.objects.length} 个物件），可以点上面"完成"重新调整
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground">答题方式：</span>
+              <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
+                {(["single", "multi"] as const).map((m) => (
+                  <button
+                    key={m} type="button" onClick={() => setMcAnswerMode(m)}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                      mcAnswerMode === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {m === "single" ? "⚪ 单选" : "☑️ 多选"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <span className="text-xs text-muted-foreground block">选项（至少2个，勾选✓标记正确答案；每个选项至少填中文）</span>
+              <div className="space-y-2">
+                {mcOptions.map((opt) => (
+                  <div key={opt.id} className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 p-2">
+                    <button
+                      type="button"
+                      onClick={() => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, correct: !o.correct } : o)))}
+                      className={`w-7 h-7 flex-shrink-0 rounded-md border-2 flex items-center justify-center text-xs font-bold transition-colors ${
+                        opt.correct ? "border-emerald-500 bg-emerald-500 text-white" : "border-border bg-white text-transparent"
+                      }`}
+                    >
+                      ✓
+                    </button>
+                    <Input placeholder="中文" value={opt.zh} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, zh: e.target.value } : o)))} className="flex-1" />
+                    <Input placeholder="English" value={opt.en} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, en: e.target.value } : o)))} className="flex-1" />
+                    <Input placeholder="Bahasa Melayu" value={opt.ms} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, ms: e.target.value } : o)))} className="flex-1" />
+                    <button
+                      type="button"
+                      onClick={() => setMcOptions((arr) => (arr.length > 2 ? arr.filter((o) => o.id !== opt.id) : arr))}
+                      disabled={mcOptions.length <= 2}
+                      className="w-7 h-7 flex-shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-30 transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <Button
+                type="button" variant="outline" size="sm"
+                onClick={() => setMcOptions((arr) => [...arr, { id: `opt${Date.now()}`, zh: "", en: "", ms: "", correct: false }])}
+              >
+                + 加一个选项
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {moduleType === "fill_blank" && (
+          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <PencilLine size={16} className="text-primary" /> 填充题 · 内容设置
+            </div>
+
+            <div className="space-y-2">
+              <span className="text-xs text-muted-foreground block">背景画面（选填）</span>
+              <SceneEditor
+                structuredMode presetModuleType="fill_blank"
+                onSaveStructured={setFbScene} initial={fbScene ?? undefined}
+              />
+              {fbScene && (
+                <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                  ✓ 背景已确认（{fbScene.objects.length} 个物件），可以点上面"完成"重新调整
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>题目句子（中文必填，用 ___ 三个下划线标记空的位置，几个下划线就有几个空）</Label>
+              <Input placeholder='中文，例如：1 + 1 = ___' value={fbSentenceZh} onChange={(e) => setFbSentenceZh(e.target.value)} />
+              <Input placeholder="English（选填，下划线数量也要对应）" value={fbSentenceEn} onChange={(e) => setFbSentenceEn(e.target.value)} />
+              <Input placeholder="Bahasa Melayu（选填）" value={fbSentenceMs} onChange={(e) => setFbSentenceMs(e.target.value)} />
+            </div>
+
+            <div className="space-y-2">
+              <span className="text-xs text-muted-foreground block">
+                每个空的正确答案（按中文句子里 ___ 的顺序，一空一行；一个空可以有好几种都算对的写法，用逗号隔开，比如"5,五"）
+              </span>
+              {(() => {
+                const blankCount = (fbSentenceZh.match(/___/g) ?? []).length;
+                if (blankCount === 0) return <p className="text-xs text-muted-foreground/60">先在上面句子里加至少一个 ___，这里才会出现对应的答案输入框</p>;
+                return (
+                  <div className="space-y-1.5">
+                    {Array.from({ length: blankCount }, (_, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground w-14 flex-shrink-0">第{i + 1}个空</span>
+                        <Input
+                          placeholder="正确答案，多个写法用逗号隔开"
+                          value={fbBlankAnswers[i] ?? ""}
+                          onChange={(e) => setFbBlankAnswers((arr) => {
+                            const next = [...arr];
+                            while (next.length <= i) next.push("");
+                            next[i] = e.target.value;
+                            return next;
+                          })}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         )}
 
