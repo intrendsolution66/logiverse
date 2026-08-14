@@ -1121,7 +1121,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
           onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
           style={{
             touchAction: "none",
-            aspectRatio: `${W} / ${H}`, // 跟游戏实际画布用的是同一个 GAME_CANVAS_W/H，比例天生就跟游戏一致
+            aspectRatio: presetModuleType === "sticker_game" ? "1 / 1" : `${W} / ${H}`, // 贴纸游戏画布固定1:1正方形，不强行拉宽；其他模块（数字迷宫、连线配对等）还是用跟游戏一致的 GAME_CANVAS_W/H 比例。内部坐标系(width={W} height={H})不变，只改外框显示比例，所以不用动保存/读取逻辑
             width: "auto",
             height: "auto",
             maxWidth: "100%", // 容器宽度不够就按宽度撑到最大

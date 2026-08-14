@@ -164,18 +164,6 @@ export default function StickerGame({ config, onComplete, locale = "zh" }: {
   const timerValue = config.timer_mode === "countdown" ? Math.max(0, (config.time_limit ?? 0) - elapsed) : elapsed;
   const draggingSticker = dragging ? objects[dragging.index] : null;
 
-  if (finished) {
-    return (
-      <div className="text-center py-10">
-        <div className="text-6xl">🏷️</div>
-        <div className="text-xl font-semibold mt-3 text-foreground">
-          {placed.size === objects.length ? lt("all_placed", locale, { s: timerValue.toFixed(1) }) : lt("time_up_placed", locale, { a: placed.size, b: objects.length })}
-        </div>
-        <div className="text-sm text-muted-foreground mt-1">{lt("total_mistakes", locale, { n: mistakes })}</div>
-      </div>
-    );
-  }
-
   return (
     <div className="max-w-4xl mx-auto w-full select-none">
       <div className="flex justify-between items-center text-base font-medium text-muted-foreground mb-3 flex-wrap gap-2">
@@ -190,7 +178,7 @@ export default function StickerGame({ config, onComplete, locale = "zh" }: {
         ref={stageRef}
         className="relative w-full rounded-2xl shadow-lg ring-1 ring-black/5 overflow-hidden bg-card"
         style={{
-          aspectRatio: `${GAME_CANVAS_W} / ${GAME_CANVAS_H}`,
+          aspectRatio: "1 / 1", // 固定1:1正方形，不强行拉宽拉高撑满整个画布；下面objects的百分比定位是按容器自身宽高分别计算的，跟容器是不是正方形无关，不用同步改坐标逻辑
           backgroundImage: `url(${config.bg_image_url})`, backgroundSize: "100% 100%", backgroundPosition: "center",
         }}
       >
@@ -221,9 +209,23 @@ export default function StickerGame({ config, onComplete, locale = "zh" }: {
             }}
           />
         ))}
+
+        {/* 完成摘要——盖在已经贴满贴纸的图片上，学生能看到自己完成的作品，不是直接跳走。重玩/退出用页面顶部本来就有的固定按钮，这里不重复放 */}
+        {finished && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/30 backdrop-blur-[1px]">
+            <div className="bg-white rounded-2xl shadow-xl px-8 py-6 text-center max-w-xs mx-4">
+              <div className="text-5xl">🏷️</div>
+              <div className="text-lg font-semibold mt-2 text-foreground">
+                {placed.size === objects.length ? lt("all_placed", locale, { s: timerValue.toFixed(1) }) : lt("time_up_placed", locale, { a: placed.size, b: objects.length })}
+              </div>
+              <div className="text-sm text-muted-foreground mt-1">{lt("total_mistakes", locale, { n: mistakes })}</div>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* 贴纸盘 */}
+      {/* 贴纸盘——完成后不再需要，直接不渲染，画面更干净 */}
+      {!finished && (
       <div className="mt-3 flex flex-wrap gap-3 justify-center rounded-2xl bg-muted/40 border border-border p-3 min-h-[88px]">
         {trayIndices.length === 0 ? (
           <p className="text-xs text-muted-foreground/60 self-center">{lt("tray_empty", locale)}</p>
@@ -246,8 +248,9 @@ export default function StickerGame({ config, onComplete, locale = "zh" }: {
           })
         )}
       </div>
+      )}
 
-      <p className="text-center text-xs text-muted-foreground mt-2">{lt("drag_hint", locale)}</p>
+      {!finished && <p className="text-center text-xs text-muted-foreground mt-2">{lt("drag_hint", locale)}</p>}
 
       {/* 拖动中的浮层贴纸——跟着手指/鼠标走，脱离贴纸盘和画布各自的坐标系统 */}
       {dragging && draggingSticker && (
