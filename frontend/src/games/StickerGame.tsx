@@ -22,7 +22,7 @@
 // 再退回zh，还没填再退回en"。
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
+import { STICKER_CANVAS_SIZE } from "@/lib/gameCanvas";
 import { type Locale, type Dict, t } from "@/lib/gameLocale";
 
 const LOCAL: Record<string, Dict> = {
@@ -139,7 +139,7 @@ export default function StickerGame({ config, onComplete, locale = "zh" }: {
         const rect = stage.getBoundingClientRect();
         const inside = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
         if (inside) {
-          const scaleX = GAME_CANVAS_W / rect.width, scaleY = GAME_CANVAS_H / rect.height;
+          const scaleX = STICKER_CANVAS_SIZE / rect.width, scaleY = STICKER_CANVAS_SIZE / rect.height;
           const dropX = (e.clientX - rect.left) * scaleX, dropY = (e.clientY - rect.top) * scaleY;
           const target = objects[dragging.index];
           if (target && withinTolerance(dropX, dropY, target)) {
@@ -179,7 +179,7 @@ export default function StickerGame({ config, onComplete, locale = "zh" }: {
         className="relative w-full rounded-2xl shadow-lg ring-1 ring-black/5 overflow-hidden bg-card"
         style={{
           aspectRatio: "1 / 1", // 固定1:1正方形，不强行拉宽拉高撑满整个画布；下面objects的百分比定位是按容器自身宽高分别计算的，跟容器是不是正方形无关，不用同步改坐标逻辑
-          backgroundImage: `url(${config.bg_image_url})`, backgroundSize: "100% 100%", backgroundPosition: "center",
+          backgroundImage: `url(${config.bg_image_url})`, backgroundSize: "100% 100%", backgroundPosition: "center", // 背景图是编辑器那边已经按正方形裁剪居中烘焙好的，这里直接铺满即可，不再用CSS二次裁剪（否则会跟贴纸坐标错位）
         }}
       >
         {/* 目标位置的淡淡虚线框——给小朋友一点提示，不是完全靠瞎猜，位置感不强的年龄段（4-12岁）这个提示很有必要 */}
@@ -190,8 +190,8 @@ export default function StickerGame({ config, onComplete, locale = "zh" }: {
               placed.has(i) ? "border-transparent" : wrongFlashIndex === i ? "border-red-400" : "border-white/70"
             }`}
             style={{
-              left: `${(o.x / GAME_CANVAS_W) * 100}%`, top: `${(o.y / GAME_CANVAS_H) * 100}%`,
-              width: `${(o.w / GAME_CANVAS_W) * 100}%`, height: `${(o.h / GAME_CANVAS_H) * 100}%`,
+              left: `${(o.x / STICKER_CANVAS_SIZE) * 100}%`, top: `${(o.y / STICKER_CANVAS_SIZE) * 100}%`,
+              width: `${(o.w / STICKER_CANVAS_SIZE) * 100}%`, height: `${(o.h / STICKER_CANVAS_SIZE) * 100}%`,
               transform: "translate(-50%, -50%)",
             }}
           />
@@ -203,8 +203,8 @@ export default function StickerGame({ config, onComplete, locale = "zh" }: {
             key={i} src={o.image_url} alt=""
             className="absolute pointer-events-none"
             style={{
-              left: `${(o.x / GAME_CANVAS_W) * 100}%`, top: `${(o.y / GAME_CANVAS_H) * 100}%`,
-              width: `${(o.w / GAME_CANVAS_W) * 100}%`, height: `${(o.h / GAME_CANVAS_H) * 100}%`,
+              left: `${(o.x / STICKER_CANVAS_SIZE) * 100}%`, top: `${(o.y / STICKER_CANVAS_SIZE) * 100}%`,
+              width: `${(o.w / STICKER_CANVAS_SIZE) * 100}%`, height: `${(o.h / STICKER_CANVAS_SIZE) * 100}%`,
               transform: `translate(-50%, -50%) rotate(${o.rotation ?? 0}deg) scale(${o.flip_x ? -1 : 1}, ${o.flip_y ? -1 : 1})`,
             }}
           />

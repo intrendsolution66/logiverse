@@ -16,12 +16,26 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/index";
 import { Modal } from "@/components/ui/modal";
 import toast from "react-hot-toast";
-import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
+import { GAME_CANVAS_W, GAME_CANVAS_H, STICKER_CANVAS_SIZE } from "@/lib/gameCanvas";
 
-const W = GAME_CANVAS_W, H = GAME_CANVAS_H;
 const HANDLE_R = 10;
 const ROTATE_HANDLE_DIST = 34; // px above the top edge, before rotation is applied
 const BG_ID = "__background__";
+
+// 背景图专用的绘制方式——按图片自己的原始长宽比"裁剪居中"画满目标框，
+// 不拉伸变形（跟 CSS 的 background-size:cover / object-fit:cover 是同一
+// 个效果，canvas 原生没有这个功能，自己算源图裁剪区域）。只用在背景图
+// 上；物件/贴纸图标不用这个，那些是设计师主动调整过大小的，需要精确
+// 匹配用户设的宽高，不该被裁剪。
+function drawImageCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement, dx: number, dy: number, dw: number, dh: number) {
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  if (!iw || !ih) { ctx.drawImage(img, dx, dy, dw, dh); return; } // 图片还没加载出真实尺寸，退回拉伸，避免报错
+  const srcRatio = iw / ih, dstRatio = dw / dh;
+  let sx = 0, sy = 0, sw = iw, sh = ih;
+  if (srcRatio > dstRatio) { sw = ih * dstRatio; sx = (iw - sw) / 2; } // 图片比目标框更"宽"——裁掉左右两边
+  else { sh = iw / dstRatio; sy = (ih - sh) / 2; } // 图片比目标框更"高"——裁掉上下两边
+  ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+}
 
 interface BackgroundLayer { url: string; x: number; y: number; w: number; h: number }
 interface ObjectLayer { id: string; type: "object"; imageUrl: string; x: number; y: number; w: number; h: number; rotation: number; objectType?: string; flipX?: boolean; flipY?: boolean; opacity?: number }
@@ -242,6 +256,11 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   onSaveStructured?: (data: StructuredSceneOutput) => void;
   initial?: StructuredSceneOutput;
 }) {
+  // 贴纸游戏用独立的正方形坐标系统，不跟其他模块共用长方形的 GAME_CANVAS_W/H——
+  // 上传的背景图很少天生是1100:700这种比例，硬套共享画布会导致背景被拉伸变形，
+  // 或者裁剪后跟贴纸坐标对不上。下面组件内所有引用W,H的地方都会自动用这里的值。
+  const W = presetModuleType === "sticker_game" ? STICKER_CANVAS_SIZE : GAME_CANVAS_W;
+  const H = presetModuleType === "sticker_game" ? STICKER_CANVAS_SIZE : GAME_CANVAS_H;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const bgFileInputRef = useRef<HTMLInputElement>(null);
@@ -368,7 +387,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     if (background) {
       const img = imgCacheRef.current.get(background.url);
       const b = objectBounds(background);
-      if (img?.complete) ctx.drawImage(img, b.x, b.y, b.w, b.h);
+      if (img?.complete) drawImageCover(ctx, img, b.x, b.y, b.w, b.h);
       if (selectedId === BG_ID) drawSelectionBox(ctx, b, 0);
     }
 
@@ -701,7 +720,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     const octx = off.getContext("2d");
     if (!octx) return;
     const b = objectBounds(background);
-    octx.drawImage(img, b.x, b.y, b.w, b.h);
+    drawImageCover(octx, img, b.x, b.y, b.w, b.h);
 
     const imageData = octx.getImageData(0, 0, W, H);
     floodFillImageData(imageData, Math.round(x), Math.round(y), hexToRgb(drawColor), 32);
@@ -735,7 +754,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
       const img = imgCacheRef.current.get(background.url);
       if (img?.complete) {
         const b = objectBounds(background);
-        bctx.drawImage(img, b.x, b.y, b.w, b.h);
+        drawImageCover(bctx, img, b.x, b.y, b.w, b.h);
       }
     }
     strokes.forEach((s) => {
@@ -941,7 +960,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
       const img = imgCacheRef.current.get(bg.url);
       if (img?.complete) {
         const b = objectBounds(bg);
-        octx.drawImage(img, b.x, b.y, b.w, b.h);
+        drawImageCover(octx, img, b.x, b.y, b.w, b.h);
       }
     }
 
@@ -1121,7 +1140,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
           onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
           style={{
             touchAction: "none",
-            aspectRatio: presetModuleType === "sticker_game" ? "1 / 1" : `${W} / ${H}`, // 贴纸游戏画布固定1:1正方形，不强行拉宽；其他模块（数字迷宫、连线配对等）还是用跟游戏一致的 GAME_CANVAS_W/H 比例。内部坐标系(width={W} height={H})不变，只改外框显示比例，所以不用动保存/读取逻辑
+            aspectRatio: `${W} / ${H}`, // W,H已经在组件顶部按模块类型算好了（贴纸游戏是正方形STICKER_CANVAS_SIZE，其他模块是长方形GAME_CANVAS_W/H），这里不用再额外判断
             width: "auto",
             height: "auto",
             maxWidth: "100%", // 容器宽度不够就按宽度撑到最大
