@@ -9,6 +9,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { examApi } from "@/api";
+import { ColoringShapeSvg, type ColoringConfig } from "@/lib/coloringShapes";
 
 interface ReviewQuestion {
   id: string; order_index: number; question_type: string; marks: number;
@@ -81,7 +82,9 @@ function ReviewCard({ index, question }: { index: number; question: ReviewQuesti
       </div>
       {question.question_type === "multiple_choice"
         ? <MultipleChoiceReview question={question} />
-        : <FillBlankReview question={question} />}
+        : question.question_type === "fill_blank"
+        ? <FillBlankReview question={question} />
+        : <ColoringReview question={question} />}
     </div>
   );
 }
@@ -144,3 +147,37 @@ function FillBlankReview({ question }: { question: ReviewQuestion }) {
     </p>
   );
 }
+
+function ColoringReview({ question }: { question: ReviewQuestion }) {
+  const config = question.config as unknown as ColoringConfig;
+  const given = (question.student_answer ?? {}) as Record<string, string>;
+
+  return (
+    <>
+      <svg viewBox={`0 0 ${config.canvas_width} ${config.canvas_height}`} className="w-full border border-border rounded-xl bg-white" style={{ maxWidth: 380 }}>
+        {config.bg_image_url && <image href={config.bg_image_url} x={0} y={0} width={config.canvas_width} height={config.canvas_height} preserveAspectRatio="xMidYMid slice" />}
+        {(config.regions ?? []).map((r) => {
+          const studentColor = given[r.id];
+          const fill = r.colorable ? (studentColor ?? "#f8fafc") : (r.decoration_color ?? "#e2e8f0");
+          return <ColoringShapeSvg key={r.id} region={r} fill={fill} />;
+        })}
+      </svg>
+      {!question.is_correct && (
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          {(config.regions ?? []).filter((r) => r.colorable).map((r) => {
+            const studentColor = given[r.id];
+            const isRegionCorrect = studentColor?.toLowerCase() === r.correct_color?.toLowerCase();
+            if (isRegionCorrect) return null;
+            return (
+              <span key={r.id} className="text-xs bg-red-50 text-red-700 rounded-lg px-2 py-1 flex items-center gap-1.5">
+                这里应该是
+                <span className="w-3.5 h-3.5 rounded inline-block border border-border" style={{ backgroundColor: r.correct_color }} />
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+

@@ -47,6 +47,17 @@ function gradeQuestion(questionType: string, config: Record<string, unknown>, st
       return accepted.some((a) => normalizeAnswer(a) === normalized);
     });
   }
+  if (questionType === "coloring") {
+    const regions = (config.regions as Array<{ id: string; colorable: boolean; correct_color?: string }>) ?? [];
+    const colorable = regions.filter((r) => r.colorable);
+    const submitted = (studentAnswer && typeof studentAnswer === "object" ? studentAnswer : {}) as Record<string, string>;
+    if (colorable.length === 0) return false; // 没有可上色区域的填色题算配置错误，保守判不对
+    return colorable.every((r) => {
+      const given = (submitted[r.id] ?? "").trim().toLowerCase();
+      const correct = (r.correct_color ?? "").trim().toLowerCase();
+      return given && given === correct;
+    });
+  }
   return false; // 未知题型——保守起见判不对，不是判满分
 }
 
@@ -62,6 +73,10 @@ function stripAnswers(questionType: string, config: Record<string, unknown>): Re
   if (questionType === "fill_blank") {
     const blanks = (config.blanks as Array<unknown>) ?? [];
     return { ...config, blanks: blanks.map(() => ({})) }; // 保留空的数量，去掉每个空的accepted_answers
+  }
+  if (questionType === "coloring") {
+    const regions = (config.regions as Array<Record<string, unknown>>) ?? [];
+    return { ...config, regions: regions.map((r) => { const { correct_color, ...rest } = r; return rest; }) };
   }
   return config;
 }
@@ -199,6 +214,14 @@ function validateQuestionConfig(questionType: string, config: Record<string, unk
     const blanks = config.blanks as Array<{ accepted_answers: string[] }> | undefined;
     if (!blanks || blanks.length === 0) throw new Error("填充题至少要有1个空");
     if (blanks.some((b) => !b.accepted_answers?.length)) throw new Error("每个空都要至少填1个正确答案");
+  } else if (questionType === "coloring") {
+    const regions = config.regions as Array<{ colorable: boolean; correct_color?: string }> | undefined;
+    const palette = config.palette as string[] | undefined;
+    if (!palette || palette.length === 0) throw new Error("填色题至少要设1个调色盘颜色");
+    if (!regions || regions.length === 0) throw new Error("填色题至少要放1个形状");
+    const colorable = regions.filter((r) => r.colorable);
+    if (colorable.length === 0) throw new Error("至少要有1个区域勾选\"可上色\"，不然学生没东西可以上色");
+    if (colorable.some((r) => !r.correct_color)) throw new Error("每个可上色的区域都要设正确颜色");
   } else {
     throw new Error(`不支持的题型: ${questionType}`);
   }
@@ -734,6 +757,36 @@ function escapeHtml(s: string): string {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 }
 
+// 填色题形状渲染——矩形/圆形/三角形是常规形状；立体方块(cube-top/
+// cube-left/cube-right)用最简单的等距投影画法：顶面是个菱形，左右两面
+// 各是一个平行四边形，三个面共享同一个中心点(x,y)和边长(w，h不使用)。
+// ⚠️ 这套坐标公式前端画布(设计器+学生作答+成绩回看)必须用同一套，不然
+// 设计师看到的形状跟学生实际点击的区域会对不上——改这里的话前端三处
+// 也要跟着改。
+function renderColoringShapeSvg(r: { shape: string; x: number; y: number; w: number; h: number; rotation: number }, fill: string): string {
+  const { shape, x, y, w, rotation } = r;
+  const rot = rotation ? ` transform="rotate(${rotation} ${x} ${y})"` : "";
+  if (shape === "rectangle") {
+    return `<rect x="${x - w / 2}" y="${y - r.h / 2}" width="${w}" height="${r.h}" fill="${fill}" stroke="#333" stroke-width="1.5"${rot} />`;
+  }
+  if (shape === "circle") {
+    return `<ellipse cx="${x}" cy="${y}" rx="${w / 2}" ry="${r.h / 2}" fill="${fill}" stroke="#333" stroke-width="1.5"${rot} />`;
+  }
+  if (shape === "triangle") {
+    const points = `${x},${y - r.h / 2} ${x + w / 2},${y + r.h / 2} ${x - w / 2},${y + r.h / 2}`;
+    return `<polygon points="${points}" fill="${fill}" stroke="#333" stroke-width="1.5"${rot} />`;
+  }
+  if (shape === "cube-top" || shape === "cube-left" || shape === "cube-right") {
+    const s = w; // 立体方块的"边长"存在w里，h不使用
+    let points = "";
+    if (shape === "cube-top") points = `${x},${y - s} ${x + s * 0.87},${y - s * 0.5} ${x},${y} ${x - s * 0.87},${y - s * 0.5}`;
+    else if (shape === "cube-left") points = `${x - s * 0.87},${y - s * 0.5} ${x},${y} ${x},${y + s} ${x - s * 0.87},${y + s * 0.5}`;
+    else points = `${x},${y} ${x + s * 0.87},${y - s * 0.5} ${x + s * 0.87},${y + s * 0.5} ${x},${y + s}`;
+    return `<polygon points="${points}" fill="${fill}" stroke="#333" stroke-width="1.5" />`; // 立体方块的三个面不套rotation，整体旋转意义不大，先不支持
+  }
+  return "";
+}
+
 // 生成试卷PDF用的HTML——固定输出中文版面(zh优先，没有zh才退到en)，
 // 选择题选项用A/B/C/D标号，填充题把"___"换成一条留白线。答案永远不
 // 出现在这份HTML里——这是给学生打印手写作答用的卷子，不是老师用的
@@ -765,6 +818,16 @@ function buildPaperHtml(paper: Record<string, unknown>, questions: Array<Record<
       const filled = escapeHtml(sentence).replace(/___/g, '<span class="blank-line"></span>');
       return `<div class="question">
         <div class="q-head"><span class="q-num">${num}.</span> ${filled} <span class="q-marks">(${marks}分)</span></div>
+      </div>`;
+    }
+    if (q.question_type === "coloring") {
+      const regions = (config.regions as Array<{ id: string; shape: string; x: number; y: number; w: number; h: number; rotation: number; colorable: boolean; decoration_color?: string }>) ?? [];
+      const canvasW = (config.canvas_width as number) ?? 400, canvasH = (config.canvas_height as number) ?? 300;
+      return `<div class="question">
+        <div class="q-head"><span class="q-num">${num}.</span> 请按题目要求上色 <span class="q-marks">(${marks}分)</span></div>
+        <svg viewBox="0 0 ${canvasW} ${canvasH}" style="width:70%;max-width:320px;border:1px solid #ccc;margin:8px 0 0 24px;">
+          ${regions.map((r) => renderColoringShapeSvg(r, r.colorable ? "#ffffff" : (r.decoration_color ?? "#eeeeee"))).join("")}
+        </svg>
       </div>`;
     }
     return "";

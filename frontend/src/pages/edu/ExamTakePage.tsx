@@ -13,11 +13,13 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { examApi } from "@/api";
+import { ColoringShapeSvg, type ColoringConfig } from "@/lib/coloringShapes";
 
 interface TakeQuestion {
   id: string; order_index: number; question_type: string; marks: number;
   config: Record<string, unknown>;
 }
+type ColoringAnswer = Record<string, string>; // regionId -> hex颜色
 
 export default function ExamTakePage() {
   const { paperId } = useParams<{ paperId: string }>();
@@ -82,6 +84,11 @@ export default function ExamTakePage() {
     const a = answers[q.id];
     if (q.question_type === "multiple_choice") return Array.isArray(a) && a.length > 0;
     if (q.question_type === "fill_blank") return Array.isArray(a) && a.every((v) => String(v ?? "").trim());
+    if (q.question_type === "coloring") {
+      const regions = ((q.config as unknown as ColoringConfig).regions ?? []).filter((r) => r.colorable);
+      const given = (a ?? {}) as ColoringAnswer;
+      return regions.every((r) => given[r.id]);
+    }
     return false;
   });
 
@@ -130,7 +137,9 @@ function QuestionCard({ index, question, value, onChange }: {
       </div>
       {question.question_type === "multiple_choice"
         ? <MultipleChoiceQuestion config={question.config} value={value as string[] | undefined} onChange={onChange} />
-        : <FillBlankQuestion config={question.config} value={value as string[] | undefined} onChange={onChange} />}
+        : question.question_type === "fill_blank"
+        ? <FillBlankQuestion config={question.config} value={value as string[] | undefined} onChange={onChange} />
+        : <ColoringQuestion config={question.config as unknown as ColoringConfig} value={value as ColoringAnswer | undefined} onChange={onChange} />}
     </div>
   );
 }
@@ -206,5 +215,43 @@ function FillBlankQuestion({ config, value, onChange }: {
         </span>
       ))}
     </p>
+  );
+}
+
+function ColoringQuestion({ config, value, onChange }: {
+  config: ColoringConfig; value?: ColoringAnswer; onChange: (v: ColoringAnswer) => void;
+}) {
+  const [activeColor, setActiveColor] = useState(config.palette?.[0] ?? "#EF4444");
+  const given = value ?? {};
+
+  function paintRegion(regionId: string) {
+    onChange({ ...given, [regionId]: activeColor });
+  }
+
+  return (
+    <>
+      <p className="text-sm text-muted-foreground mb-2">先选一个颜色，再点画布上要上色的区域</p>
+      <div className="flex gap-1.5 mb-3">
+        {(config.palette ?? []).map((c) => (
+          <button
+            key={c} type="button" onClick={() => setActiveColor(c)}
+            className={`w-8 h-8 rounded-lg border-2 ${activeColor === c ? "border-primary ring-2 ring-primary/30" : "border-border"}`}
+            style={{ backgroundColor: c }}
+          />
+        ))}
+      </div>
+      <svg viewBox={`0 0 ${config.canvas_width} ${config.canvas_height}`} className="w-full border border-border rounded-xl bg-white" style={{ maxWidth: 420 }}>
+        {config.bg_image_url && <image href={config.bg_image_url} x={0} y={0} width={config.canvas_width} height={config.canvas_height} preserveAspectRatio="xMidYMid slice" />}
+        {(config.regions ?? []).map((r) => {
+          const fill = r.colorable ? (given[r.id] ?? "#f8fafc") : (r.decoration_color ?? "#e2e8f0");
+          return (
+            <ColoringShapeSvg
+              key={r.id} region={r} fill={fill}
+              onClick={r.colorable ? () => paintRegion(r.id) : undefined}
+            />
+          );
+        })}
+      </svg>
+    </>
   );
 }

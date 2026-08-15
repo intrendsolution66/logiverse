@@ -17,6 +17,8 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/index";
 import { CheckSquare, PencilLine, X, Plus, FileText, Users, Trophy, Download, Trash2 } from "lucide-react";
 import { examApi, usersApi, type ExamPaper, type ExamPaperQuestion, type ExamQuestionBankItem } from "@/api";
+import ColoringQuestionEditor from "@/components/ColoringQuestionEditor";
+import type { ColoringConfig } from "@/lib/coloringShapes";
 
 const INPUT_CLASS = "w-full px-3 py-2 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30";
 
@@ -320,10 +322,12 @@ function QuestionsTab({ paper, onChanged }: { paper: ExamPaper & { questions: Ex
                 {q.slot_type === "fixed" ? (
                   <>
                     <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                      {q.question_type === "multiple_choice" ? <CheckSquare size={14} /> : <PencilLine size={14} />}
+                      {q.question_type === "multiple_choice" ? <CheckSquare size={14} /> : q.question_type === "fill_blank" ? <PencilLine size={14} /> : <span>🎨</span>}
                       {q.question_type === "multiple_choice"
                         ? ((q.config?.question_i18n as Record<string, string>)?.zh ?? "选择题")
-                        : ((q.config?.sentence_i18n as Record<string, string>)?.zh ?? "填充题")}
+                        : q.question_type === "fill_blank"
+                        ? ((q.config?.sentence_i18n as Record<string, string>)?.zh ?? "填充题")
+                        : "填色题"}
                     </div>
                   </>
                 ) : (
@@ -364,7 +368,7 @@ function QuestionsTab({ paper, onChanged }: { paper: ExamPaper & { questions: Ex
 //    multiple_choice/fill_blank 那两块，只是保存目标换成试卷题目槽位 ───────
 
 function AddFixedQuestionForm({ paperId, onDone, onCancel }: { paperId: string; onDone: () => void; onCancel: () => void }) {
-  const [qType, setQType] = useState<"multiple_choice" | "fill_blank">("multiple_choice");
+  const [qType, setQType] = useState<"multiple_choice" | "fill_blank" | "coloring">("multiple_choice");
   const [marks, setMarks] = useState(1);
 
   // 选择题字段
@@ -378,6 +382,9 @@ function AddFixedQuestionForm({ paperId, onDone, onCancel }: { paperId: string; 
   // 填充题字段
   const [fbSentenceZh, setFbSentenceZh] = useState("");
   const [fbBlankAnswers, setFbBlankAnswers] = useState<string[]>([""]);
+
+  // 填色题字段
+  const [coloringConfig, setColoringConfig] = useState<ColoringConfig | null>(null);
 
   async function handleSubmit() {
     try {
@@ -396,7 +403,7 @@ function AddFixedQuestionForm({ paperId, onDone, onCancel }: { paperId: string; 
             question_i18n: { zh: mcQuestionZh.trim() },
           },
         });
-      } else {
+      } else if (qType === "fill_blank") {
         const blankCount = (fbSentenceZh.match(/___/g) ?? []).length;
         if (!fbSentenceZh.trim() || blankCount === 0) { toast.error('请填写题目句子，用"___"标记至少1个空'); return; }
         const blanks = fbBlankAnswers.slice(0, blankCount).map((s) => s.split(",").map((x) => x.trim()).filter(Boolean));
@@ -405,6 +412,12 @@ function AddFixedQuestionForm({ paperId, onDone, onCancel }: { paperId: string; 
           slot_type: "fixed", question_type: "fill_blank", marks,
           config: { sentence_i18n: { zh: fbSentenceZh.trim() }, blanks: blanks.map((accepted) => ({ accepted_answers: accepted })) },
         });
+      } else {
+        if (!coloringConfig) { toast.error("请至少放1个形状"); return; }
+        const colorable = coloringConfig.regions.filter((r) => r.colorable);
+        if (colorable.length === 0) { toast.error('至少要有1个区域勾选"需要学生上色"'); return; }
+        if (colorable.some((r) => !r.correct_color)) { toast.error("每个可上色的区域都要设正确颜色"); return; }
+        await examApi.addQuestion(paperId, { slot_type: "fixed", question_type: "coloring", marks, config: coloringConfig as unknown as Record<string, unknown> });
       }
       toast.success("已加入");
       onDone();
@@ -414,12 +427,12 @@ function AddFixedQuestionForm({ paperId, onDone, onCancel }: { paperId: string; 
   return (
     <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4">
       <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
-        {(["multiple_choice", "fill_blank"] as const).map((t) => (
+        {(["multiple_choice", "fill_blank", "coloring"] as const).map((t) => (
           <button
             key={t} onClick={() => setQType(t)}
             className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${qType === t ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
           >
-            {t === "multiple_choice" ? "☑️ 选择题" : "📝 填充题"}
+            {t === "multiple_choice" ? "☑️ 选择题" : t === "fill_blank" ? "📝 填充题" : "🎨 填色题"}
           </button>
         ))}
         <div className="flex items-center gap-1.5 pl-3">
@@ -428,7 +441,9 @@ function AddFixedQuestionForm({ paperId, onDone, onCancel }: { paperId: string; 
         </div>
       </div>
 
-      {qType === "multiple_choice" ? (
+      {qType === "coloring" && <ColoringQuestionEditor initial={coloringConfig ?? undefined} onChange={setColoringConfig} />}
+
+      {qType !== "coloring" && (qType === "multiple_choice" ? (
         <>
           <div>
             <Label>题目文字</Label>
@@ -485,7 +500,7 @@ function AddFixedQuestionForm({ paperId, onDone, onCancel }: { paperId: string; 
             );
           })()}
         </>
-      )}
+      ))}
 
       <div className="flex gap-2 pt-2">
         <Button onClick={handleSubmit}>加入试卷</Button>
@@ -592,7 +607,9 @@ function QuestionBankTab() {
               <div className="flex-1 min-w-0 text-sm text-foreground truncate">
                 {it.question_type === "multiple_choice"
                   ? ((it.config?.question_i18n as Record<string, string>)?.zh ?? "选择题")
-                  : ((it.config?.sentence_i18n as Record<string, string>)?.zh ?? "填充题")}
+                  : it.question_type === "fill_blank"
+                  ? ((it.config?.sentence_i18n as Record<string, string>)?.zh ?? "填充题")
+                  : "🎨 填色题"}
               </div>
               <button onClick={() => handleDelete(it.id)} className="text-muted-foreground hover:text-red-600 p-1.5 flex-shrink-0"><Trash2 size={15} /></button>
             </div>
@@ -605,7 +622,7 @@ function QuestionBankTab() {
 
 function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const [category, setCategory] = useState("");
-  const [qType, setQType] = useState<"multiple_choice" | "fill_blank">("multiple_choice");
+  const [qType, setQType] = useState<"multiple_choice" | "fill_blank" | "coloring">("multiple_choice");
   const [mcAnswerMode, setMcAnswerMode] = useState<"single" | "multi">("single");
   const [mcOptions, setMcOptions] = useState<MCOption[]>([
     { id: "opt1", zh: "", en: "", ms: "", correct: false },
@@ -614,6 +631,7 @@ function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCance
   const [mcQuestionZh, setMcQuestionZh] = useState("");
   const [fbSentenceZh, setFbSentenceZh] = useState("");
   const [fbBlankAnswers, setFbBlankAnswers] = useState<string[]>([""]);
+  const [coloringConfig, setColoringConfig] = useState<ColoringConfig | null>(null);
 
   async function handleSubmit() {
     if (!category.trim()) { toast.error("请填写分类名称"); return; }
@@ -633,7 +651,7 @@ function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCance
             question_i18n: { zh: mcQuestionZh.trim() },
           },
         });
-      } else {
+      } else if (qType === "fill_blank") {
         const blankCount = (fbSentenceZh.match(/___/g) ?? []).length;
         if (!fbSentenceZh.trim() || blankCount === 0) { toast.error('请用"___"标记至少1个空'); return; }
         const blanks = fbBlankAnswers.slice(0, blankCount).map((s) => s.split(",").map((x) => x.trim()).filter(Boolean));
@@ -642,6 +660,12 @@ function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCance
           category: category.trim(), question_type: "fill_blank",
           config: { sentence_i18n: { zh: fbSentenceZh.trim() }, blanks: blanks.map((accepted) => ({ accepted_answers: accepted })) },
         });
+      } else {
+        if (!coloringConfig) { toast.error("请至少放1个形状"); return; }
+        const colorable = coloringConfig.regions.filter((r) => r.colorable);
+        if (colorable.length === 0) { toast.error('至少要有1个区域勾选"需要学生上色"'); return; }
+        if (colorable.some((r) => !r.correct_color)) { toast.error("每个可上色的区域都要设正确颜色"); return; }
+        await examApi.createBankQuestion({ category: category.trim(), question_type: "coloring", config: coloringConfig as unknown as Record<string, unknown> });
       }
       toast.success("已加入题库");
       onDone();
@@ -655,13 +679,14 @@ function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCance
         <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="比大比小" />
       </div>
       <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
-        {(["multiple_choice", "fill_blank"] as const).map((t) => (
+        {(["multiple_choice", "fill_blank", "coloring"] as const).map((t) => (
           <button key={t} onClick={() => setQType(t)} className={`px-3 py-1.5 rounded-md text-xs font-medium ${qType === t ? "bg-white shadow-sm" : "text-muted-foreground"}`}>
-            {t === "multiple_choice" ? "☑️ 选择题" : "📝 填充题"}
+            {t === "multiple_choice" ? "☑️ 选择题" : t === "fill_blank" ? "📝 填充题" : "🎨 填色题"}
           </button>
         ))}
       </div>
-      {qType === "multiple_choice" ? (
+      {qType === "coloring" && <ColoringQuestionEditor initial={coloringConfig ?? undefined} onChange={setColoringConfig} />}
+      {qType !== "coloring" && (qType === "multiple_choice" ? (
         <>
           <div><Label>题目文字</Label><Input value={mcQuestionZh} onChange={(e) => setMcQuestionZh(e.target.value)} /></div>
           <div className="flex items-center gap-3">
@@ -700,7 +725,7 @@ function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCance
             );
           })()}
         </>
-      )}
+      ))}
       <div className="flex gap-2 pt-2">
         <Button onClick={handleSubmit}>加入题库</Button>
         <Button variant="outline" onClick={onCancel}>取消</Button>
