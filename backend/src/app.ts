@@ -12,7 +12,7 @@ import cors from "cors";
 import helmet from "helmet";
 import path from "path";
 import { fileURLToPath } from "url";
-
+import examRoutes from "./modules/edu/exam.routes";
 import authRoutes   from "./modules/auth/auth.routes.js";
 import usersRoutes  from "./modules/users/users.routes.js";
 import systemRoutes from "./modules/system/system.routes.js";

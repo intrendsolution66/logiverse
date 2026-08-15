@@ -17,6 +17,7 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.2.0",
     "pg": "^8.11.5",
+    "puppeteer": "^25.7.0",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
