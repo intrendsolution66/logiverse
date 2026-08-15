@@ -11,18 +11,20 @@
 // 不重复做权限判断，接口本身会拒绝没权限的请求，这里只处理正常业务
 // 流程，403会被全局的错误提示逻辑接住。
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/index";
 import { CheckSquare, PencilLine, X, Plus, FileText, Users, Trophy, Download, Trash2 } from "lucide-react";
 import { examApi, usersApi, type ExamPaper, type ExamPaperQuestion, type ExamQuestionBankItem } from "@/api";
 import ColoringQuestionEditor from "@/components/ColoringQuestionEditor";
+import IllustrationEditor from "@/components/IllustrationEditor";
+import { IllustrationView, type Illustration } from "@/lib/illustrationShapes";
 import type { ColoringConfig } from "@/lib/coloringShapes";
 
 const INPUT_CLASS = "w-full px-3 py-2 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30";
 
-interface MCOption { id: string; zh: string; en: string; ms: string; correct: boolean }
+interface MCOption { id: string; zh: string; en: string; ms: string; correct: boolean; image_url?: string }
 
 export default function ExamDesignerPage() {
   const [papers, setPapers] = useState<ExamPaper[]>([]);
@@ -139,12 +141,16 @@ function ExamPaperEditor({ paperId, onBack }: { paperId: string; onBack: () => v
     } catch (err: any) { toast.error(err?.response?.data?.message ?? "操作失败"); }
   }
 
-  async function handleDownloadPdf() {
+  const [showPdfLangPicker, setShowPdfLangPicker] = useState(false);
+
+  async function handleDownloadPdf(lang: "zh" | "en" | "ms") {
+    setShowPdfLangPicker(false);
     try {
-      const blob = await examApi.downloadPaperPdf(paperId);
+      const blob = await examApi.downloadPaperPdf(paperId, lang);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url; a.download = `${paper?.title_i18n?.zh ?? "exam"}.pdf`;
+      const title = paper?.title_i18n?.[lang] || paper?.title_i18n?.zh || "exam";
+      a.href = url; a.download = `${title}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) { toast.error("生成PDF失败——请确认试卷至少有1道题目"); }
@@ -164,8 +170,15 @@ function ExamPaperEditor({ paperId, onBack }: { paperId: string; onBack: () => v
             {paper.status === "published" ? "已发布" : paper.status === "closed" ? "已结束" : "草稿"}
           </span>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleDownloadPdf}><Download size={14} className="mr-1" /> 下载PDF</Button>
+        <div className="flex gap-2 relative">
+          <Button variant="outline" size="sm" onClick={() => setShowPdfLangPicker((v) => !v)}><Download size={14} className="mr-1" /> 下载PDF</Button>
+          {showPdfLangPicker && (
+            <div className="absolute top-full right-0 mt-1 bg-white border border-border rounded-lg shadow-lg py-1 z-20 w-40">
+              {([["zh", "中文"], ["en", "English"], ["ms", "Bahasa Melayu"]] as const).map(([code, label]) => (
+                <button key={code} onClick={() => handleDownloadPdf(code)} className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted/50">{label}</button>
+              ))}
+            </div>
+          )}
           {paper.status !== "closed" && (
             <Button size="sm" onClick={handlePublish}>{paper.status === "draft" ? "发布" : "收回草稿"}</Button>
           )}
@@ -197,6 +210,8 @@ function ExamPaperEditor({ paperId, onBack }: { paperId: string; onBack: () => v
 
 function BasicInfoTab({ paper, onSaved }: { paper: ExamPaper; onSaved: () => void }) {
   const [title, setTitle] = useState(paper.title_i18n?.zh ?? "");
+  const [titleEn, setTitleEn] = useState(paper.title_i18n?.en ?? "");
+  const [titleMs, setTitleMs] = useState(paper.title_i18n?.ms ?? "");
   const [description, setDescription] = useState(paper.description ?? "");
   const [timeLimit, setTimeLimit] = useState(paper.time_limit_minutes);
   const [opensAt, setOpensAt] = useState(paper.opens_at?.slice(0, 16) ?? "");
@@ -207,11 +222,12 @@ function BasicInfoTab({ paper, onSaved }: { paper: ExamPaper; onSaved: () => voi
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
-    if (!title.trim()) { toast.error("请填写试卷名称"); return; }
+    if (!title.trim()) { toast.error("请填写试卷名称（至少中文）"); return; }
     setSaving(true);
     try {
       await examApi.updatePaper(paper.id, {
-        title_i18n: { zh: title.trim() }, description: description || undefined,
+        title_i18n: { zh: title.trim(), en: titleEn.trim() || undefined, ms: titleMs.trim() || undefined },
+        description: description || undefined,
         time_limit_minutes: timeLimit,
         opens_at: opensAt || undefined, closes_at: closesAt || undefined,
         allow_retake: allowRetake, max_attempts: allowRetake ? maxAttempts : 1,
@@ -226,8 +242,12 @@ function BasicInfoTab({ paper, onSaved }: { paper: ExamPaper; onSaved: () => voi
   return (
     <div className="rounded-xl bg-white border border-border shadow-sm p-5 space-y-4">
       <div>
-        <Label>试卷名称</Label>
-        <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+        <Label>试卷名称（至少中文必填，英文/马来文选填——学生作答时会跟着当下切换的界面语言显示对应文字）</Label>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <Input placeholder="中文" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <Input placeholder="English" value={titleEn} onChange={(e) => setTitleEn(e.target.value)} />
+          <Input placeholder="Bahasa Melayu" value={titleMs} onChange={(e) => setTitleMs(e.target.value)} />
+        </div>
       </div>
       <div>
         <Label>说明（选填，学生看不到，只是给自己留备注用）</Label>
@@ -378,18 +398,26 @@ function AddFixedQuestionForm({ paperId, onDone, onCancel }: { paperId: string; 
     { id: "opt2", zh: "", en: "", ms: "", correct: false },
   ]);
   const [mcQuestionZh, setMcQuestionZh] = useState("");
+  const [mcQuestionEn, setMcQuestionEn] = useState("");
+  const [mcQuestionMs, setMcQuestionMs] = useState("");
 
   // 填充题字段
   const [fbSentenceZh, setFbSentenceZh] = useState("");
+  const [fbSentenceEn, setFbSentenceEn] = useState("");
+  const [fbSentenceMs, setFbSentenceMs] = useState("");
   const [fbBlankAnswers, setFbBlankAnswers] = useState<string[]>([""]);
 
   // 填色题字段
   const [coloringConfig, setColoringConfig] = useState<ColoringConfig | null>(null);
 
+  // 题目配图字段(选择题/填充题都能用，纯装饰性插图，不影响判分)
+  const [showIllustration, setShowIllustration] = useState(false);
+  const [illustration, setIllustration] = useState<Illustration | null>(null);
+
   async function handleSubmit() {
     try {
       if (qType === "multiple_choice") {
-        const filled = mcOptions.filter((o) => o.zh.trim());
+        const filled = mcOptions.filter((o) => o.zh.trim() || o.image_url);
         if (filled.length < 2) { toast.error("至少要有2个选项(至少填中文)"); return; }
         const correct = filled.filter((o) => o.correct);
         if (correct.length === 0) { toast.error("请至少勾选1个正确答案"); return; }
@@ -398,19 +426,25 @@ function AddFixedQuestionForm({ paperId, onDone, onCancel }: { paperId: string; 
           slot_type: "fixed", question_type: "multiple_choice", marks,
           config: {
             answer_mode: mcAnswerMode,
-            options: filled.map((o) => ({ id: o.id, text_i18n: { zh: o.zh || undefined, en: o.en || undefined, ms: o.ms || undefined } })),
+            options: filled.map((o) => ({ id: o.id, text_i18n: { zh: o.zh || undefined, en: o.en || undefined, ms: o.ms || undefined }, image_url: o.image_url || undefined })),
             correct_option_ids: correct.map((o) => o.id),
-            question_i18n: { zh: mcQuestionZh.trim() },
+            question_i18n: { zh: mcQuestionZh.trim(), en: mcQuestionEn.trim() || undefined, ms: mcQuestionMs.trim() || undefined },
+            illustration: illustration ?? undefined,
           },
         });
       } else if (qType === "fill_blank") {
         const blankCount = (fbSentenceZh.match(/___/g) ?? []).length;
         if (!fbSentenceZh.trim() || blankCount === 0) { toast.error('请填写题目句子，用"___"标记至少1个空'); return; }
+        if (fbSentenceEn.trim() && (fbSentenceEn.match(/___/g) ?? []).length !== blankCount) { toast.error(`英文版句子里的"___"数量要跟中文版一致(${blankCount}个)`); return; }
+        if (fbSentenceMs.trim() && (fbSentenceMs.match(/___/g) ?? []).length !== blankCount) { toast.error(`马来文版句子里的"___"数量要跟中文版一致(${blankCount}个)`); return; }
         const blanks = fbBlankAnswers.slice(0, blankCount).map((s) => s.split(",").map((x) => x.trim()).filter(Boolean));
         if (blanks.length < blankCount || blanks.some((b) => b.length === 0)) { toast.error("每个空都要至少填1个正确答案"); return; }
         await examApi.addQuestion(paperId, {
           slot_type: "fixed", question_type: "fill_blank", marks,
-          config: { sentence_i18n: { zh: fbSentenceZh.trim() }, blanks: blanks.map((accepted) => ({ accepted_answers: accepted })) },
+          config: {
+            sentence_i18n: { zh: fbSentenceZh.trim(), en: fbSentenceEn.trim() || undefined, ms: fbSentenceMs.trim() || undefined },
+            blanks: blanks.map((accepted) => ({ accepted_answers: accepted })), illustration: illustration ?? undefined,
+          },
         });
       } else {
         if (!coloringConfig) { toast.error("请至少放1个形状"); return; }
@@ -443,34 +477,60 @@ function AddFixedQuestionForm({ paperId, onDone, onCancel }: { paperId: string; 
 
       {qType === "coloring" && <ColoringQuestionEditor initial={coloringConfig ?? undefined} onChange={setColoringConfig} />}
 
+      {(qType === "multiple_choice" || qType === "fill_blank") && (
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <button type="button" onClick={() => setShowIllustration((v) => !v)} className="text-xs font-medium text-foreground flex items-center gap-1.5">
+            🖼️ 题目配图（选填，纯装饰性插图，不影响判分）{showIllustration ? "▲" : "▼"}
+          </button>
+          {showIllustration && (
+            <div className="mt-3">
+              <IllustrationEditor initial={illustration ?? undefined} onChange={setIllustration} />
+            </div>
+          )}
+        </div>
+      )}
+
       {qType !== "coloring" && (qType === "multiple_choice" ? (
         <>
           <div>
-            <Label>题目文字</Label>
-            <Input value={mcQuestionZh} onChange={(e) => setMcQuestionZh(e.target.value)} />
+            <Label>题目文字（至少中文必填）</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <Input placeholder="中文" value={mcQuestionZh} onChange={(e) => setMcQuestionZh(e.target.value)} />
+              <Input placeholder="English" value={mcQuestionEn} onChange={(e) => setMcQuestionEn(e.target.value)} />
+              <Input placeholder="Bahasa Melayu" value={mcQuestionMs} onChange={(e) => setMcQuestionMs(e.target.value)} />
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground">答题方式：</span>
             <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
               {(["single", "multi"] as const).map((m) => (
-                <button key={m} onClick={() => setMcAnswerMode(m)} className={`px-3 py-1 rounded-md text-xs font-medium ${mcAnswerMode === m ? "bg-white shadow-sm" : "text-muted-foreground"}`}>
-                  {m === "single" ? "⚪ 单选" : "☑️ 多选"}
+                <button key={m} type="button" onClick={() => setMcAnswerMode(m)} className={`px-3 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 ${mcAnswerMode === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground"}`}>
+                  <span className={`w-3 h-3 rounded-full border-2 flex-shrink-0 ${mcAnswerMode === m ? "border-primary bg-primary" : "border-muted-foreground/40"}`} />
+                  {m === "single" ? "单选" : "多选"}
                 </button>
               ))}
             </div>
           </div>
           <div className="space-y-2">
             {mcOptions.map((opt) => (
-              <div key={opt.id} className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 p-2">
-                <button
-                  type="button" onClick={() => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, correct: !o.correct } : o)))}
-                  className={`w-7 h-7 flex-shrink-0 rounded-md border-2 flex items-center justify-center text-xs font-bold ${opt.correct ? "border-emerald-500 bg-emerald-500 text-white" : "border-border bg-white text-transparent"}`}
-                >✓</button>
-                <Input placeholder="选项文字" value={opt.zh} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, zh: e.target.value } : o)))} className="flex-1" />
-                <button
-                  type="button" onClick={() => setMcOptions((arr) => (arr.length > 2 ? arr.filter((o) => o.id !== opt.id) : arr))}
-                  disabled={mcOptions.length <= 2} className="w-7 h-7 flex-shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-30"
-                ><X size={14} /></button>
+              <div key={opt.id} className="rounded-lg border border-border bg-muted/20 p-2 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button" onClick={() => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, correct: !o.correct } : o)))}
+                    className={`w-7 h-7 flex-shrink-0 rounded-md border-2 flex items-center justify-center text-xs font-bold ${opt.correct ? "border-emerald-500 bg-emerald-500 text-white" : "border-border bg-white text-transparent"}`}
+                  >✓</button>
+                  <OptionImagePicker option={opt} onChange={(img) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, image_url: img } : o)))} />
+                  <span className="text-xs text-muted-foreground flex-1">选项（至少中文或图片其一）</span>
+                  <button
+                    type="button" onClick={() => setMcOptions((arr) => (arr.length > 2 ? arr.filter((o) => o.id !== opt.id) : arr))}
+                    disabled={mcOptions.length <= 2} className="w-7 h-7 flex-shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-30"
+                  ><X size={14} /></button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 pl-9">
+                  <Input placeholder="中文" value={opt.zh} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, zh: e.target.value } : o)))} />
+                  <Input placeholder="English" value={opt.en} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, en: e.target.value } : o)))} />
+                  <Input placeholder="Bahasa Melayu" value={opt.ms} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, ms: e.target.value } : o)))} />
+                </div>
               </div>
             ))}
             <Button type="button" variant="outline" size="sm" onClick={() => setMcOptions((arr) => [...arr, { id: `opt${Date.now()}`, zh: "", en: "", ms: "", correct: false }])}>+ 加一个选项</Button>
@@ -479,8 +539,12 @@ function AddFixedQuestionForm({ paperId, onDone, onCancel }: { paperId: string; 
       ) : (
         <>
           <div>
-            <Label>题目句子（用 ___ 三个下划线标记空的位置）</Label>
-            <Input placeholder="例如：1 + 1 = ___" value={fbSentenceZh} onChange={(e) => setFbSentenceZh(e.target.value)} />
+            <Label>题目句子（用 ___ 三个下划线标记空的位置，至少中文必填；英文/马来文如果填了，空格数量要跟中文一致）</Label>
+            <div className="space-y-1.5">
+              <Input placeholder="中文，例如：1 + 1 = ___" value={fbSentenceZh} onChange={(e) => setFbSentenceZh(e.target.value)} />
+              <Input placeholder="English（选填）" value={fbSentenceEn} onChange={(e) => setFbSentenceEn(e.target.value)} />
+              <Input placeholder="Bahasa Melayu（选填）" value={fbSentenceMs} onChange={(e) => setFbSentenceMs(e.target.value)} />
+            </div>
           </div>
           {(() => {
             const blankCount = (fbSentenceZh.match(/___/g) ?? []).length;
@@ -567,6 +631,7 @@ function QuestionBankTab() {
   const [items, setItems] = useState<ExamQuestionBankItem[]>([]);
   const [filterCategory, setFilterCategory] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { load(); }, [filterCategory]);
@@ -590,10 +655,14 @@ function QuestionBankTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <Input placeholder="按分类筛选（留空看全部）" value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="w-64" />
-        <Button onClick={() => setShowAdd(true)}><Plus size={14} className="mr-1" /> 加题库题目</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowImport(true)}>📥 从Activity库导入</Button>
+          <Button onClick={() => setShowAdd(true)}><Plus size={14} className="mr-1" /> 加题库题目</Button>
+        </div>
       </div>
 
       {showAdd && <AddBankQuestionForm onDone={() => { setShowAdd(false); load(); }} onCancel={() => setShowAdd(false)} />}
+      {showImport && <ImportFromActivityForm onDone={() => { setShowImport(false); load(); }} onCancel={() => setShowImport(false)} />}
 
       {loading ? (
         <p className="text-sm text-muted-foreground">加载中...</p>
@@ -609,13 +678,116 @@ function QuestionBankTab() {
                   ? ((it.config?.question_i18n as Record<string, string>)?.zh ?? "选择题")
                   : it.question_type === "fill_blank"
                   ? ((it.config?.sentence_i18n as Record<string, string>)?.zh ?? "填充题")
-                  : "🎨 填色题"}
+                  : it.question_type === "coloring"
+                  ? "🎨 填色题"
+                  : it.question_type === "sudoku"
+                  ? "🔢 数独（从Activity库导入）"
+                  : "🏷️ 贴纸游戏（从Activity库导入）"}
               </div>
               <button onClick={() => handleDelete(it.id)} className="text-muted-foreground hover:text-red-600 p-1.5 flex-shrink-0"><Trash2 size={15} /></button>
             </div>
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── 从 Activity 库导入 ────────────────────────────────────────────────────────
+// 只支持 multiple_choice/fill_blank/sudoku/sticker_game 这几种(对应后端
+// 已经实现服务器端判分的题型)。选中的Activity内容会被**复制**一份进
+// 考试题库，不是引用——之后Activity原题怎么改都不影响这份副本。
+// 数独/贴纸游戏这两种要特别提醒：判分安全等级会被提升到跟考试系统一致
+// (后端判分)，但贴纸游戏的判定方式从"像素坐标容差"简化成了"离散槽位
+// 匹配"，跟原本Activity里玩起来的手感不完全一样，这点也提醒一下老师。
+
+const IMPORTABLE_TYPES = [
+  { value: "multiple_choice", label: "☑️ 选择题" },
+  { value: "fill_blank", label: "📝 填充题" },
+  { value: "sudoku", label: "🔢 数独" },
+  { value: "sticker_game", label: "🏷️ 贴纸游戏" },
+] as const;
+
+function ImportFromActivityForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const [moduleType, setModuleType] = useState<string>("multiple_choice");
+  const [activities, setActivities] = useState<Array<{ id: string; title_i18n: Record<string, string> }>>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [category, setCategory] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
+
+  useEffect(() => {
+    setLoading(true); setSelectedId(null);
+    examApi.listImportableActivities(moduleType, { limit: 100 })
+      .then(({ data }) => setActivities(data))
+      .catch(() => toast.error("加载Activity列表失败"))
+      .finally(() => setLoading(false));
+  }, [moduleType]);
+
+  async function handleImport() {
+    if (!selectedId) { toast.error("请选一道要导入的Activity"); return; }
+    if (!category.trim()) { toast.error("请填写分类名称"); return; }
+    setImporting(true);
+    try {
+      await examApi.importFromActivity(selectedId, category.trim());
+      toast.success("已导入");
+      onDone();
+    } catch (err: any) { toast.error(err?.response?.data?.message ?? "导入失败"); }
+    setImporting(false);
+  }
+
+  return (
+    <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4">
+      {(moduleType === "sudoku" || moduleType === "sticker_game") && (
+        <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+          导入后判分会改成服务器端进行（比在Activity里玩安全，防止考试作弊）。
+          {moduleType === "sticker_game" && "贴纸游戏的判定方式也会简化成\"贴纸是否放对槽位\"，跟原本按像素位置判定的手感不完全一样。"}
+        </p>
+      )}
+
+      <div>
+        <Label>从哪种类型导入</Label>
+        <div className="flex gap-1.5 flex-wrap">
+          {IMPORTABLE_TYPES.map((t) => (
+            <button
+              key={t.value} type="button" onClick={() => setModuleType(t.value)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium ${moduleType === t.value ? "bg-primary text-primary-foreground" : "bg-muted/50 text-muted-foreground"}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <Label>选一道Activity</Label>
+        {loading ? (
+          <p className="text-xs text-muted-foreground">加载中...</p>
+        ) : activities.length === 0 ? (
+          <p className="text-xs text-muted-foreground/60">Activity库里还没有这种类型的题目</p>
+        ) : (
+          <div className="max-h-48 overflow-y-auto space-y-1 border border-border rounded-lg p-1.5">
+            {activities.map((a) => (
+              <button
+                key={a.id} type="button" onClick={() => setSelectedId(a.id)}
+                className={`w-full text-left px-2.5 py-1.5 rounded-md text-sm ${selectedId === a.id ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted/40"}`}
+              >
+                {a.title_i18n?.zh || a.title_i18n?.en}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <Label>导入进题库的哪个分类</Label>
+        <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="比如：数独练习" />
+      </div>
+
+      <div className="flex gap-2 pt-2">
+        <Button onClick={handleImport} disabled={importing}>{importing ? "导入中..." : "导入"}</Button>
+        <Button variant="outline" onClick={onCancel}>取消</Button>
+      </div>
     </div>
   );
 }
@@ -629,15 +801,21 @@ function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCance
     { id: "opt2", zh: "", en: "", ms: "", correct: false },
   ]);
   const [mcQuestionZh, setMcQuestionZh] = useState("");
+  const [mcQuestionEn, setMcQuestionEn] = useState("");
+  const [mcQuestionMs, setMcQuestionMs] = useState("");
   const [fbSentenceZh, setFbSentenceZh] = useState("");
+  const [fbSentenceEn, setFbSentenceEn] = useState("");
+  const [fbSentenceMs, setFbSentenceMs] = useState("");
   const [fbBlankAnswers, setFbBlankAnswers] = useState<string[]>([""]);
   const [coloringConfig, setColoringConfig] = useState<ColoringConfig | null>(null);
+  const [showIllustration, setShowIllustration] = useState(false);
+  const [illustration, setIllustration] = useState<Illustration | null>(null);
 
   async function handleSubmit() {
     if (!category.trim()) { toast.error("请填写分类名称"); return; }
     try {
       if (qType === "multiple_choice") {
-        const filled = mcOptions.filter((o) => o.zh.trim());
+        const filled = mcOptions.filter((o) => o.zh.trim() || o.image_url);
         if (filled.length < 2) { toast.error("至少要有2个选项"); return; }
         const correct = filled.filter((o) => o.correct);
         if (correct.length === 0) { toast.error("请至少勾选1个正确答案"); return; }
@@ -646,19 +824,25 @@ function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCance
           category: category.trim(), question_type: "multiple_choice",
           config: {
             answer_mode: mcAnswerMode,
-            options: filled.map((o) => ({ id: o.id, text_i18n: { zh: o.zh } })),
+            options: filled.map((o) => ({ id: o.id, text_i18n: { zh: o.zh || undefined, en: o.en || undefined, ms: o.ms || undefined }, image_url: o.image_url || undefined })),
             correct_option_ids: correct.map((o) => o.id),
-            question_i18n: { zh: mcQuestionZh.trim() },
+            question_i18n: { zh: mcQuestionZh.trim(), en: mcQuestionEn.trim() || undefined, ms: mcQuestionMs.trim() || undefined },
+            illustration: illustration ?? undefined,
           },
         });
       } else if (qType === "fill_blank") {
         const blankCount = (fbSentenceZh.match(/___/g) ?? []).length;
         if (!fbSentenceZh.trim() || blankCount === 0) { toast.error('请用"___"标记至少1个空'); return; }
+        if (fbSentenceEn.trim() && (fbSentenceEn.match(/___/g) ?? []).length !== blankCount) { toast.error(`英文版句子里的"___"数量要跟中文版一致(${blankCount}个)`); return; }
+        if (fbSentenceMs.trim() && (fbSentenceMs.match(/___/g) ?? []).length !== blankCount) { toast.error(`马来文版句子里的"___"数量要跟中文版一致(${blankCount}个)`); return; }
         const blanks = fbBlankAnswers.slice(0, blankCount).map((s) => s.split(",").map((x) => x.trim()).filter(Boolean));
         if (blanks.some((b) => b.length === 0)) { toast.error("每个空都要至少填1个正确答案"); return; }
         await examApi.createBankQuestion({
           category: category.trim(), question_type: "fill_blank",
-          config: { sentence_i18n: { zh: fbSentenceZh.trim() }, blanks: blanks.map((accepted) => ({ accepted_answers: accepted })) },
+          config: {
+            sentence_i18n: { zh: fbSentenceZh.trim(), en: fbSentenceEn.trim() || undefined, ms: fbSentenceMs.trim() || undefined },
+            blanks: blanks.map((accepted) => ({ accepted_answers: accepted })), illustration: illustration ?? undefined,
+          },
         });
       } else {
         if (!coloringConfig) { toast.error("请至少放1个形状"); return; }
@@ -686,24 +870,52 @@ function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCance
         ))}
       </div>
       {qType === "coloring" && <ColoringQuestionEditor initial={coloringConfig ?? undefined} onChange={setColoringConfig} />}
+      {(qType === "multiple_choice" || qType === "fill_blank") && (
+        <div className="rounded-lg border border-border bg-muted/20 p-3">
+          <button type="button" onClick={() => setShowIllustration((v) => !v)} className="text-xs font-medium text-foreground flex items-center gap-1.5">
+            🖼️ 题目配图（选填，纯装饰性插图，不影响判分）{showIllustration ? "▲" : "▼"}
+          </button>
+          {showIllustration && (
+            <div className="mt-3">
+              <IllustrationEditor initial={illustration ?? undefined} onChange={setIllustration} />
+            </div>
+          )}
+        </div>
+      )}
       {qType !== "coloring" && (qType === "multiple_choice" ? (
         <>
-          <div><Label>题目文字</Label><Input value={mcQuestionZh} onChange={(e) => setMcQuestionZh(e.target.value)} /></div>
+          <div>
+            <Label>题目文字（至少中文必填）</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <Input placeholder="中文" value={mcQuestionZh} onChange={(e) => setMcQuestionZh(e.target.value)} />
+              <Input placeholder="English" value={mcQuestionEn} onChange={(e) => setMcQuestionEn(e.target.value)} />
+              <Input placeholder="Bahasa Melayu" value={mcQuestionMs} onChange={(e) => setMcQuestionMs(e.target.value)} />
+            </div>
+          </div>
           <div className="flex items-center gap-3">
             <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
               {(["single", "multi"] as const).map((m) => (
-                <button key={m} onClick={() => setMcAnswerMode(m)} className={`px-3 py-1 rounded-md text-xs font-medium ${mcAnswerMode === m ? "bg-white shadow-sm" : "text-muted-foreground"}`}>
-                  {m === "single" ? "⚪ 单选" : "☑️ 多选"}
+                <button key={m} type="button" onClick={() => setMcAnswerMode(m)} className={`px-3 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 ${mcAnswerMode === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground"}`}>
+                  <span className={`w-3 h-3 rounded-full border-2 flex-shrink-0 ${mcAnswerMode === m ? "border-primary bg-primary" : "border-muted-foreground/40"}`} />
+                  {m === "single" ? "单选" : "多选"}
                 </button>
               ))}
             </div>
           </div>
           <div className="space-y-2">
             {mcOptions.map((opt) => (
-              <div key={opt.id} className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 p-2">
-                <button onClick={() => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, correct: !o.correct } : o)))} className={`w-7 h-7 flex-shrink-0 rounded-md border-2 flex items-center justify-center text-xs font-bold ${opt.correct ? "border-emerald-500 bg-emerald-500 text-white" : "border-border bg-white text-transparent"}`}>✓</button>
-                <Input placeholder="选项文字" value={opt.zh} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, zh: e.target.value } : o)))} className="flex-1" />
-                <button onClick={() => setMcOptions((arr) => (arr.length > 2 ? arr.filter((o) => o.id !== opt.id) : arr))} disabled={mcOptions.length <= 2} className="w-7 h-7 flex-shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-30"><X size={14} /></button>
+              <div key={opt.id} className="rounded-lg border border-border bg-muted/20 p-2 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, correct: !o.correct } : o)))} className={`w-7 h-7 flex-shrink-0 rounded-md border-2 flex items-center justify-center text-xs font-bold ${opt.correct ? "border-emerald-500 bg-emerald-500 text-white" : "border-border bg-white text-transparent"}`}>✓</button>
+                  <OptionImagePicker option={opt} onChange={(img) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, image_url: img } : o)))} />
+                  <span className="text-xs text-muted-foreground flex-1">选项（至少中文或图片其一）</span>
+                  <button onClick={() => setMcOptions((arr) => (arr.length > 2 ? arr.filter((o) => o.id !== opt.id) : arr))} disabled={mcOptions.length <= 2} className="w-7 h-7 flex-shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-30"><X size={14} /></button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 pl-9">
+                  <Input placeholder="中文" value={opt.zh} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, zh: e.target.value } : o)))} />
+                  <Input placeholder="English" value={opt.en} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, en: e.target.value } : o)))} />
+                  <Input placeholder="Bahasa Melayu" value={opt.ms} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, ms: e.target.value } : o)))} />
+                </div>
               </div>
             ))}
             <Button variant="outline" size="sm" onClick={() => setMcOptions((arr) => [...arr, { id: `opt${Date.now()}`, zh: "", en: "", ms: "", correct: false }])}>+ 加一个选项</Button>
@@ -711,7 +923,14 @@ function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCance
         </>
       ) : (
         <>
-          <div><Label>题目句子（用 ___ 标记空）</Label><Input value={fbSentenceZh} onChange={(e) => setFbSentenceZh(e.target.value)} /></div>
+          <div>
+            <Label>题目句子（用 ___ 标记空，至少中文必填）</Label>
+            <div className="space-y-1.5">
+              <Input placeholder="中文" value={fbSentenceZh} onChange={(e) => setFbSentenceZh(e.target.value)} />
+              <Input placeholder="English（选填）" value={fbSentenceEn} onChange={(e) => setFbSentenceEn(e.target.value)} />
+              <Input placeholder="Bahasa Melayu（选填）" value={fbSentenceMs} onChange={(e) => setFbSentenceMs(e.target.value)} />
+            </div>
+          </div>
           {(() => {
             const blankCount = (fbSentenceZh.match(/___/g) ?? []).length;
             if (blankCount === 0) return null;
@@ -829,3 +1048,37 @@ function StudentsTab({ paperId }: { paperId: string }) {
     </div>
   );
 }
+
+// 选项图片选择器——点缩略图上传/替换，有图的话右上角小×删除。简单
+// 转成data URL存，跟填色题编辑器背景图上传用的是同一套轻量做法，不走
+// 现有素材库接口(如果之后想接现有素材库上传流程，这里是唯一要改的地方)。
+function OptionImagePicker({ option, onChange }: { option: MCOption; onChange: (imageUrl: string | undefined) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => onChange(reader.result as string);
+    reader.readAsDataURL(file);
+  }
+
+  return (
+    <div className="relative flex-shrink-0">
+      <button
+        type="button" onClick={() => inputRef.current?.click()}
+        className="w-10 h-10 rounded-lg border border-dashed border-border bg-white overflow-hidden flex items-center justify-center text-muted-foreground hover:border-primary/50"
+      >
+        {option.image_url ? <img src={option.image_url} alt="" className="w-full h-full object-cover" /> : <span className="text-[10px]">配图</span>}
+      </button>
+      {option.image_url && (
+        <button
+          type="button" onClick={() => onChange(undefined)}
+          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white border border-border flex items-center justify-center"
+        ><X size={9} /></button>
+      )}
+      <input ref={inputRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
+    </div>
+  );
+}
+

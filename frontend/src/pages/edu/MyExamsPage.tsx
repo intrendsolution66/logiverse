@@ -1,3 +1,4 @@
+// frontend/src/pages/edu/MyExamsPage.tsx
 //
 // 学生端"我的试卷"列表——只显示这个学生被邀请/分配到的、已发布的试卷
 // (见后端 listMyExamPapers)。每份试卷显示自己的作答状态：还没开始 /
@@ -6,10 +7,15 @@
 
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import toast from "react-hot-toast";
 import { examApi } from "@/api";
 
 export default function MyExamsPage() {
+  const { i18n } = useTranslation();
+  const locale = i18n.language; // "zh" | "en" | "ms"，跟着学生当下切换的界面语言走
+  const pickText = (i18nObj?: Record<string, string>) => i18nObj?.[locale] || i18nObj?.zh || i18nObj?.en || "";
+
   const [papers, setPapers] = useState<Array<{
     id: string; title_i18n: Record<string, string>; time_limit_minutes: number;
     opens_at?: string; closes_at?: string; total_marks: number;
@@ -52,7 +58,7 @@ export default function MyExamsPage() {
             return (
               <div key={p.id} className="rounded-xl border border-border bg-white shadow-sm p-4 flex items-center justify-between">
                 <div>
-                  <h3 className="font-semibold text-foreground">{p.title_i18n?.zh || p.title_i18n?.en}</h3>
+                  <h3 className="font-semibold text-foreground">{pickText(p.title_i18n)}</h3>
                   <div className="text-xs text-muted-foreground mt-1 flex gap-3">
                     <span>{p.time_limit_minutes}分钟</span>
                     <span>满分{p.total_marks}</span>

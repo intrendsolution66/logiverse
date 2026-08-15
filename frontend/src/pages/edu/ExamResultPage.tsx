@@ -7,9 +7,17 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import toast from "react-hot-toast";
 import { examApi } from "@/api";
 import { ColoringShapeSvg, type ColoringConfig } from "@/lib/coloringShapes";
+import { IllustrationView, type Illustration } from "@/lib/illustrationShapes";
+import { STICKER_CANVAS_SIZE } from "@/lib/gameCanvas";
+
+// 按当前界面语言取文字——取不到就退回中文，再退回英文。
+function pickText(i18nObj: Record<string, string> | undefined, locale: string): string {
+  return i18nObj?.[locale] || i18nObj?.zh || i18nObj?.en || "";
+}
 
 interface ReviewQuestion {
   id: string; order_index: number; question_type: string; marks: number;
@@ -84,20 +92,28 @@ function ReviewCard({ index, question }: { index: number; question: ReviewQuesti
         ? <MultipleChoiceReview question={question} />
         : question.question_type === "fill_blank"
         ? <FillBlankReview question={question} />
-        : <ColoringReview question={question} />}
+        : question.question_type === "coloring"
+        ? <ColoringReview question={question} />
+        : question.question_type === "sudoku"
+        ? <SudokuReview question={question} />
+        : <StickerGameReview question={question} />}
     </div>
   );
 }
 
 function MultipleChoiceReview({ question }: { question: ReviewQuestion }) {
+  const { i18n } = useTranslation();
+  const locale = i18n.language;
   const config = question.config;
-  const questionText = (config.question_i18n as Record<string, string>)?.zh ?? "";
-  const options = (config.options as Array<{ id: string; text_i18n: Record<string, string> }>) ?? [];
+  const questionText = pickText(config.question_i18n as Record<string, string>, locale);
+  const illustration = config.illustration as Illustration | undefined;
+  const options = (config.options as Array<{ id: string; text_i18n: Record<string, string>; image_url?: string }>) ?? [];
   const correctIds = new Set((config.correct_option_ids as string[]) ?? []);
   const studentIds = new Set((question.student_answer as string[]) ?? []);
 
   return (
     <>
+      {illustration && <div className="mb-2"><IllustrationView illustration={illustration} /></div>}
       <p className="text-sm font-medium text-foreground mb-2">{questionText}</p>
       <div className="space-y-1.5">
         {options.map((opt) => {
@@ -110,7 +126,9 @@ function MultipleChoiceReview({ question }: { question: ReviewQuestion }) {
                 isCorrect ? "bg-emerald-50 text-emerald-700" : wasSelected ? "bg-red-50 text-red-600" : "text-muted-foreground"
               }`}
             >
-              {isCorrect ? "✓" : wasSelected ? "✗" : "·"} {opt.text_i18n?.zh}
+              {isCorrect ? "✓" : wasSelected ? "✗" : "·"}
+              {opt.image_url && <img src={opt.image_url} alt="" className="w-8 h-8 rounded object-cover" />}
+              {pickText(opt.text_i18n, locale)}
               {wasSelected && !isCorrect && <span className="text-xs">(你选的)</span>}
             </div>
           );
@@ -121,14 +139,19 @@ function MultipleChoiceReview({ question }: { question: ReviewQuestion }) {
 }
 
 function FillBlankReview({ question }: { question: ReviewQuestion }) {
+  const { i18n } = useTranslation();
+  const locale = i18n.language;
   const config = question.config;
-  const sentence = (config.sentence_i18n as Record<string, string>)?.zh ?? "";
+  const sentence = pickText(config.sentence_i18n as Record<string, string>, locale);
+  const illustration = config.illustration as Illustration | undefined;
   const blanks = (config.blanks as Array<{ accepted_answers: string[] }>) ?? [];
   const segments = sentence.split("___");
   const studentAnswers = (question.student_answer as string[]) ?? [];
 
   return (
-    <p className="text-sm text-foreground leading-relaxed flex flex-wrap items-center gap-x-1 gap-y-2">
+    <>
+      {illustration && <div className="mb-2"><IllustrationView illustration={illustration} /></div>}
+      <p className="text-sm text-foreground leading-relaxed flex flex-wrap items-center gap-x-1 gap-y-2">
       {segments.map((seg, i) => (
         <span key={i} className="inline-flex items-center gap-1">
           {seg && <span>{seg}</span>}
@@ -145,6 +168,7 @@ function FillBlankReview({ question }: { question: ReviewQuestion }) {
         </span>
       ))}
     </p>
+    </>
   );
 }
 
@@ -181,3 +205,66 @@ function ColoringReview({ question }: { question: ReviewQuestion }) {
   );
 }
 
+function SudokuReview({ question }: { question: ReviewQuestion }) {
+  const config = question.config;
+  const rows = (config.rows as number) ?? 3, cols = (config.cols as number) ?? 3;
+  const givenCells = (config.given_cells as Array<{ row: number; col: number; value: string }>) ?? [];
+  const blankCells = (config.blank_cells as Array<{ row: number; col: number; answer: string }>) ?? [];
+  const givenMap = new Map(givenCells.map((c) => [`${c.row}-${c.col}`, c.value]));
+  const studentAnswers = (question.student_answer ?? {}) as Record<string, string>;
+
+  return (
+    <div className="grid gap-1.5 w-fit mx-auto" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+      {Array.from({ length: rows }, (_, r) =>
+        Array.from({ length: cols }, (_, c) => {
+          const key = `${r}-${c}`;
+          const isGiven = givenMap.has(key);
+          const blank = blankCells.find((b) => b.row === r && b.col === c);
+          if (isGiven) {
+            return <div key={key} className="w-10 h-10 border border-border rounded-lg flex items-center justify-center bg-muted/30 text-base font-bold">{givenMap.get(key)}</div>;
+          }
+          if (!blank) return <div key={key} className="w-10 h-10" />;
+          const studentValue = studentAnswers[key];
+          const isRight = studentValue === blank.answer;
+          return (
+            <div key={key} className={`w-10 h-10 border-2 rounded-lg flex items-center justify-center text-base font-bold ${isRight ? "border-emerald-400 bg-emerald-50 text-emerald-700" : "border-red-400 bg-red-50 text-red-600"}`}>
+              {studentValue || "?"}
+              {!isRight && <span className="text-[10px] text-emerald-700 ml-0.5">({blank.answer})</span>}
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+function StickerGameReview({ question }: { question: ReviewQuestion }) {
+  const config = question.config;
+  const objects = (config.objects as Array<{ id: string; x: number; y: number; w: number; h: number; image_url: string }>) ?? [];
+  const studentAnswers = (question.student_answer ?? {}) as Record<string, string>;
+  const canvasW = STICKER_CANVAS_SIZE, canvasH = STICKER_CANVAS_SIZE;
+
+  return (
+    <div
+      className="relative w-full rounded-xl overflow-hidden bg-white border border-border"
+      style={{ aspectRatio: `${canvasW} / ${canvasH}`, maxWidth: 320, backgroundImage: config.bg_image_url ? `url(${config.bg_image_url})` : undefined, backgroundSize: "100% 100%" }}
+    >
+      {objects.map((o) => {
+        const placed = studentAnswers[o.id];
+        const isRight = placed === o.image_url;
+        return (
+          <div
+            key={o.id}
+            className={`absolute -translate-x-1/2 -translate-y-1/2 border-2 rounded-lg overflow-hidden ${isRight ? "border-emerald-400" : "border-red-400"}`}
+            style={{ left: `${(o.x / canvasW) * 100}%`, top: `${(o.y / canvasH) * 100}%`, width: `${(o.w / canvasW) * 100}%`, height: `${(o.h / canvasH) * 100}%` }}
+          >
+            {placed ? <img src={placed} alt="" className="w-full h-full object-contain" /> : null}
+            {!isRight && (
+              <img src={o.image_url} alt="" className="absolute bottom-0 right-0 w-1/2 h-1/2 object-contain opacity-60 border-t border-l border-emerald-400 bg-white/80" />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}

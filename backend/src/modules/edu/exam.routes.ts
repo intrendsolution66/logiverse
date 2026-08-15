@@ -11,6 +11,7 @@ import {
   listExamPapers, createExamPaper, getExamPaperForEdit, updateExamPaper, setExamPaperStatus, deleteExamPaper,
   addExamPaperQuestion, updateExamPaperQuestion, deleteExamPaperQuestion, reorderExamPaperQuestions,
   listQuestionBankCategories, listQuestionBank, createQuestionBankQuestion, updateQuestionBankQuestion, deleteQuestionBankQuestion,
+  listImportableActivities, importFromActivity,
   listExamPaperStudents, addExamPaperStudents, removeExamPaperStudent,
   listMyExamPapers, startExamAttempt, submitExamAttempt, getExamAttempt, getExamAttemptReview,
   listMyAttemptsForPaper, getExamPaperLeaderboard,
@@ -40,6 +41,8 @@ router.get   ("/exam-question-bank",                authenticate, authorize("cou
 router.post  ("/exam-question-bank",                authenticate, authorize("courses.manage"), createQuestionBankQuestion);
 router.patch ("/exam-question-bank/:questionId",    authenticate, authorize("courses.manage"), updateQuestionBankQuestion);
 router.delete("/exam-question-bank/:questionId",    authenticate, authorize("courses.manage"), deleteQuestionBankQuestion);
+router.get   ("/exam-question-bank/importable",     authenticate, authorize("courses.manage"), listImportableActivities); // ?module_type=xxx
+router.post  ("/exam-question-bank/import",         authenticate, authorize("courses.manage"), importFromActivity);
 
 // ── 受邀学生名单 (classes.manage) ────────────────────────────────────────────
 router.get   ("/exam-papers/:paperId/students",              authenticate, authorize("classes.manage"), listExamPaperStudents);

@@ -644,7 +644,7 @@ export const examApi = {
       meta: res.data.meta as { page: number; limit: number; total: number; totalPages: number },
     })),
   createPaper: (b: {
-    title_i18n: Record<string, string>; description?: string; time_limit_minutes?: number;
+    title_i18n: { zh: string; en?: string; ms?: string }; description?: string; time_limit_minutes?: number;
     opens_at?: string; closes_at?: string; allow_retake?: boolean; max_attempts?: number;
     review_policy?: "immediate" | "after_close";
   }) => api.post("/exam-papers", b).then(d<ExamPaper>),
@@ -653,7 +653,7 @@ export const examApi = {
   getPaperForEdit: (paperId: string) =>
     api.get(`/exam-papers/${paperId}`).then(d<ExamPaper & { questions: ExamPaperQuestion[] }>),
   updatePaper: (paperId: string, b: Partial<{
-    title_i18n: Record<string, string>; description: string; time_limit_minutes: number;
+    title_i18n: { zh: string; en?: string; ms?: string }; description: string; time_limit_minutes: number;
     opens_at: string; closes_at: string; allow_retake: boolean; max_attempts: number;
     review_policy: "immediate" | "after_close";
   }>) => api.patch(`/exam-papers/${paperId}`, b),
@@ -661,8 +661,8 @@ export const examApi = {
     api.patch(`/exam-papers/${paperId}/status`, { status }),
   deletePaper: (paperId: string) => api.delete(`/exam-papers/${paperId}`),
   // PDF 是二进制内容，axios 要指定 responseType:"blob" 才不会把它当JSON解析
-  downloadPaperPdf: (paperId: string) =>
-    api.get(`/exam-papers/${paperId}/pdf`, { responseType: "blob" }).then((res) => res.data as Blob),
+  downloadPaperPdf: (paperId: string, lang: "zh" | "en" | "ms" = "zh") =>
+    api.get(`/exam-papers/${paperId}/pdf`, { params: { lang }, responseType: "blob" }).then((res) => res.data as Blob),
 
   // ── 试卷题目槽位 ──────────────────────────────────────────────────────────
   addQuestion: (paperId: string, b: {
@@ -692,6 +692,15 @@ export const examApi = {
   updateBankQuestion: (questionId: string, b: Partial<{ category: string; question_type: string; config: Record<string, unknown> }>) =>
     api.patch(`/exam-question-bank/${questionId}`, b),
   deleteBankQuestion: (questionId: string) => api.delete(`/exam-question-bank/${questionId}`),
+  // 从 Activity 库导入——先列出可选的Activity(按题型筛选)，选中后调
+  // importFromActivity 真正复制一份进题库。
+  listImportableActivities: (moduleType: string, params?: { page?: number; limit?: number }) =>
+    api.get("/exam-question-bank/importable", { params: { module_type: moduleType, ...params } }).then((res) => ({
+      data: res.data.data as Array<{ id: string; title_i18n: Record<string, string>; module_type: string; config: Record<string, unknown> }>,
+      meta: res.data.meta as { page: number; limit: number; total: number; totalPages: number },
+    })),
+  importFromActivity: (activityId: string, category: string) =>
+    api.post("/exam-question-bank/import", { activity_id: activityId, category }).then(d<ExamQuestionBankItem>),
 
   // ── 受邀学生名单 ──────────────────────────────────────────────────────────
   listPaperStudents: (paperId: string) =>

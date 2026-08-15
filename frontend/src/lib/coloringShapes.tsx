@@ -28,7 +28,13 @@ export interface ColoringConfig {
 // 算出一个形状实际要画的SVG几何——立体方块用最简单的等距投影：顶面
 // 是个菱形，左右两面各是一个平行四边形，三个面共享同一个中心点(x,y)
 // 和边长(w，h不使用)。
-export function shapePoints(r: ColoringRegion): { tag: "rect" | "ellipse" | "polygon"; attrs: Record<string, number | string> } {
+// 只要求几何计算真正用到的字段——colorable/correct_color这些判分相关
+// 字段跟坐标计算无关，收窄成这个精简类型，这样填色题(ColoringRegion)
+// 和纯装饰插图工具(IllustrationShape，见illustrationShapes.tsx)都能
+// 共用这个函数，不用互相牵扯对方的类型。
+export interface ShapeGeometry { shape: ColoringShapeType; x: number; y: number; w: number; h: number }
+
+export function shapePoints(r: ShapeGeometry): { tag: "rect" | "ellipse" | "polygon"; attrs: Record<string, number | string> } {
   const { shape, x, y, w, h } = r;
   if (shape === "rectangle") return { tag: "rect", attrs: { x: x - w / 2, y: y - h / 2, width: w, height: h } };
   if (shape === "circle") return { tag: "ellipse", attrs: { cx: x, cy: y, rx: w / 2, ry: h / 2 } };

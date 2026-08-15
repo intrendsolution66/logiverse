@@ -11,9 +11,19 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import toast from "react-hot-toast";
 import { examApi } from "@/api";
 import { ColoringShapeSvg, type ColoringConfig } from "@/lib/coloringShapes";
+import { IllustrationView, type Illustration } from "@/lib/illustrationShapes";
+import { STICKER_CANVAS_SIZE } from "@/lib/gameCanvas";
+
+// 按当前界面语言取文字——取不到就退回中文，再退回英文。不是hook，
+// 因为要在好几个独立组件(不是同一个组件树内)里共用，各组件自己用
+// useTranslation()拿locale，传进来。
+function pickText(i18nObj: Record<string, string> | undefined, locale: string): string {
+  return i18nObj?.[locale] || i18nObj?.zh || i18nObj?.en || "";
+}
 
 interface TakeQuestion {
   id: string; order_index: number; question_type: string; marks: number;
@@ -24,6 +34,8 @@ type ColoringAnswer = Record<string, string>; // regionId -> hex颜色
 export default function ExamTakePage() {
   const { paperId } = useParams<{ paperId: string }>();
   const navigate = useNavigate();
+  const { i18n } = useTranslation();
+  const locale = i18n.language;
 
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -38,7 +50,7 @@ export default function ExamTakePage() {
     if (!paperId) return;
     examApi.startAttempt(paperId)
       .then((data) => {
-        setAttemptId(data.attempt_id); setTitle(data.title_i18n?.zh || data.title_i18n?.zh || "");
+        setAttemptId(data.attempt_id); setTitle(pickText(data.title_i18n, locale));
         setQuestions(data.questions as TakeQuestion[]);
         setRemaining(data.remaining_seconds);
       })
@@ -88,6 +100,16 @@ export default function ExamTakePage() {
       const regions = ((q.config as unknown as ColoringConfig).regions ?? []).filter((r) => r.colorable);
       const given = (a ?? {}) as ColoringAnswer;
       return regions.every((r) => given[r.id]);
+    }
+    if (q.question_type === "sudoku") {
+      const blankCells = (q.config.blank_cells as Array<{ row: number; col: number }>) ?? [];
+      const given = (a ?? {}) as Record<string, string>;
+      return blankCells.every((c) => String(given[`${c.row}-${c.col}`] ?? "").trim());
+    }
+    if (q.question_type === "sticker_game") {
+      const objects = (q.config.objects as Array<{ id: string }>) ?? [];
+      const given = (a ?? {}) as Record<string, string>;
+      return objects.every((o) => given[o.id]);
     }
     return false;
   });
@@ -139,7 +161,11 @@ function QuestionCard({ index, question, value, onChange }: {
         ? <MultipleChoiceQuestion config={question.config} value={value as string[] | undefined} onChange={onChange} />
         : question.question_type === "fill_blank"
         ? <FillBlankQuestion config={question.config} value={value as string[] | undefined} onChange={onChange} />
-        : <ColoringQuestion config={question.config as unknown as ColoringConfig} value={value as ColoringAnswer | undefined} onChange={onChange} />}
+        : question.question_type === "coloring"
+        ? <ColoringQuestion config={question.config as unknown as ColoringConfig} value={value as ColoringAnswer | undefined} onChange={onChange} />
+        : question.question_type === "sudoku"
+        ? <SudokuQuestion config={question.config} value={value as Record<string, string> | undefined} onChange={onChange} />
+        : <StickerGameQuestion config={question.config} value={value as Record<string, string> | undefined} onChange={onChange} />}
     </div>
   );
 }
@@ -147,9 +173,12 @@ function QuestionCard({ index, question, value, onChange }: {
 function MultipleChoiceQuestion({ config, value, onChange }: {
   config: Record<string, unknown>; value?: string[]; onChange: (v: string[]) => void;
 }) {
+  const { i18n } = useTranslation();
+  const locale = i18n.language;
   const isMulti = config.answer_mode === "multi";
-  const options = (config.options as Array<{ id: string; text_i18n: Record<string, string> }>) ?? [];
-  const questionText = (config.question_i18n as Record<string, string>)?.zh ?? "";
+  const options = (config.options as Array<{ id: string; text_i18n: Record<string, string>; image_url?: string }>) ?? [];
+  const questionText = pickText(config.question_i18n as Record<string, string>, locale);
+  const illustration = config.illustration as Illustration | undefined;
   const selected = new Set(value ?? []);
 
   function toggle(id: string) {
@@ -161,10 +190,12 @@ function MultipleChoiceQuestion({ config, value, onChange }: {
 
   return (
     <>
+      {illustration && <div className="mb-3"><IllustrationView illustration={illustration} /></div>}
       <p className="text-base font-medium text-foreground mb-3">{questionText}</p>
       <div className="space-y-2">
         {options.map((opt) => {
           const isSelected = selected.has(opt.id);
+          const optText = pickText(opt.text_i18n, locale);
           return (
             <button
               key={opt.id} type="button" onClick={() => toggle(opt.id)}
@@ -177,7 +208,8 @@ function MultipleChoiceQuestion({ config, value, onChange }: {
               }`}>
                 {isSelected ? "✓" : ""}
               </span>
-              <span className="text-sm">{opt.text_i18n?.zh}</span>
+              {opt.image_url && <img src={opt.image_url} alt="" className="w-14 h-14 rounded-lg object-cover flex-shrink-0" />}
+              {optText && <span className="text-sm">{optText}</span>}
             </button>
           );
         })}
@@ -189,7 +221,10 @@ function MultipleChoiceQuestion({ config, value, onChange }: {
 function FillBlankQuestion({ config, value, onChange }: {
   config: Record<string, unknown>; value?: string[]; onChange: (v: string[]) => void;
 }) {
-  const sentence = (config.sentence_i18n as Record<string, string>)?.zh ?? "";
+  const { i18n } = useTranslation();
+  const locale = i18n.language;
+  const sentence = pickText(config.sentence_i18n as Record<string, string>, locale);
+  const illustration = config.illustration as Illustration | undefined;
   const segments = sentence.split("___");
   const blankCount = Math.max(0, segments.length - 1);
   const values = value ?? Array.from({ length: blankCount }, () => "");
@@ -202,7 +237,9 @@ function FillBlankQuestion({ config, value, onChange }: {
   }
 
   return (
-    <p className="text-base font-medium text-foreground leading-relaxed flex flex-wrap items-center gap-x-1.5 gap-y-2">
+    <>
+      {illustration && <div className="mb-3"><IllustrationView illustration={illustration} /></div>}
+      <p className="text-base font-medium text-foreground leading-relaxed flex flex-wrap items-center gap-x-1.5 gap-y-2">
       {segments.map((seg, i) => (
         <span key={i} className="inline-flex items-center gap-1.5">
           {seg && <span>{seg}</span>}
@@ -215,6 +252,7 @@ function FillBlankQuestion({ config, value, onChange }: {
         </span>
       ))}
     </p>
+    </>
   );
 }
 
@@ -253,5 +291,110 @@ function ColoringQuestion({ config, value, onChange }: {
         })}
       </svg>
     </>
+  );
+}
+
+// 数独——简化渲染，不复用SudokuGame.tsx(那个组件内建前端判分，跟考试
+// 系统的后端判分模式不兼容)。给定数字直接显示，留空的格子用输入框，
+// 答案key用"row-col"拼字符串。
+function SudokuQuestion({ config, value, onChange }: {
+  config: Record<string, unknown>; value?: Record<string, string>; onChange: (v: Record<string, string>) => void;
+}) {
+  const rows = (config.rows as number) ?? 3, cols = (config.cols as number) ?? 3;
+  const givenCells = (config.given_cells as Array<{ row: number; col: number; value: string }>) ?? [];
+  const blankCells = (config.blank_cells as Array<{ row: number; col: number }>) ?? [];
+  const givenMap = new Map(givenCells.map((c) => [`${c.row}-${c.col}`, c.value]));
+  const given = value ?? {};
+
+  function setCell(row: number, col: number, v: string) {
+    onChange({ ...given, [`${row}-${col}`]: v.replace(/[^1-9]/g, "").slice(0, 1) });
+  }
+
+  return (
+    <div className="grid gap-1.5 w-fit mx-auto" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+      {Array.from({ length: rows }, (_, r) =>
+        Array.from({ length: cols }, (_, c) => {
+          const key = `${r}-${c}`;
+          const isGiven = givenMap.has(key);
+          const isBlank = blankCells.some((b) => b.row === r && b.col === c);
+          return (
+            <div key={key} className="w-11 h-11 border border-border rounded-lg flex items-center justify-center bg-white">
+              {isGiven ? (
+                <span className="text-lg font-bold text-foreground">{givenMap.get(key)}</span>
+              ) : isBlank ? (
+                <input
+                  type="text" inputMode="numeric" maxLength={1} value={given[key] ?? ""}
+                  onChange={(e) => setCell(r, c, e.target.value)}
+                  className="w-full h-full text-center text-lg font-semibold outline-none rounded-lg focus:bg-primary/5"
+                />
+              ) : null}
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+// 贴纸游戏——简化成"点选式"而不是拖拽：先点贴纸盘里一张贴纸(选中)，
+// 再点画布上要贴的槽位，就把这张贴纸分配给那个槽位。这个跟原本
+// Activity版本的拖拽手感不一样，但更适合考试场景(判分本来就是离散
+// 匹配，不是像素位置，点选式交互更贴合这个判定模型)。
+function StickerGameQuestion({ config, value, onChange }: {
+  config: Record<string, unknown>; value?: Record<string, string>; onChange: (v: Record<string, string>) => void;
+}) {
+  const objects = (config.objects as Array<{ id: string; x: number; y: number; w: number; h: number; rotation: number }>) ?? [];
+  const tray = (config.tray as string[]) ?? [];
+  // 贴纸游戏的画布不是存在config里的字段，是全局固定常量(见
+  // frontend/src/lib/gameCanvas.ts 的 STICKER_CANVAS_SIZE，之前重构贴纸
+  // 游戏时改成的正方形坐标系)，这里直接用同一个常量，不从config读。
+  const canvasW = STICKER_CANVAS_SIZE, canvasH = STICKER_CANVAS_SIZE;
+  const [pickedSticker, setPickedSticker] = useState<string | null>(null);
+  const given = value ?? {};
+  const usedStickers = new Set(Object.values(given));
+
+  function placeSticker(objectId: string) {
+    if (!pickedSticker) return;
+    onChange({ ...given, [objectId]: pickedSticker });
+    setPickedSticker(null);
+  }
+
+  return (
+    <div>
+      <p className="text-sm text-muted-foreground mb-2">先点下面要用的贴纸，再点画布上对应的位置</p>
+      <div
+        className="relative w-full rounded-xl overflow-hidden bg-white border border-border mb-3"
+        style={{ aspectRatio: `${canvasW} / ${canvasH}`, backgroundImage: config.bg_image_url ? `url(${config.bg_image_url})` : undefined, backgroundSize: "100% 100%" }}
+      >
+        {objects.map((o) => {
+          const placed = given[o.id];
+          return (
+            <button
+              key={o.id} type="button" onClick={() => placeSticker(o.id)}
+              className="absolute -translate-x-1/2 -translate-y-1/2 border-2 border-dashed border-primary/50 rounded-lg bg-white/60 flex items-center justify-center overflow-hidden"
+              style={{ left: `${(o.x / canvasW) * 100}%`, top: `${(o.y / canvasH) * 100}%`, width: `${(o.w / canvasW) * 100}%`, height: `${(o.h / canvasH) * 100}%` }}
+            >
+              {placed && <img src={placed} alt="" className="w-full h-full object-contain" />}
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap gap-2 justify-center">
+        {tray.map((url, i) => {
+          const isUsed = usedStickers.has(url);
+          return (
+            <button
+              key={i} type="button" onClick={() => !isUsed && setPickedSticker(url)}
+              disabled={isUsed}
+              className={`w-14 h-14 rounded-lg border-2 bg-white p-1 ${
+                isUsed ? "opacity-30" : pickedSticker === url ? "border-primary ring-2 ring-primary/30" : "border-border"
+              }`}
+            >
+              <img src={url} alt="" className="w-full h-full object-contain" />
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }

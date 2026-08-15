@@ -31,6 +31,18 @@ function normalizeAnswer(s: string): string {
   return s.trim().toLowerCase();
 }
 
+// Fisher-Yates 洗牌——贴纸游戏的贴纸盘顺序打乱用，不能让顺序本身泄露
+// 出"哪张贴纸对应哪个槽位"这层信息(比如如果不打乱，数组顺序天生就
+// 跟槽位顺序一一对应，等于没加密)。
+function shuffleArray<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 function gradeQuestion(questionType: string, config: Record<string, unknown>, studentAnswer: unknown): boolean {
   if (questionType === "multiple_choice") {
     const correctIds = new Set((config.correct_option_ids as string[]) ?? []);
@@ -58,6 +70,31 @@ function gradeQuestion(questionType: string, config: Record<string, unknown>, st
       return given && given === correct;
     });
   }
+  if (questionType === "sudoku") {
+    // 数独的config结构照搬Activity那边的格式：blank_cells是"留空给学生
+    // 填"的格子，每个格子有row/col/answer。学生提交的答案按"row-col"
+    // 拼成字符串当key，值是学生填的数字。全部格子都对才算这题对，跟
+    // 其他题型统一"全对才算对"的规则。
+    const blankCells = (config.blank_cells as Array<{ row: number; col: number; answer: string }>) ?? [];
+    const submitted = (studentAnswer && typeof studentAnswer === "object" ? studentAnswer : {}) as Record<string, string>;
+    if (blankCells.length === 0) return false;
+    return blankCells.every((c) => {
+      const key = `${c.row}-${c.col}`;
+      return String(submitted[key] ?? "").trim() === String(c.answer ?? "").trim();
+    });
+  }
+  if (questionType === "sticker_game") {
+    // 贴纸游戏的判分在考试场景下简化成"离散匹配"：每个目标位置(objects
+    // 数组的每一项)对应一个ID，正确答案是这个位置本来该贴哪张贴纸
+    // (image_url)。这跟原本Activity那边"按像素坐标容差判定"不一样——
+    // 正式考试要求判定结果是确定的、可复现的，不适合用带容差的模糊
+    // 位置判定，所以改成"这张贴纸有没有被拖到正确的那个槽位"这种离散
+        // 判定，更适合服务器端严格判分。
+    const objects = (config.objects as Array<{ id: string; image_url: string }>) ?? [];
+    const submitted = (studentAnswer && typeof studentAnswer === "object" ? studentAnswer : {}) as Record<string, string>;
+    if (objects.length === 0) return false;
+    return objects.every((o) => submitted[o.id] === o.image_url);
+  }
   return false; // 未知题型——保守起见判不对，不是判满分
 }
 
@@ -77,6 +114,19 @@ function stripAnswers(questionType: string, config: Record<string, unknown>): Re
   if (questionType === "coloring") {
     const regions = (config.regions as Array<Record<string, unknown>>) ?? [];
     return { ...config, regions: regions.map((r) => { const { correct_color, ...rest } = r; return rest; }) };
+  }
+  if (questionType === "sudoku") {
+    const blankCells = (config.blank_cells as Array<Record<string, unknown>>) ?? [];
+    return { ...config, blank_cells: blankCells.map((c) => { const { answer, ...rest } = c; return rest; }) };
+  }
+  if (questionType === "sticker_game") {
+    const objects = (config.objects as Array<Record<string, unknown>>) ?? [];
+    // 位置/形状信息(x,y,w,h,rotation)保留——学生需要知道虚线框长什么样、
+    // 放在哪；每个槽位本身去掉image_url(不透露"这个槽位该贴哪张"这层
+    // 对应关系)。贴纸本身不是秘密，秘密的是对应关系，所以另外打乱顺序
+    // 生成一份"贴纸盘"(tray)供学生拖动，貌似跟槽位无关联。
+    const tray = shuffleArray(objects.map((o) => o.image_url as string));
+    return { ...config, objects: objects.map((o) => { const { image_url, ...rest } = o; return rest; }), tray };
   }
   return config;
 }
@@ -214,6 +264,17 @@ function validateQuestionConfig(questionType: string, config: Record<string, unk
     const blanks = config.blanks as Array<{ accepted_answers: string[] }> | undefined;
     if (!blanks || blanks.length === 0) throw new Error("填充题至少要有1个空");
     if (blanks.some((b) => !b.accepted_answers?.length)) throw new Error("每个空都要至少填1个正确答案");
+    // 英文/马来文版本的句子如果填了，里面"___"的数量必须跟中文版一致——
+    // 答案(blanks数组)是按"第几个空"对应的，不同语言版本的空格数量一旦
+    // 不一样，学生看不同语言时空的数量和答案就会错位。
+    const sentI18n = config.sentence_i18n as Record<string, string> | undefined;
+    const zhBlanks = (sentI18n?.zh?.match(/___/g) ?? []).length;
+    for (const lang of ["en", "ms"] as const) {
+      const text = sentI18n?.[lang];
+      if (text && (text.match(/___/g) ?? []).length !== zhBlanks) {
+        throw new Error(`${lang === "en" ? "英文" : "马来文"}版句子里"___"的数量要跟中文版一致(${zhBlanks}个)，不然不同语言的空会对不上答案`);
+      }
+    }
   } else if (questionType === "coloring") {
     const regions = config.regions as Array<{ colorable: boolean; correct_color?: string }> | undefined;
     const palette = config.palette as string[] | undefined;
@@ -222,6 +283,15 @@ function validateQuestionConfig(questionType: string, config: Record<string, unk
     const colorable = regions.filter((r) => r.colorable);
     if (colorable.length === 0) throw new Error("至少要有1个区域勾选\"可上色\"，不然学生没东西可以上色");
     if (colorable.some((r) => !r.correct_color)) throw new Error("每个可上色的区域都要设正确颜色");
+  } else if (questionType === "sudoku") {
+    const blankCells = config.blank_cells as Array<{ row: number; col: number; answer: string }> | undefined;
+    if (!blankCells || blankCells.length === 0) throw new Error("数独至少要有1个留空给学生填的格子");
+    if (blankCells.some((c) => !c.answer)) throw new Error("每个留空的格子都要有正确答案");
+  } else if (questionType === "sticker_game") {
+    const objects = config.objects as Array<{ id?: string; image_url?: string }> | undefined;
+    if (!objects || objects.length === 0) throw new Error("贴纸游戏至少要有1个贴纸槽位");
+    if (objects.some((o) => !o.id)) throw new Error("贴纸槽位缺少id——从Activity库导入时应该自动补上，请重新导入");
+    if (objects.some((o) => !o.image_url)) throw new Error("每个贴纸槽位都要有对应的贴纸图片");
   } else {
     throw new Error(`不支持的题型: ${questionType}`);
   }
@@ -363,6 +433,59 @@ export async function reorderExamPaperQuestions(req: AuthRequest, res: Response)
 }
 
 // ── 题库 (courses.manage) —— 随机槽从这里抽题 ───────────────────────────────
+
+// 从 Activity 库(course_levels)找可以导入的题目——只支持 multiple_choice/
+// fill_blank/sudoku/sticker_game 这几种(跟考试系统已经支持判分的题型
+// 对应)。返回的是"预览"，不是真的导入，前端选中后再调
+// importFromActivity 才会真正复制一份进题库。
+export async function listImportableActivities(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const moduleType = req.query.module_type as string | undefined;
+    const SUPPORTED = ["multiple_choice", "fill_blank", "sudoku", "sticker_game"];
+    if (!moduleType || !SUPPORTED.includes(moduleType)) { badRequest(res, `module_type 必须是 ${SUPPORTED.join("/")}`); return; }
+    const { page, limit, offset } = parsePagination(req, 30);
+    const { rows: countRows } = await query(`SELECT COUNT(*)::int AS total FROM edu.course_levels WHERE module_type = $1`, [moduleType]);
+    const { rows } = await query(
+      `SELECT id, title_i18n, module_type, config FROM edu.course_levels WHERE module_type = $1 ORDER BY updated_at DESC LIMIT $2 OFFSET $3`,
+      [moduleType, limit, offset]
+    );
+    paginated(res, rows, countRows[0].total, page, limit);
+  } catch (err) { serverError(res, err); }
+}
+
+// 真正导入——把选中的Activity的config**复制**一份存进题库(不是引用，
+// 这份复制品之后Activity那边怎么改都不影响它，判分安全性也是独立的)。
+// 贴纸游戏(objects数组)原本没有稳定id，只靠数组顺序区分——考试判分需要
+// 每个槽位有个不会变的id，这里导入时统一补上。数独/选择题/填充题本来
+// 就有稳定的字段结构，不用额外处理。
+export async function importFromActivity(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { activity_id, category } = req.body as { activity_id?: string; category?: string };
+    if (!activity_id) { badRequest(res, "activity_id is required"); return; }
+    if (!category?.trim()) { badRequest(res, "category is required"); return; }
+    const { rows } = await query(`SELECT module_type, config FROM edu.course_levels WHERE id = $1`, [activity_id]);
+    const activity = rows[0];
+    if (!activity) { notFound(res, "找不到这个Activity"); return; }
+    const SUPPORTED = ["multiple_choice", "fill_blank", "sudoku", "sticker_game"];
+    if (!SUPPORTED.includes(activity.module_type)) { badRequest(res, `暂不支持导入 ${activity.module_type} 这个类型`); return; }
+
+    let config = activity.config as Record<string, unknown>;
+    if (activity.module_type === "sticker_game") {
+      const objects = (config.objects as Array<Record<string, unknown>>) ?? [];
+      config = { ...config, objects: objects.map((o, i) => ({ id: o.id ?? `slot_${i}`, ...o })) };
+    }
+
+    validateQuestionConfig(activity.module_type, config);
+    const { rows: created2 } = await query(
+      `INSERT INTO edu.exam_question_bank (category, question_type, config, created_by) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [category.trim(), activity.module_type, JSON.stringify(config), req.user!.sub]
+    );
+    created(res, created2[0]);
+  } catch (err) {
+    if (err instanceof Error && !("code" in err)) { badRequest(res, err.message); return; }
+    serverError(res, err);
+  }
+}
 
 export async function listQuestionBankCategories(req: AuthRequest, res: Response): Promise<void> {
   try {
@@ -792,19 +915,19 @@ function renderColoringShapeSvg(r: { shape: string; x: number; y: number; w: num
 // 出现在这份HTML里——这是给学生打印手写作答用的卷子，不是老师用的
 // 附答案版本(附答案版本如果以后需要，应该是另一个单独的、权限更严格
 // 的接口，不能共用这个)。
-function buildPaperHtml(paper: Record<string, unknown>, questions: Array<Record<string, unknown>>): string {
-  const title = (paper.title_i18n as Record<string, string>)?.zh ?? (paper.title_i18n as Record<string, string>)?.en ?? "试卷";
+function buildPaperHtml(paper: Record<string, unknown>, questions: Array<Record<string, unknown>>, lang: string): string {
+  const t = (i18n: Record<string, string> | undefined) => i18n?.[lang] || i18n?.zh || i18n?.en || "";
+  const title = t(paper.title_i18n as Record<string, string>) || "试卷";
   const questionsHtml = questions.map((q, i) => {
     const config = q.config as Record<string, unknown>;
     const num = i + 1;
     const marks = q.marks as number;
     if (q.question_type === "multiple_choice") {
-      const qi18n = config.question_i18n as Record<string, string> | undefined;
-      const questionText = qi18n?.zh ?? qi18n?.en ?? "";
+      const questionText = t(config.question_i18n as Record<string, string>);
       const options = (config.options as Array<{ id: string; text_i18n: Record<string, string> }>) ?? [];
       const optionsHtml = options.map((o, j) => {
         const label = String.fromCharCode(65 + j); // A, B, C, D...
-        const text = o.text_i18n?.zh ?? o.text_i18n?.en ?? "";
+        const text = t(o.text_i18n);
         return `<div class="option">${label}. ${escapeHtml(text)}</div>`;
       }).join("");
       return `<div class="question">
@@ -813,8 +936,7 @@ function buildPaperHtml(paper: Record<string, unknown>, questions: Array<Record<
       </div>`;
     }
     if (q.question_type === "fill_blank") {
-      const sentI18n = config.sentence_i18n as Record<string, string> | undefined;
-      const sentence = sentI18n?.zh ?? sentI18n?.en ?? "";
+      const sentence = t(config.sentence_i18n as Record<string, string>);
       const filled = escapeHtml(sentence).replace(/___/g, '<span class="blank-line"></span>');
       return `<div class="question">
         <div class="q-head"><span class="q-num">${num}.</span> ${filled} <span class="q-marks">(${marks}分)</span></div>
@@ -825,8 +947,7 @@ function buildPaperHtml(paper: Record<string, unknown>, questions: Array<Record<
       const canvasW = (config.canvas_width as number) ?? 400, canvasH = (config.canvas_height as number) ?? 300;
       return `<div class="question">
         <div class="q-head"><span class="q-num">${num}.</span> 请按题目要求上色 <span class="q-marks">(${marks}分)</span></div>
-        <svg viewBox="0 0 ${canvasW} ${canvasH}" style="width:70%;max-width:320px;border:1px solid #ccc;margin:8px 0 0 24px;">
-          ${regions.map((r) => renderColoringShapeSvg(r, r.colorable ? "#ffffff" : (r.decoration_color ?? "#eeeeee"))).join("")}
+        <svg viewBox="0 0 ${canvasW} ${canvasH}" style="width:70%;max-width:320px;border:1px solid #ccc;margin:8px 0 0 24px;">          ${regions.map((r) => renderColoringShapeSvg(r, r.colorable ? "#ffffff" : (r.decoration_color ?? "#eeeeee"))).join("")}
         </svg>
       </div>`;
     }
@@ -864,19 +985,22 @@ export async function generateExamPaperPdf(req: AuthRequest, res: Response): Pro
   try {
     const paper = await getPaperOr404(req.params.paperId);
     if (!paper) { notFound(res, "试卷不存在"); return; }
+    const lang = (req.query.lang as string) ?? "zh";
+    if (!["zh", "en", "ms"].includes(lang)) { badRequest(res, "lang 必须是 zh/en/ms"); return; }
     const { rows: questions } = await query(
       `SELECT * FROM edu.exam_paper_questions WHERE paper_id = $1 ORDER BY order_index ASC`,
       [req.params.paperId]
     );
     if (questions.length === 0) { badRequest(res, "这份试卷还没有题目"); return; }
 
-    const html = buildPaperHtml(paper, questions);
+    const html = buildPaperHtml(paper, questions, lang);
     const browser = await getBrowser();
     const page = await browser.newPage();
     try {
       await page.setContent(html, { waitUntil: "domcontentloaded" }); // setContent的waitUntil类型比goto窄，不支持networkidle0；这份HTML全是内嵌文字+CSS没有外部资源要等，domcontentloaded足够
       const pdfBuffer = await page.pdf({ format: "A4", printBackground: true });
-      const title = (paper.title_i18n as Record<string, string>)?.zh ?? "exam";
+      const title18n = paper.title_i18n as Record<string, string>;
+      const title = title18n?.[lang] || title18n?.zh || "exam";
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(title)}.pdf"`);
       res.send(pdfBuffer);
