@@ -22,7 +22,7 @@ ENV NODE_ENV=production
 # 官方给Debian系统列的标准依赖，外加 fonts-noto-cjk 保证PDF里的中文
 # 正常显示(不装的话中文字很可能变成方块)。
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates fonts-liberation fonts-noto-cjk \
+    ca-certificates fonts-liberation fonts-noto-cjk unzip \
     libasound2 libatk-bridge2.0-0 libatk1.0-0 libcairo2 libcups2 \
     libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libglib2.0-0 libgtk-3-0 \
     libnspr4 libnss3 libpango-1.0-0 libx11-6 libx11-xcb1 libxcb1 \
