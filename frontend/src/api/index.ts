@@ -605,4 +605,142 @@ export const dataCleanupApi = {
   purgeBulk: (levelIds: string[]) => api.post("/admin/cleanup/activities/bulk-delete", { level_ids: levelIds }).then(d<{
     deleted: number; failed: string[]; total: number;
   }>),
+};// ── 试卷/比赛系统 (Exam Papers) ──────────────────────────────────────────────
+// 跟 eduApi 管的 Activity 体系是两套独立的东西，后端也是独立挂在
+// /api/v1/exam-papers、/api/v1/exam-question-bank、/api/v1/exam-attempts
+// 底下（见 backend/src/modules/edu/exam.routes.ts）。
+
+export interface ExamPaper {
+  id: string; title_i18n: Record<string, string>; description?: string;
+  time_limit_minutes: number; opens_at?: string; closes_at?: string;
+  status: "draft" | "published" | "closed";
+  total_marks: number; allow_retake: boolean; max_attempts: number;
+  review_policy: "immediate" | "after_close";
+  student_count?: number; attempt_count?: number;
+  created_at: string; updated_at: string;
+}
+
+export interface ExamPaperQuestion {
+  id: string; paper_id: string; order_index: number;
+  slot_type: "fixed" | "random_category";
+  question_type?: "multiple_choice" | "fill_blank"; // slot_type='fixed' 时才有
+  marks: number;
+  config?: Record<string, unknown>; // slot_type='fixed' 时才有(含正确答案，仅设计师能看)
+  random_category?: string; random_count?: number; // slot_type='random_category' 时才有
+}
+
+export interface ExamQuestionBankItem {
+  id: string; category: string;
+  question_type: "multiple_choice" | "fill_blank";
+  config: Record<string, unknown>;
+  created_at: string;
+}
+
+export const examApi = {
+  // ── 试卷本身 ──────────────────────────────────────────────────────────────
+  listPapers: (params?: { page?: number; limit?: number }) =>
+    api.get("/exam-papers", { params }).then((res) => ({
+      data: res.data.data as ExamPaper[],
+      meta: res.data.meta as { page: number; limit: number; total: number; totalPages: number },
+    })),
+  createPaper: (b: {
+    title_i18n: Record<string, string>; description?: string; time_limit_minutes?: number;
+    opens_at?: string; closes_at?: string; allow_retake?: boolean; max_attempts?: number;
+    review_policy?: "immediate" | "after_close";
+  }) => api.post("/exam-papers", b).then(d<ExamPaper>),
+  // 设计师编辑视图——带完整题目内容(含正确答案)，只有 courses.manage
+  // 权限能调，学生端绝对不能调这个。
+  getPaperForEdit: (paperId: string) =>
+    api.get(`/exam-papers/${paperId}`).then(d<ExamPaper & { questions: ExamPaperQuestion[] }>),
+  updatePaper: (paperId: string, b: Partial<{
+    title_i18n: Record<string, string>; description: string; time_limit_minutes: number;
+    opens_at: string; closes_at: string; allow_retake: boolean; max_attempts: number;
+    review_policy: "immediate" | "after_close";
+  }>) => api.patch(`/exam-papers/${paperId}`, b),
+  setPaperStatus: (paperId: string, status: "draft" | "published" | "closed") =>
+    api.patch(`/exam-papers/${paperId}/status`, { status }),
+  deletePaper: (paperId: string) => api.delete(`/exam-papers/${paperId}`),
+  // PDF 是二进制内容，axios 要指定 responseType:"blob" 才不会把它当JSON解析
+  downloadPaperPdf: (paperId: string) =>
+    api.get(`/exam-papers/${paperId}/pdf`, { responseType: "blob" }).then((res) => res.data as Blob),
+
+  // ── 试卷题目槽位 ──────────────────────────────────────────────────────────
+  addQuestion: (paperId: string, b: {
+    slot_type: "fixed" | "random_category"; marks?: number;
+    question_type?: string; config?: Record<string, unknown>; // slot_type='fixed'
+    random_category?: string; random_count?: number;           // slot_type='random_category'
+  }) => api.post(`/exam-papers/${paperId}/questions`, b).then(d<ExamPaperQuestion>),
+  updateQuestion: (paperId: string, questionId: string, b: Partial<{
+    slot_type: string; marks: number; question_type: string; config: Record<string, unknown>;
+    random_category: string; random_count: number;
+  }>) => api.patch(`/exam-papers/${paperId}/questions/${questionId}`, b),
+  deleteQuestion: (paperId: string, questionId: string) =>
+    api.delete(`/exam-papers/${paperId}/questions/${questionId}`),
+  reorderQuestions: (paperId: string, questionIds: string[]) =>
+    api.patch(`/exam-papers/${paperId}/questions/reorder`, { question_ids: questionIds }),
+
+  // ── 题库 ─────────────────────────────────────────────────────────────────
+  listQuestionBankCategories: () =>
+    api.get("/exam-question-bank/categories").then(d<Array<{ category: string; question_count: number }>>),
+  listQuestionBank: (params?: { category?: string; page?: number; limit?: number }) =>
+    api.get("/exam-question-bank", { params }).then((res) => ({
+      data: res.data.data as ExamQuestionBankItem[],
+      meta: res.data.meta as { page: number; limit: number; total: number; totalPages: number },
+    })),
+  createBankQuestion: (b: { category: string; question_type: string; config: Record<string, unknown> }) =>
+    api.post("/exam-question-bank", b).then(d<ExamQuestionBankItem>),
+  updateBankQuestion: (questionId: string, b: Partial<{ category: string; question_type: string; config: Record<string, unknown> }>) =>
+    api.patch(`/exam-question-bank/${questionId}`, b),
+  deleteBankQuestion: (questionId: string) => api.delete(`/exam-question-bank/${questionId}`),
+
+  // ── 受邀学生名单 ──────────────────────────────────────────────────────────
+  listPaperStudents: (paperId: string) =>
+    api.get(`/exam-papers/${paperId}/students`).then(d<Array<{
+      student_id: string; full_name: string; email?: string; invited_at: string;
+      attempt_status?: string; score?: number; max_score?: number; submitted_at?: string;
+    }>>),
+  addPaperStudents: (paperId: string, studentIds: string[]) =>
+    api.post(`/exam-papers/${paperId}/students`, { student_ids: studentIds }).then(d<{ added: number; requested: number }>),
+  removePaperStudent: (paperId: string, studentId: string) =>
+    api.delete(`/exam-papers/${paperId}/students/${studentId}`),
+
+  // ── 排行榜(设计师/老师视角) ────────────────────────────────────────────────
+  getLeaderboard: (paperId: string) =>
+    api.get(`/exam-papers/${paperId}/leaderboard`).then(d<{
+      total_marks: number;
+      rankings: Array<{ student_id: string; full_name: string; best_score: number; best_submitted_at: string }>;
+    }>),
+
+  // ── 学生端作答 ────────────────────────────────────────────────────────────
+  listMyPapers: () =>
+    api.get("/exam-papers/mine").then(d<Array<ExamPaper & {
+      attempt_id?: string; attempt_status?: string; score?: number; submitted_at?: string;
+    }>>),
+  startAttempt: (paperId: string) =>
+    api.post(`/exam-papers/${paperId}/start`).then(d<{
+      attempt_id: string; started_at: string; title_i18n: Record<string, string>;
+      remaining_seconds: number;
+      // 这里的 config 已经被后端去掉正确答案了(stripAnswers)——安全，可以放心传给渲染组件
+      questions: Array<{ id: string; order_index: number; question_type: string; marks: number; config: Record<string, unknown> }>;
+    }>),
+  // key 是这次作答返回的题目 id(attempt_question id)，不是考卷槽位id——
+  // 随机槽一个槽对应好几道具体题，只有物化后的这份题目才有稳定id可用。
+  submitAttempt: (attemptId: string, answers: Record<string, unknown>) =>
+    api.post(`/exam-attempts/${attemptId}/submit`, { answers }).then(d<{ score: number; max_score: number; submitted_at: string }>),
+  getAttempt: (attemptId: string) =>
+    api.get(`/exam-attempts/${attemptId}`).then(d<{ id: string; status: string; score?: number; max_score?: number; submitted_at?: string }>),
+  // 逐题详情——可能被试卷的 review_policy/closes_at 挡住，调用方要处理
+  // 403(还不能看)这种情况，不要当成普通错误弹窗，应该显示"要等到XX时间"
+  getAttemptReview: (attemptId: string) =>
+    api.get(`/exam-attempts/${attemptId}/review`).then(d<{
+      id: string; score: number; max_score: number; submitted_at: string;
+      questions: Array<{
+        id: string; order_index: number; question_type: string; marks: number;
+        config: Record<string, unknown>; student_answer: unknown; is_correct: boolean;
+      }>;
+    }>),
+  listMyAttempts: (paperId: string) =>
+    api.get(`/exam-papers/${paperId}/my-attempts`).then(d<Array<{
+      id: string; status: string; score?: number; max_score?: number; started_at: string; submitted_at?: string;
+    }>>),
 };

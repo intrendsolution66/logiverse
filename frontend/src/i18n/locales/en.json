@@ -23,6 +23,7 @@
   },
   "nav": {
     "home": "Home",
+    "myExams": "My Exams",
     "orgs": "Organizations",
     "logout": "Log out",
     "loggedOut": "Logged out",
@@ -41,6 +42,7 @@
     "gradeTiers": "Grade Tiers",
     "coursesManage": "Courses & Lessons",
     "courseDesigner": "Activity Designer",
+    "examDesigner": "Exam Papers",
     "assetLibrary": "Asset Library",
     "imageEditor": "Image Editor",
     "manageStudents": "Students",

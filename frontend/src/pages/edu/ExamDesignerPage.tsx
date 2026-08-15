@@ -1,0 +1,806 @@
+// frontend/src/pages/edu/ExamDesignerPage.tsx
+//
+// 试卷/比赛系统的设计器——跟 CourseDesignerPage(管 Activity)是两套独立
+// 界面，这里管的是 exam_papers 这套试卷/比赛体系。分四个标签页：
+//   基本信息 —— 标题、时限、开考/截止时间、重考设置、答案查看时机
+//   题目     —— 固定题(复用选择题/填充题表单) + 随机槽(从题库某分类抽题)
+//   题库     —— 随机槽背后的题目池子，按分类管理
+//   学生名单 —— 谁被邀请/分配到这份试卷(白名单)
+//
+// 权限跟后端一致：courses.manage 管内容，classes.manage 管名单——前端
+// 不重复做权限判断，接口本身会拒绝没权限的请求，这里只处理正常业务
+// 流程，403会被全局的错误提示逻辑接住。
+
+import { useState, useEffect } from "react";
+import toast from "react-hot-toast";
+import { Button } from "@/components/ui/button";
+import { Input, Label } from "@/components/ui/index";
+import { CheckSquare, PencilLine, X, Plus, FileText, Users, Trophy, Download, Trash2 } from "lucide-react";
+import { examApi, usersApi, type ExamPaper, type ExamPaperQuestion, type ExamQuestionBankItem } from "@/api";
+
+const INPUT_CLASS = "w-full px-3 py-2 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30";
+
+interface MCOption { id: string; zh: string; en: string; ms: string; correct: boolean }
+
+export default function ExamDesignerPage() {
+  const [papers, setPapers] = useState<ExamPaper[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editingPaperId, setEditingPaperId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+
+  useEffect(() => { loadPapers(); }, []);
+
+  async function loadPapers() {
+    setLoading(true);
+    try {
+      const { data } = await examApi.listPapers({ limit: 50 });
+      setPapers(data);
+    } catch (err) { toast.error("加载试卷列表失败"); }
+    setLoading(false);
+  }
+
+  async function handleCreate() {
+    if (!newTitle.trim()) { toast.error("请填写试卷名称"); return; }
+    try {
+      const paper = await examApi.createPaper({ title_i18n: { zh: newTitle.trim() } });
+      toast.success("试卷已建立，可以开始加题目了");
+      setCreating(false); setNewTitle("");
+      await loadPapers();
+      setEditingPaperId(paper.id);
+    } catch (err) { toast.error("建立失败"); }
+  }
+
+  if (editingPaperId) {
+    return <ExamPaperEditor paperId={editingPaperId} onBack={() => { setEditingPaperId(null); loadPapers(); }} />;
+  }
+
+  return (
+    <div className="max-w-5xl mx-auto py-8 px-4">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">试卷 / 比赛管理</h1>
+          <p className="text-sm text-muted-foreground mt-1">建立试卷、管理题目和受邀学生名单，比如 SASMO 2026 这类比赛用卷</p>
+        </div>
+        <Button onClick={() => setCreating(true)}><Plus size={16} className="mr-1" /> 新建试卷</Button>
+      </div>
+
+      {creating && (
+        <div className="rounded-xl border border-border bg-white shadow-sm p-4 mb-6 flex gap-3 items-end">
+          <div className="flex-1">
+            <Label>试卷名称</Label>
+            <Input placeholder="例如：SASMO 2026" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
+          </div>
+          <Button onClick={handleCreate}>建立</Button>
+          <Button variant="outline" onClick={() => { setCreating(false); setNewTitle(""); }}>取消</Button>
+        </div>
+      )}
+
+      {loading ? (
+        <p className="text-sm text-muted-foreground">加载中...</p>
+      ) : papers.length === 0 ? (
+        <p className="text-sm text-muted-foreground/60 text-center py-12">还没有试卷，点右上角"新建试卷"开始</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {papers.map((p) => (
+            <button
+              key={p.id} onClick={() => setEditingPaperId(p.id)}
+              className="text-left rounded-xl border border-border bg-white shadow-sm hover:shadow-md transition-shadow p-4"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold text-foreground">{p.title_i18n?.zh || p.title_i18n?.en}</h3>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${
+                  p.status === "published" ? "bg-emerald-100 text-emerald-700" : p.status === "closed" ? "bg-gray-100 text-gray-600" : "bg-amber-100 text-amber-700"
+                }`}>
+                  {p.status === "published" ? "已发布" : p.status === "closed" ? "已结束" : "草稿"}
+                </span>
+              </div>
+              <div className="text-xs text-muted-foreground flex gap-3">
+                <span>满分 {p.total_marks}</span>
+                <span>{p.time_limit_minutes}分钟</span>
+                <span>{p.student_count ?? 0}名学生</span>
+                <span>{p.attempt_count ?? 0}次作答</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 试卷编辑器 ────────────────────────────────────────────────────────────────
+
+function ExamPaperEditor({ paperId, onBack }: { paperId: string; onBack: () => void }) {
+  const [paper, setPaper] = useState<(ExamPaper & { questions: ExamPaperQuestion[] }) | null>(null);
+  const [tab, setTab] = useState<"basic" | "questions" | "bank" | "students">("basic");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { load(); }, [paperId]);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const data = await examApi.getPaperForEdit(paperId);
+      setPaper(data);
+    } catch (err) { toast.error("加载试卷失败"); }
+    setLoading(false);
+  }
+
+  async function handlePublish() {
+    if (!paper) return;
+    const next = paper.status === "draft" ? "published" : "draft";
+    try {
+      await examApi.setPaperStatus(paperId, next);
+      toast.success(next === "published" ? "已发布" : "已收回草稿");
+      await load();
+    } catch (err: any) { toast.error(err?.response?.data?.message ?? "操作失败"); }
+  }
+
+  async function handleDownloadPdf() {
+    try {
+      const blob = await examApi.downloadPaperPdf(paperId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `${paper?.title_i18n?.zh ?? "exam"}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) { toast.error("生成PDF失败——请确认试卷至少有1道题目"); }
+  }
+
+  if (loading || !paper) return <div className="max-w-4xl mx-auto py-8 px-4"><p className="text-sm text-muted-foreground">加载中...</p></div>;
+
+  return (
+    <div className="max-w-4xl mx-auto py-8 px-4">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <button onClick={onBack} className="text-sm text-muted-foreground hover:text-foreground">← 返回列表</button>
+          <h1 className="text-xl font-bold text-foreground">{paper.title_i18n?.zh || paper.title_i18n?.en}</h1>
+          <span className={`text-xs px-2 py-0.5 rounded-full ${
+            paper.status === "published" ? "bg-emerald-100 text-emerald-700" : paper.status === "closed" ? "bg-gray-100 text-gray-600" : "bg-amber-100 text-amber-700"
+          }`}>
+            {paper.status === "published" ? "已发布" : paper.status === "closed" ? "已结束" : "草稿"}
+          </span>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleDownloadPdf}><Download size={14} className="mr-1" /> 下载PDF</Button>
+          {paper.status !== "closed" && (
+            <Button size="sm" onClick={handlePublish}>{paper.status === "draft" ? "发布" : "收回草稿"}</Button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit mb-6">
+        {([
+          ["basic", "基本信息"], ["questions", `题目(${paper.questions.length})`], ["bank", "题库"], ["students", "学生名单"],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key} onClick={() => setTab(key)}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${tab === key ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "basic" && <BasicInfoTab paper={paper} onSaved={load} />}
+      {tab === "questions" && <QuestionsTab paper={paper} onChanged={load} />}
+      {tab === "bank" && <QuestionBankTab />}
+      {tab === "students" && <StudentsTab paperId={paperId} />}
+    </div>
+  );
+}
+
+// ── 基本信息 ──────────────────────────────────────────────────────────────────
+
+function BasicInfoTab({ paper, onSaved }: { paper: ExamPaper; onSaved: () => void }) {
+  const [title, setTitle] = useState(paper.title_i18n?.zh ?? "");
+  const [description, setDescription] = useState(paper.description ?? "");
+  const [timeLimit, setTimeLimit] = useState(paper.time_limit_minutes);
+  const [opensAt, setOpensAt] = useState(paper.opens_at?.slice(0, 16) ?? "");
+  const [closesAt, setClosesAt] = useState(paper.closes_at?.slice(0, 16) ?? "");
+  const [allowRetake, setAllowRetake] = useState(paper.allow_retake);
+  const [maxAttempts, setMaxAttempts] = useState(paper.max_attempts);
+  const [reviewPolicy, setReviewPolicy] = useState(paper.review_policy);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (!title.trim()) { toast.error("请填写试卷名称"); return; }
+    setSaving(true);
+    try {
+      await examApi.updatePaper(paper.id, {
+        title_i18n: { zh: title.trim() }, description: description || undefined,
+        time_limit_minutes: timeLimit,
+        opens_at: opensAt || undefined, closes_at: closesAt || undefined,
+        allow_retake: allowRetake, max_attempts: allowRetake ? maxAttempts : 1,
+        review_policy: reviewPolicy,
+      });
+      toast.success("已保存");
+      onSaved();
+    } catch (err) { toast.error("保存失败"); }
+    setSaving(false);
+  }
+
+  return (
+    <div className="rounded-xl bg-white border border-border shadow-sm p-5 space-y-4">
+      <div>
+        <Label>试卷名称</Label>
+        <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+      </div>
+      <div>
+        <Label>说明（选填，学生看不到，只是给自己留备注用）</Label>
+        <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className={INPUT_CLASS} />
+      </div>
+      <div>
+        <Label>作答时间限制（分钟）</Label>
+        <Input type="number" min={1} value={timeLimit} onChange={(e) => setTimeLimit(+e.target.value)} className="w-32" />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label>开考时间（选填，不填代表随时可以开始）</Label>
+          <Input type="datetime-local" value={opensAt} onChange={(e) => setOpensAt(e.target.value)} />
+        </div>
+        <div>
+          <Label>截止时间（选填）</Label>
+          <Input type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="pt-2 border-t border-border/60 space-y-3">
+        <div className="flex items-center gap-2">
+          <input type="checkbox" id="allow-retake" checked={allowRetake} onChange={(e) => setAllowRetake(e.target.checked)} className="w-4 h-4" />
+          <label htmlFor="allow-retake" className="text-sm">允许重考</label>
+          {allowRetake && (
+            <span className="flex items-center gap-1.5 ml-2">
+              <span className="text-xs text-muted-foreground">最多</span>
+              <Input type="number" min={1} value={maxAttempts} onChange={(e) => setMaxAttempts(Math.max(1, +e.target.value))} className="w-16 h-8 text-sm" />
+              <span className="text-xs text-muted-foreground">次</span>
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground/70 pl-6">
+          {allowRetake ? "每次重考会重新随机抽题（如果有随机槽的话），排行榜按每人历史最佳一次成绩排名" : "一次型考试：学生只能交卷1次"}
+        </p>
+      </div>
+
+      <div className="pt-2 border-t border-border/60">
+        <Label>答案查看时机</Label>
+        <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit mt-1.5">
+          {(["immediate", "after_close"] as const).map((v) => (
+            <button
+              key={v} type="button" onClick={() => setReviewPolicy(v)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${reviewPolicy === v ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              {v === "immediate" ? "🏃 自主练习(交卷即看)" : "🏆 正式比赛(等截止时间)"}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground/70 mt-1.5">
+          {reviewPolicy === "after_close"
+            ? (closesAt ? "学生交卷后先看到总分，逐题详情/正确答案要等截止时间过了才能看，防止先交卷的人泄题" : "⚠️ 还没填截止时间——正式比赛模式下不填截止时间，逐题详情会一直看不到，建议补上或改成自主练习")
+            : "学生交卷后立刻能看逐题详情/正确答案，适合平时练习"}
+        </p>
+      </div>
+
+      <div className="pt-2">
+        <Button onClick={handleSave} disabled={saving}>{saving ? "保存中..." : "保存"}</Button>
+      </div>
+    </div>
+  );
+}
+
+// ── 题目 ──────────────────────────────────────────────────────────────────────
+
+function QuestionsTab({ paper, onChanged }: { paper: ExamPaper & { questions: ExamPaperQuestion[] }; onChanged: () => void }) {
+  const [showAddForm, setShowAddForm] = useState<"fixed" | "random" | null>(null);
+  const locked = paper.status !== "draft";
+
+  async function handleDelete(questionId: string) {
+    if (!confirm("确定删掉这道题？")) return;
+    try { await examApi.deleteQuestion(paper.id, questionId); toast.success("已删除"); onChanged(); }
+    catch (err) { toast.error("删除失败"); }
+  }
+
+  return (
+    <div className="space-y-4">
+      {locked && (
+        <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+          这份试卷已经{paper.status === "published" ? "发布" : "结束"}，不能再改题目——如果要改，先在"基本信息"外的发布按钮把状态收回草稿
+        </p>
+      )}
+
+      <div className="space-y-2">
+        {paper.questions.length === 0 ? (
+          <p className="text-sm text-muted-foreground/60 text-center py-8">还没有题目</p>
+        ) : (
+          paper.questions.map((q, i) => (
+            <div key={q.id} className="rounded-xl border border-border bg-white shadow-sm p-3 flex items-center gap-3">
+              <span className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-xs font-semibold flex-shrink-0">{i + 1}</span>
+              <div className="flex-1 min-w-0">
+                {q.slot_type === "fixed" ? (
+                  <>
+                    <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                      {q.question_type === "multiple_choice" ? <CheckSquare size={14} /> : <PencilLine size={14} />}
+                      {q.question_type === "multiple_choice"
+                        ? ((q.config?.question_i18n as Record<string, string>)?.zh ?? "选择题")
+                        : ((q.config?.sentence_i18n as Record<string, string>)?.zh ?? "填充题")}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-sm font-medium text-foreground">
+                    🎲 随机抽题 —— 从"{q.random_category}"分类抽 {q.random_count} 题
+                  </div>
+                )}
+                <div className="text-xs text-muted-foreground mt-0.5">{q.marks} 分{q.slot_type === "random_category" ? `/题（共${(q.marks) * (q.random_count ?? 0)}分）` : ""}</div>
+              </div>
+              {!locked && (
+                <button onClick={() => handleDelete(q.id)} className="text-muted-foreground hover:text-red-600 p-1.5">
+                  <Trash2 size={15} />
+                </button>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      {!locked && !showAddForm && (
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowAddForm("fixed")}><Plus size={14} className="mr-1" /> 加固定题</Button>
+          <Button variant="outline" onClick={() => setShowAddForm("random")}><Plus size={14} className="mr-1" /> 加随机抽题槽</Button>
+        </div>
+      )}
+
+      {showAddForm === "fixed" && (
+        <AddFixedQuestionForm paperId={paper.id} onDone={() => { setShowAddForm(null); onChanged(); }} onCancel={() => setShowAddForm(null)} />
+      )}
+      {showAddForm === "random" && (
+        <AddRandomSlotForm paperId={paper.id} onDone={() => { setShowAddForm(null); onChanged(); }} onCancel={() => setShowAddForm(null)} />
+      )}
+    </div>
+  );
+}
+
+// ── 加固定题——选择题/填充题二选一，表单逻辑照抄 CourseDesignerPage 里
+//    multiple_choice/fill_blank 那两块，只是保存目标换成试卷题目槽位 ───────
+
+function AddFixedQuestionForm({ paperId, onDone, onCancel }: { paperId: string; onDone: () => void; onCancel: () => void }) {
+  const [qType, setQType] = useState<"multiple_choice" | "fill_blank">("multiple_choice");
+  const [marks, setMarks] = useState(1);
+
+  // 选择题字段
+  const [mcAnswerMode, setMcAnswerMode] = useState<"single" | "multi">("single");
+  const [mcOptions, setMcOptions] = useState<MCOption[]>([
+    { id: "opt1", zh: "", en: "", ms: "", correct: false },
+    { id: "opt2", zh: "", en: "", ms: "", correct: false },
+  ]);
+  const [mcQuestionZh, setMcQuestionZh] = useState("");
+
+  // 填充题字段
+  const [fbSentenceZh, setFbSentenceZh] = useState("");
+  const [fbBlankAnswers, setFbBlankAnswers] = useState<string[]>([""]);
+
+  async function handleSubmit() {
+    try {
+      if (qType === "multiple_choice") {
+        const filled = mcOptions.filter((o) => o.zh.trim());
+        if (filled.length < 2) { toast.error("至少要有2个选项(至少填中文)"); return; }
+        const correct = filled.filter((o) => o.correct);
+        if (correct.length === 0) { toast.error("请至少勾选1个正确答案"); return; }
+        if (!mcQuestionZh.trim()) { toast.error("请填写题目文字"); return; }
+        await examApi.addQuestion(paperId, {
+          slot_type: "fixed", question_type: "multiple_choice", marks,
+          config: {
+            answer_mode: mcAnswerMode,
+            options: filled.map((o) => ({ id: o.id, text_i18n: { zh: o.zh || undefined, en: o.en || undefined, ms: o.ms || undefined } })),
+            correct_option_ids: correct.map((o) => o.id),
+            question_i18n: { zh: mcQuestionZh.trim() },
+          },
+        });
+      } else {
+        const blankCount = (fbSentenceZh.match(/___/g) ?? []).length;
+        if (!fbSentenceZh.trim() || blankCount === 0) { toast.error('请填写题目句子，用"___"标记至少1个空'); return; }
+        const blanks = fbBlankAnswers.slice(0, blankCount).map((s) => s.split(",").map((x) => x.trim()).filter(Boolean));
+        if (blanks.length < blankCount || blanks.some((b) => b.length === 0)) { toast.error("每个空都要至少填1个正确答案"); return; }
+        await examApi.addQuestion(paperId, {
+          slot_type: "fixed", question_type: "fill_blank", marks,
+          config: { sentence_i18n: { zh: fbSentenceZh.trim() }, blanks: blanks.map((accepted) => ({ accepted_answers: accepted })) },
+        });
+      }
+      toast.success("已加入");
+      onDone();
+    } catch (err: any) { toast.error(err?.response?.data?.message ?? "加入失败"); }
+  }
+
+  return (
+    <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4">
+      <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
+        {(["multiple_choice", "fill_blank"] as const).map((t) => (
+          <button
+            key={t} onClick={() => setQType(t)}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${qType === t ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            {t === "multiple_choice" ? "☑️ 选择题" : "📝 填充题"}
+          </button>
+        ))}
+        <div className="flex items-center gap-1.5 pl-3">
+          <span className="text-xs text-muted-foreground">分值</span>
+          <Input type="number" min={1} value={marks} onChange={(e) => setMarks(Math.max(1, +e.target.value))} className="w-16 h-7 text-xs" />
+        </div>
+      </div>
+
+      {qType === "multiple_choice" ? (
+        <>
+          <div>
+            <Label>题目文字</Label>
+            <Input value={mcQuestionZh} onChange={(e) => setMcQuestionZh(e.target.value)} />
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">答题方式：</span>
+            <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
+              {(["single", "multi"] as const).map((m) => (
+                <button key={m} onClick={() => setMcAnswerMode(m)} className={`px-3 py-1 rounded-md text-xs font-medium ${mcAnswerMode === m ? "bg-white shadow-sm" : "text-muted-foreground"}`}>
+                  {m === "single" ? "⚪ 单选" : "☑️ 多选"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-2">
+            {mcOptions.map((opt) => (
+              <div key={opt.id} className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 p-2">
+                <button
+                  type="button" onClick={() => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, correct: !o.correct } : o)))}
+                  className={`w-7 h-7 flex-shrink-0 rounded-md border-2 flex items-center justify-center text-xs font-bold ${opt.correct ? "border-emerald-500 bg-emerald-500 text-white" : "border-border bg-white text-transparent"}`}
+                >✓</button>
+                <Input placeholder="选项文字" value={opt.zh} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, zh: e.target.value } : o)))} className="flex-1" />
+                <button
+                  type="button" onClick={() => setMcOptions((arr) => (arr.length > 2 ? arr.filter((o) => o.id !== opt.id) : arr))}
+                  disabled={mcOptions.length <= 2} className="w-7 h-7 flex-shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-30"
+                ><X size={14} /></button>
+              </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" onClick={() => setMcOptions((arr) => [...arr, { id: `opt${Date.now()}`, zh: "", en: "", ms: "", correct: false }])}>+ 加一个选项</Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div>
+            <Label>题目句子（用 ___ 三个下划线标记空的位置）</Label>
+            <Input placeholder="例如：1 + 1 = ___" value={fbSentenceZh} onChange={(e) => setFbSentenceZh(e.target.value)} />
+          </div>
+          {(() => {
+            const blankCount = (fbSentenceZh.match(/___/g) ?? []).length;
+            if (blankCount === 0) return <p className="text-xs text-muted-foreground/60">先在上面句子里加至少一个 ___</p>;
+            return (
+              <div className="space-y-1.5">
+                {Array.from({ length: blankCount }, (_, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground w-14 flex-shrink-0">第{i + 1}个空</span>
+                    <Input
+                      placeholder="正确答案，多个写法用逗号隔开" value={fbBlankAnswers[i] ?? ""}
+                      onChange={(e) => setFbBlankAnswers((arr) => { const next = [...arr]; while (next.length <= i) next.push(""); next[i] = e.target.value; return next; })}
+                    />
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </>
+      )}
+
+      <div className="flex gap-2 pt-2">
+        <Button onClick={handleSubmit}>加入试卷</Button>
+        <Button variant="outline" onClick={onCancel}>取消</Button>
+      </div>
+    </div>
+  );
+}
+
+// ── 加随机抽题槽 ──────────────────────────────────────────────────────────────
+
+function AddRandomSlotForm({ paperId, onDone, onCancel }: { paperId: string; onDone: () => void; onCancel: () => void }) {
+  const [categories, setCategories] = useState<Array<{ category: string; question_count: number }>>([]);
+  const [category, setCategory] = useState("");
+  const [count, setCount] = useState(1);
+  const [marks, setMarks] = useState(1);
+
+  useEffect(() => { examApi.listQuestionBankCategories().then(setCategories).catch(() => {}); }, []);
+
+  async function handleSubmit() {
+    if (!category.trim()) { toast.error("请选一个分类"); return; }
+    try {
+      await examApi.addQuestion(paperId, { slot_type: "random_category", marks, random_category: category.trim(), random_count: count });
+      toast.success("已加入");
+      onDone();
+    } catch (err: any) { toast.error(err?.response?.data?.message ?? "加入失败"); }
+  }
+
+  return (
+    <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4">
+      <p className="text-xs text-muted-foreground">学生开始作答那一刻，才会从这个分类的题库里现场随机抽题——不同学生可能抽到不同具体题目。分类要先去"题库"标签页加好题目才能选。</p>
+      <div>
+        <Label>从哪个分类抽</Label>
+        {categories.length === 0 ? (
+          <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mt-1">题库还没有任何分类——先去"题库"标签页加几道题</p>
+        ) : (
+          <select value={category} onChange={(e) => setCategory(e.target.value)} className={INPUT_CLASS}>
+            <option value="">请选择</option>
+            {categories.map((c) => <option key={c.category} value={c.category}>{c.category}（题库里有{c.question_count}题）</option>)}
+          </select>
+        )}
+      </div>
+      <div className="flex gap-4">
+        <div>
+          <Label>抽几题</Label>
+          <Input type="number" min={1} value={count} onChange={(e) => setCount(Math.max(1, +e.target.value))} className="w-24" />
+        </div>
+        <div>
+          <Label>每题分值</Label>
+          <Input type="number" min={1} value={marks} onChange={(e) => setMarks(Math.max(1, +e.target.value))} className="w-24" />
+        </div>
+      </div>
+      <div className="flex gap-2 pt-2">
+        <Button onClick={handleSubmit} disabled={categories.length === 0}>加入试卷</Button>
+        <Button variant="outline" onClick={onCancel}>取消</Button>
+      </div>
+    </div>
+  );
+}
+
+// ── 题库 ──────────────────────────────────────────────────────────────────────
+
+function QuestionBankTab() {
+  const [items, setItems] = useState<ExamQuestionBankItem[]>([]);
+  const [filterCategory, setFilterCategory] = useState("");
+  const [showAdd, setShowAdd] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { load(); }, [filterCategory]);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const { data } = await examApi.listQuestionBank({ category: filterCategory || undefined, limit: 100 });
+      setItems(data);
+    } catch (err) { toast.error("加载题库失败"); }
+    setLoading(false);
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm("确定删掉这道题库题目？(已经被抽进过的作答记录不受影响)")) return;
+    try { await examApi.deleteBankQuestion(id); toast.success("已删除"); load(); }
+    catch (err) { toast.error("删除失败"); }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <Input placeholder="按分类筛选（留空看全部）" value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="w-64" />
+        <Button onClick={() => setShowAdd(true)}><Plus size={14} className="mr-1" /> 加题库题目</Button>
+      </div>
+
+      {showAdd && <AddBankQuestionForm onDone={() => { setShowAdd(false); load(); }} onCancel={() => setShowAdd(false)} />}
+
+      {loading ? (
+        <p className="text-sm text-muted-foreground">加载中...</p>
+      ) : items.length === 0 ? (
+        <p className="text-sm text-muted-foreground/60 text-center py-8">题库是空的</p>
+      ) : (
+        <div className="space-y-2">
+          {items.map((it) => (
+            <div key={it.id} className="rounded-xl border border-border bg-white shadow-sm p-3 flex items-center gap-3">
+              <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground flex-shrink-0">{it.category}</span>
+              <div className="flex-1 min-w-0 text-sm text-foreground truncate">
+                {it.question_type === "multiple_choice"
+                  ? ((it.config?.question_i18n as Record<string, string>)?.zh ?? "选择题")
+                  : ((it.config?.sentence_i18n as Record<string, string>)?.zh ?? "填充题")}
+              </div>
+              <button onClick={() => handleDelete(it.id)} className="text-muted-foreground hover:text-red-600 p-1.5 flex-shrink-0"><Trash2 size={15} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const [category, setCategory] = useState("");
+  const [qType, setQType] = useState<"multiple_choice" | "fill_blank">("multiple_choice");
+  const [mcAnswerMode, setMcAnswerMode] = useState<"single" | "multi">("single");
+  const [mcOptions, setMcOptions] = useState<MCOption[]>([
+    { id: "opt1", zh: "", en: "", ms: "", correct: false },
+    { id: "opt2", zh: "", en: "", ms: "", correct: false },
+  ]);
+  const [mcQuestionZh, setMcQuestionZh] = useState("");
+  const [fbSentenceZh, setFbSentenceZh] = useState("");
+  const [fbBlankAnswers, setFbBlankAnswers] = useState<string[]>([""]);
+
+  async function handleSubmit() {
+    if (!category.trim()) { toast.error("请填写分类名称"); return; }
+    try {
+      if (qType === "multiple_choice") {
+        const filled = mcOptions.filter((o) => o.zh.trim());
+        if (filled.length < 2) { toast.error("至少要有2个选项"); return; }
+        const correct = filled.filter((o) => o.correct);
+        if (correct.length === 0) { toast.error("请至少勾选1个正确答案"); return; }
+        if (!mcQuestionZh.trim()) { toast.error("请填写题目文字"); return; }
+        await examApi.createBankQuestion({
+          category: category.trim(), question_type: "multiple_choice",
+          config: {
+            answer_mode: mcAnswerMode,
+            options: filled.map((o) => ({ id: o.id, text_i18n: { zh: o.zh } })),
+            correct_option_ids: correct.map((o) => o.id),
+            question_i18n: { zh: mcQuestionZh.trim() },
+          },
+        });
+      } else {
+        const blankCount = (fbSentenceZh.match(/___/g) ?? []).length;
+        if (!fbSentenceZh.trim() || blankCount === 0) { toast.error('请用"___"标记至少1个空'); return; }
+        const blanks = fbBlankAnswers.slice(0, blankCount).map((s) => s.split(",").map((x) => x.trim()).filter(Boolean));
+        if (blanks.some((b) => b.length === 0)) { toast.error("每个空都要至少填1个正确答案"); return; }
+        await examApi.createBankQuestion({
+          category: category.trim(), question_type: "fill_blank",
+          config: { sentence_i18n: { zh: fbSentenceZh.trim() }, blanks: blanks.map((accepted) => ({ accepted_answers: accepted })) },
+        });
+      }
+      toast.success("已加入题库");
+      onDone();
+    } catch (err: any) { toast.error(err?.response?.data?.message ?? "加入失败"); }
+  }
+
+  return (
+    <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4">
+      <div>
+        <Label>分类（比如"比大比小"，随机槽靠这个名字来抽题，务必跟其他同类题目用同一个名字，注意统一大小写/别打错字）</Label>
+        <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="比大比小" />
+      </div>
+      <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
+        {(["multiple_choice", "fill_blank"] as const).map((t) => (
+          <button key={t} onClick={() => setQType(t)} className={`px-3 py-1.5 rounded-md text-xs font-medium ${qType === t ? "bg-white shadow-sm" : "text-muted-foreground"}`}>
+            {t === "multiple_choice" ? "☑️ 选择题" : "📝 填充题"}
+          </button>
+        ))}
+      </div>
+      {qType === "multiple_choice" ? (
+        <>
+          <div><Label>题目文字</Label><Input value={mcQuestionZh} onChange={(e) => setMcQuestionZh(e.target.value)} /></div>
+          <div className="flex items-center gap-3">
+            <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
+              {(["single", "multi"] as const).map((m) => (
+                <button key={m} onClick={() => setMcAnswerMode(m)} className={`px-3 py-1 rounded-md text-xs font-medium ${mcAnswerMode === m ? "bg-white shadow-sm" : "text-muted-foreground"}`}>
+                  {m === "single" ? "⚪ 单选" : "☑️ 多选"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-2">
+            {mcOptions.map((opt) => (
+              <div key={opt.id} className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 p-2">
+                <button onClick={() => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, correct: !o.correct } : o)))} className={`w-7 h-7 flex-shrink-0 rounded-md border-2 flex items-center justify-center text-xs font-bold ${opt.correct ? "border-emerald-500 bg-emerald-500 text-white" : "border-border bg-white text-transparent"}`}>✓</button>
+                <Input placeholder="选项文字" value={opt.zh} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, zh: e.target.value } : o)))} className="flex-1" />
+                <button onClick={() => setMcOptions((arr) => (arr.length > 2 ? arr.filter((o) => o.id !== opt.id) : arr))} disabled={mcOptions.length <= 2} className="w-7 h-7 flex-shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-30"><X size={14} /></button>
+              </div>
+            ))}
+            <Button variant="outline" size="sm" onClick={() => setMcOptions((arr) => [...arr, { id: `opt${Date.now()}`, zh: "", en: "", ms: "", correct: false }])}>+ 加一个选项</Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div><Label>题目句子（用 ___ 标记空）</Label><Input value={fbSentenceZh} onChange={(e) => setFbSentenceZh(e.target.value)} /></div>
+          {(() => {
+            const blankCount = (fbSentenceZh.match(/___/g) ?? []).length;
+            if (blankCount === 0) return null;
+            return (
+              <div className="space-y-1.5">
+                {Array.from({ length: blankCount }, (_, i) => (
+                  <Input key={i} placeholder={`第${i + 1}个空的正确答案`} value={fbBlankAnswers[i] ?? ""}
+                    onChange={(e) => setFbBlankAnswers((arr) => { const next = [...arr]; while (next.length <= i) next.push(""); next[i] = e.target.value; return next; })} />
+                ))}
+              </div>
+            );
+          })()}
+        </>
+      )}
+      <div className="flex gap-2 pt-2">
+        <Button onClick={handleSubmit}>加入题库</Button>
+        <Button variant="outline" onClick={onCancel}>取消</Button>
+      </div>
+    </div>
+  );
+}
+
+// ── 学生名单 ──────────────────────────────────────────────────────────────────
+
+function StudentsTab({ paperId }: { paperId: string }) {
+  const [students, setStudents] = useState<Array<{ student_id: string; full_name: string; attempt_status?: string; score?: number; max_score?: number }>>([]);
+  const [showAdd, setShowAdd] = useState(false);
+  const [allStudents, setAllStudents] = useState<Array<{ id: string; full_name?: string }>>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { load(); }, [paperId]);
+
+  async function load() {
+    setLoading(true);
+    try { setStudents(await examApi.listPaperStudents(paperId)); }
+    catch (err) { toast.error("加载学生名单失败"); }
+    setLoading(false);
+  }
+
+  async function openAddPicker() {
+    setShowAdd(true);
+    try {
+      // 具体怎么按角色筛出学生列表，要对照 usersApi.listUsers 的实际参数——
+      // 这里先假设支持按角色筛选，如果参数名不对，这里是唯一需要调的地方。
+      const res = await usersApi.listUsers({ role: "STUDENT", limit: 200 } as any);
+      setAllStudents((res.data?.data ?? res.data ?? []) as Array<{ id: string; full_name?: string }>);
+    } catch (err) { toast.error("加载学生列表失败——请确认 usersApi.listUsers 的筛选参数"); }
+  }
+
+  async function handleAddSelected() {
+    if (selectedIds.size === 0) { toast.error("请至少选1个学生"); return; }
+    try {
+      const res = await examApi.addPaperStudents(paperId, [...selectedIds]);
+      toast.success(`已加入${res.added}人`);
+      setShowAdd(false); setSelectedIds(new Set());
+      load();
+    } catch (err) { toast.error("加入失败"); }
+  }
+
+  async function handleRemove(studentId: string) {
+    if (!confirm("确定移除这个学生？")) return;
+    try { await examApi.removePaperStudent(paperId, studentId); toast.success("已移除"); load(); }
+    catch (err) { toast.error("移除失败"); }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <p className="text-sm text-muted-foreground">只有名单里的学生才能作答这份试卷</p>
+        <Button onClick={openAddPicker}><Users size={14} className="mr-1" /> 添加学生</Button>
+      </div>
+
+      {showAdd && (
+        <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-3">
+          <div className="max-h-64 overflow-y-auto space-y-1.5">
+            {allStudents.map((s) => (
+              <label key={s.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-muted/40 cursor-pointer">
+                <input
+                  type="checkbox" checked={selectedIds.has(s.id)}
+                  onChange={(e) => setSelectedIds((set) => { const next = new Set(set); if (e.target.checked) next.add(s.id); else next.delete(s.id); return next; })}
+                />
+                <span className="text-sm">{s.full_name ?? s.id}</span>
+              </label>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={handleAddSelected}>加入名单（已选{selectedIds.size}人）</Button>
+            <Button variant="outline" onClick={() => { setShowAdd(false); setSelectedIds(new Set()); }}>取消</Button>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <p className="text-sm text-muted-foreground">加载中...</p>
+      ) : students.length === 0 ? (
+        <p className="text-sm text-muted-foreground/60 text-center py-8">还没有学生在名单里</p>
+      ) : (
+        <div className="space-y-1.5">
+          {students.map((s) => (
+            <div key={s.student_id} className="flex items-center justify-between rounded-lg border border-border bg-white p-2.5">
+              <span className="text-sm">{s.full_name}</span>
+              <div className="flex items-center gap-3">
+                {s.attempt_status && (
+                  <span className="text-xs text-muted-foreground">
+                    {s.attempt_status === "submitted" ? `已交卷 ${s.score}/${s.max_score}` : s.attempt_status === "in_progress" ? "作答中" : "还没开始"}
+                  </span>
+                )}
+                <button onClick={() => handleRemove(s.student_id)} className="text-muted-foreground hover:text-red-600 p-1"><X size={14} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

@@ -12,7 +12,7 @@ import { authApi } from "@/api";
 import {
   ChevronLeft, ChevronRight, Home, FolderTree, FolderOpen, Tag, SlidersHorizontal,
   BookOpen, Puzzle, Image as ImageIcon, Palette, Baby, Search, School, Calendar,
-  Building2, GraduationCap, UserCog, Users, Trash2, Settings, ClipboardList,
+  Building2, GraduationCap, UserCog, Users, Trash2, Settings, ClipboardList, FileText, Award,
   ChevronDown, User as UserIcon, LogOut, type LucideIcon,
 } from "lucide-react";
 import toast from "react-hot-toast";
@@ -60,11 +60,13 @@ export default function AppLayout() {
   const isParent   = hasRole("PARENT");
   const isTeacher  = hasRole("TEACHER");
   const isOperator = hasRole("OPERATOR");
+  const isStudent  = hasRole("STUDENT");
 
   interface NavLink { to: string; label: string; show: boolean; icon: LucideIcon; group: string }
 
   const navLinks: NavLink[] = [
     { to: "/home", label: t("nav.home"), show: true, icon: Home, group: t("nav.groups.overview") },
+    { to: "/my-exams", label: t("nav.myExams"), show: isStudent, icon: Award, group: t("nav.groups.overview") },
 
     { to: "/programmes", label: t("nav.programmes"), show: canDesignCourses, icon: FolderTree, group: t("nav.groups.taxonomy") },
     { to: "/subjects", label: t("nav.subjects"), show: canDesignCourses, icon: FolderOpen, group: t("nav.groups.taxonomy") },
@@ -73,6 +75,7 @@ export default function AppLayout() {
 
     { to: "/courses-manage", label: t("nav.coursesManage"), show: canDesignCourses, icon: BookOpen, group: t("nav.groups.coursesContent") },
     { to: "/course-designer", label: t("nav.courseDesigner"), show: canDesignCourses, icon: Puzzle, group: t("nav.groups.coursesContent") },
+    { to: "/exam-designer", label: t("nav.examDesigner"), show: canDesignCourses, icon: FileText, group: t("nav.groups.coursesContent") },
 
     { to: "/asset-library", label: t("nav.assetLibrary"), show: canDesignCourses, icon: ImageIcon, group: t("nav.groups.contentManagement") },
     { to: "/image-editor", label: t("nav.imageEditor"), show: canDesignCourses, icon: Palette, group: t("nav.groups.contentManagement") },

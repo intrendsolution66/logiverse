@@ -23,6 +23,7 @@
   },
   "nav": {
     "home": "Laman Utama",
+    "myExams": "Kertas Saya",
     "orgs": "Organisasi",
     "logout": "Log keluar",
     "loggedOut": "Berjaya log keluar",
@@ -41,6 +42,7 @@
     "gradeTiers": "Tahap Gred",
     "coursesManage": "Kursus & Pelajaran",
     "courseDesigner": "Pereka Aktiviti",
+    "examDesigner": "Kertas Peperiksaan",
     "assetLibrary": "Pustaka Aset",
     "imageEditor": "Editor Imej",
     "manageStudents": "Pelajar",

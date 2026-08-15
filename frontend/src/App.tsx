@@ -10,6 +10,10 @@ import RegisterPage from "@/pages/public/RegisterPage";
 import HomePage  from "@/pages/HomePage";
 import ProfilePage from "@/pages/ProfilePage";
 import CourseDesignerPage from "@/pages/edu/CourseDesignerPage";
+import ExamDesignerPage from "@/pages/edu/ExamDesignerPage";
+import MyExamsPage from "@/pages/edu/MyExamsPage";
+import ExamTakePage from "@/pages/edu/ExamTakePage";
+import ExamResultPage from "@/pages/edu/ExamResultPage";
 import CourseLessonPage from "@/pages/edu/CourseLessonPage";
 import GradeTiersPage from "@/pages/edu/GradeTiersPage";
 import ProgrammeManagementPage from "@/pages/edu/ProgrammeManagementPage";
@@ -60,6 +64,8 @@ export default function App() {
 
         {/* 全屏沉浸式页面——需要登录，但不套 AppLayout 的全局侧边栏/顶栏 */}
         <Route path="/play/:levelId" element={<RequireAuth><LevelPlayerPage /></RequireAuth>} />
+        <Route path="/exam/:paperId/take" element={<RequireAuth><ExamTakePage /></RequireAuth>} />
+        <Route path="/exam/attempt/:attemptId/result" element={<RequireAuth><ExamResultPage /></RequireAuth>} />
         <Route path="/lesson/:lessonId" element={<RequireAuth><LessonPlayerPage /></RequireAuth>} />
         {/* Discovery——自己的一套视觉设计（浅米色底、IBM Plex字体），跟主
             后台不是同一套语言，属于沉浸式学习体验的一部分，不套AppLayout */}
@@ -79,6 +85,8 @@ export default function App() {
           <Route path="/self-guided" element={<SelfGuidedCoursesPage />} />
           <Route path="/self-guided/courses/:courseId" element={<SelfGuidedLessonsPage />} />
           <Route path="/course-designer" element={<CourseDesignerPage />} />
+          <Route path="/exam-designer" element={<ExamDesignerPage />} />
+          <Route path="/my-exams" element={<MyExamsPage />} />
           <Route path="/courses-manage" element={<CourseLessonPage />} />
           <Route path="/grade-tiers" element={<GradeTiersPage />} />
           <Route path="/programmes" element={<ProgrammeManagementPage />} />

@@ -1,3 +1,3 @@
-[33m174f6cc[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m backend端口改成4001，避开relay-server占用的4000
-[33mf2bbdca[m 修类型错误：programme_id 改成可选，跟API实际返回对上
-[33m5a04690[m 加部署用的 Dockerfile 和 docker-compose
+[33m5a8787a[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m feat: 贴纸游戏画布改1:1正方形显示，完成后弹摘要盖在完成图上而不是直接跳走
+[33mf02c8e4[m fix: 补上贴纸游戏读取端漏改的坐标换算，保持跟保存端对称
+[33mad6a829[m fix: SceneEditor画布重绘缺selectedGridCell依赖，导致高亮框不跟点击更新；SudokuGame输入字号改用容器实测像素换算
