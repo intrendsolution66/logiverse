@@ -8,6 +8,9 @@ WORKDIR /app
 # build阶段只是编译TS，不需要真的启动Chrome——跳过Puppeteer安装时自动
 # 下载Chromium这一步，省时间省带宽(这份Chromium最终也不会被用到，
 # 因为这一整个build阶段的产物只有 /app/dist 会被拷进下一阶段)。
+# 新版Puppeteer(v23+)把这个环境变量名从PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+# 改成了PUPPETEER_SKIP_DOWNLOAD——两个都设，兼容新旧版本。
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 COPY package*.json ./
 RUN npm install
