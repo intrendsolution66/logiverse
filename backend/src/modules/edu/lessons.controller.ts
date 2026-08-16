@@ -170,7 +170,7 @@ export async function getLesson(req: AuthRequest, res: Response): Promise<void> 
     );
 
     const { rows: steps } = await query(
-      `SELECT ls.id, ls.order_index, ls.step_type, ls.media_url, ls.media_title,
+      `SELECT ls.id, ls.order_index, ls.step_type, ls.media_url, ls.media_title, ls.slide_urls,
               ls.course_level_id, cl.title_i18n AS level_title_i18n, cl.module_type,
               ls.bank_question_id, eqb.category AS bank_category, eqb.question_type AS bank_question_type,
               eqb.config AS bank_config
@@ -260,7 +260,7 @@ export async function moveLessonInCourse(req: AuthRequest, res: Response): Promi
 export async function createStep(req: AuthRequest, res: Response): Promise<void> {
   try {
     const { lessonId } = req.params;
-    const { step_type, media_url, media_title, course_level_id, bank_question_id } = req.body as Record<string, string>;
+    const { step_type, media_url, media_title, course_level_id, bank_question_id, slide_urls } = req.body as Record<string, unknown>;
     if (!step_type || !STEP_TYPES.includes(step_type as string)) {
       badRequest(res, `step_type must be one of: ${STEP_TYPES.join(", ")}`); return;
     }
@@ -275,6 +275,12 @@ export async function createStep(req: AuthRequest, res: Response): Promise<void>
       const { rows: bankRows } = await query(`SELECT id FROM edu.exam_question_bank WHERE id = $1`, [bank_question_id]);
       if (!bankRows.length) { badRequest(res, "题库里找不到这道题——可能已经被删除了，请重新选一道"); return; }
     }
+    // slide_urls 只对 ppt 步骤有意义——多页幻灯片图片URL数组，前端PPT
+    // 上传时会自动带上(见 assets.controller.ts#createAsset 转换出来的
+    // slide_urls)；没传就是单页(只有 media_url 那一页)，向后兼容旧数据。
+    const cleanSlideUrls = step_type === "ppt" && Array.isArray(slide_urls)
+      ? slide_urls.filter((u): u is string => typeof u === "string")
+      : null;
 
     // Always append at the end — order_index is never taken from the
     // client, so "add a step" and "reorder steps" (moveStep, below) are the
@@ -286,10 +292,13 @@ export async function createStep(req: AuthRequest, res: Response): Promise<void>
     const nextIndex = maxRows[0].next_index;
 
     const { rows } = await query(
-      `INSERT INTO edu.lesson_steps (lesson_id, order_index, step_type, media_url, media_title, course_level_id, bank_question_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, order_index, step_type, media_url, media_title, course_level_id, bank_question_id`,
-      [lessonId, nextIndex, step_type, media_url ?? null, media_title ?? null, course_level_id ?? null, bank_question_id ?? null]
+      `INSERT INTO edu.lesson_steps (lesson_id, order_index, step_type, media_url, media_title, course_level_id, bank_question_id, slide_urls)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, order_index, step_type, media_url, media_title, course_level_id, bank_question_id, slide_urls`,
+      [
+        lessonId, nextIndex, step_type, media_url ?? null, media_title ?? null, course_level_id ?? null, bank_question_id ?? null,
+        cleanSlideUrls && cleanSlideUrls.length > 0 ? JSON.stringify(cleanSlideUrls) : null,
+      ]
     );
     created(res, rows[0]);
   } catch (err) { serverError(res, err); }

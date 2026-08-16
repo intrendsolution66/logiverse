@@ -2,12 +2,8 @@
 //
 // Self Guided Learning 第三层——真正播放一课的内容，按 step_type 分流：
 //   video -> VideoPlayer
-//   ppt   -> PptReader（这里的 media_url 假设已经是"第一页图片URL"，
-//            如果 lesson_steps 的 ppt 步骤要支持多页翻页，需要额外存一个
-//            slide_urls 数组字段到 lesson_steps 表——目前这张表只有单个
-//            media_url，是"一课里插入一个视频/一份讲义"的最简形态，多页
-//            PPT讲义如果要在Lesson里也能翻页，需要照着 assets.slide_urls
-//            的思路给 lesson_steps 也加一列，这个我们可以按需要再补）
+//   ppt   -> PptReader（支持多页——lesson_steps 有 slide_urls 就按顺序
+//            翻页显示，没有就把 media_url 当成唯一一页，向后兼容旧数据）
 //   level -> 跳转到现有的关卡游玩页面（沿用你项目已有的关卡播放器，不
 //            在这里重新做一个游戏播放器）
 
@@ -24,7 +20,7 @@ import type { ColoringConfig } from "@/lib/coloringShapes";
 
 interface Step {
   id: string; order_index: number; step_type: "video" | "ppt" | "level" | "quiz";
-  media_url?: string; media_title?: string;
+  media_url?: string; media_title?: string; slide_urls?: string[];
   course_level_id?: string; level_title_i18n?: Record<string, string>; module_type?: string;
   bank_question_id?: string; bank_category?: string; bank_question_type?: string; bank_question_preview?: string;
 }
@@ -154,9 +150,13 @@ export default function LessonPlayerPage() {
         )}
 
         {step.step_type === "ppt" && step.media_url && (
-          // 目前 lesson_steps 只存单张 media_url——先当作单页讲义显示。
-          // 如需要多页翻页，需要给 lesson_steps 也加 slide_urls 字段。
-          <PptReader slideUrls={[step.media_url]} title={step.media_title} onProgress={(idx, total, completed) => handlePptProgress(step, idx, total, completed)} />
+          // 有 slide_urls 就是多页讲义，按顺序翻页；没有(旧数据，或者
+          // 手动贴的外部链接没走AssetPicker上传转换)就当单页显示，向后
+          // 兼容不会因为缺这个字段而空白/报错。
+          <PptReader
+            slideUrls={step.slide_urls && step.slide_urls.length > 0 ? step.slide_urls : [step.media_url]}
+            title={step.media_title} onProgress={(idx, total, completed) => handlePptProgress(step, idx, total, completed)}
+          />
         )}
 
         {step.step_type === "level" && step.course_level_id && (

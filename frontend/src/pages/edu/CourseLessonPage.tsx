@@ -7,13 +7,14 @@
 // 课程列表本身的搜索/筛选/排序/分页是服务端的（之前就有，没动），课时列表
 // 因为通常一门课下面数量不多，用客户端搜索/排序即可。
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Fragment } from "react";
 import { useSearchParams } from "react-router-dom";
 import { eduApi, lessonsApi, taxonomyApi, exerciseClassificationApi, examApi } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Card, CardContent, CardHeader, CardTitle, Badge, EmptyState } from "@/components/ui/index";
 import { Modal } from "@/components/ui/modal";
-import { Eye, PencilLine, Trash2, ChevronRight, BookOpen, Layers, GraduationCap } from "lucide-react";
+import { Eye, PencilLine, Trash2, ChevronRight, BookOpen, GraduationCap } from "lucide-react";
+import AssetPicker from "@/components/AssetPicker";
 import toast from "react-hot-toast";
 
 interface GradeTier { id: string; code: string; name_i18n: Record<string,string>; age_min?: number; age_max?: number }
@@ -227,6 +228,7 @@ function AddStepModal({ open, onClose, lessonId, onSaved }: { open: boolean; onC
   const [stepType, setStepType] = useState<"video" | "ppt" | "level" | "quiz">("video");
   const [mediaUrl, setMediaUrl] = useState("");
   const [mediaTitle, setMediaTitle] = useState("");
+  const [mediaSlideUrls, setMediaSlideUrls] = useState<string[]>([]); // ppt多页——完整幻灯片图片URL数组，只有通过AssetPicker选/传PPT才会有值
 
   const [search, setSearch] = useState("");
   const [subjects, setSubjects] = useState<Array<{ id: string; name_zh: string }>>([]);
@@ -275,7 +277,7 @@ function AddStepModal({ open, onClose, lessonId, onSaved }: { open: boolean; onC
   }, [open, stepType, bankCategory]);
 
   function reset() {
-    setStepType("video"); setMediaUrl(""); setMediaTitle("");
+    setStepType("video"); setMediaUrl(""); setMediaTitle(""); setMediaSlideUrls([]);
     setSearch(""); setSubjectId(""); setCategoryId(""); setPickedLevel(null);
     setBankCategory(""); setPickedBankQuestion(null);
   }
@@ -291,7 +293,10 @@ function AddStepModal({ open, onClose, lessonId, onSaved }: { open: boolean; onC
         await lessonsApi.createStep(lessonId, { step_type: "quiz", bank_question_id: pickedBankQuestion.id });
       } else {
         if (!mediaUrl.trim()) { toast.error("请输入链接"); return; }
-        await lessonsApi.createStep(lessonId, { step_type: stepType, media_url: mediaUrl.trim(), media_title: mediaTitle || undefined });
+        await lessonsApi.createStep(lessonId, {
+          step_type: stepType, media_url: mediaUrl.trim(), media_title: mediaTitle || undefined,
+          slide_urls: stepType === "ppt" && mediaSlideUrls.length > 0 ? mediaSlideUrls : undefined,
+        });
       }
       toast.success("步骤加好了");
       reset(); onSaved(); onClose();
@@ -303,7 +308,7 @@ function AddStepModal({ open, onClose, lessonId, onSaved }: { open: boolean; onC
       <div className="space-y-3">
         <div>
           <Label>步骤类型</Label>
-          <select className="w-full border rounded-md p-2 text-sm" value={stepType} onChange={(e) => { setStepType(e.target.value as "video" | "ppt" | "level" | "quiz"); setPickedLevel(null); setPickedBankQuestion(null); }}>
+          <select className="w-full border rounded-md p-2 text-sm" value={stepType} onChange={(e) => { setStepType(e.target.value as "video" | "ppt" | "level" | "quiz"); setPickedLevel(null); setPickedBankQuestion(null); setMediaSlideUrls([]); }}>
             {Object.entries(STEP_TYPE_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select>
         </div>
@@ -410,7 +415,37 @@ function AddStepModal({ open, onClose, lessonId, onSaved }: { open: boolean; onC
           </>
         ) : (
           <>
-            <div><Label>{stepType === "video" ? "视频链接" : "PPT链接"}</Label><Input placeholder="https://..." value={mediaUrl} onChange={(e) => setMediaUrl(e.target.value)} /></div>
+            <div>
+              <Label>{stepType === "video" ? "视频" : "PPT讲义"}</Label>
+              <div className="flex items-center gap-2 mt-1">
+                {stepType === "video" ? (
+                  <AssetPicker
+                    category="video" label={mediaUrl ? "换一个视频" : "🗂️ 选 / 上传视频"}
+                    onSelect={(url) => { setMediaUrl(url); setMediaSlideUrls([]); }}
+                  />
+                ) : (
+                  <AssetPicker
+                    category="ppt" label={mediaUrl ? "换一份PPT" : "🗂️ 选 / 上传PPT"}
+                    onSelect={(url) => { setMediaUrl(url); setMediaSlideUrls([]); }}
+                    onSelectAsset={(asset) => { setMediaUrl(asset.url); setMediaSlideUrls(asset.slideUrls ?? []); }}
+                  />
+                )}
+                {mediaUrl && (
+                  <span className="text-xs text-emerald-600">
+                    ✓ 已选好{stepType === "ppt" && mediaSlideUrls.length > 0 ? `（共${mediaSlideUrls.length}页）` : ""}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground/70 mt-1.5">
+                或者直接贴外部链接（比如YouTube视频网址）——
+                {stepType === "ppt" && "PPT贴外部链接的话只会当成单页显示，没有翻页效果，"}
+                两种方式二选一即可
+              </p>
+              <Input
+                className="mt-1.5" placeholder="https://..." value={mediaUrl}
+                onChange={(e) => { setMediaUrl(e.target.value); setMediaSlideUrls([]); }}
+              />
+            </div>
             <div><Label>标题（选填）</Label><Input placeholder="如：数字介绍视频" value={mediaTitle} onChange={(e) => setMediaTitle(e.target.value)} /></div>
           </>
         )}
@@ -424,7 +459,7 @@ type LessonSortKey = "title" | "step_count";
 
 function LessonsCard({ courseId }: { courseId: string }) {
   const [lessons, setLessons] = useState<Array<{ id: string; title_i18n: Record<string,string>; step_count: number }>>([]);
-  const [selectedLessonId, setSelectedLessonId] = useState<string | null>(null);
+  const [selectedLessonId, setSelectedLessonId] = useState<string | null>(null); // 树展开的那一行——null=全部收起
   const [lessonDetail, setLessonDetail] = useState<Awaited<ReturnType<typeof lessonsApi.getLesson>> | null>(null);
   const [showLessonModal, setShowLessonModal] = useState(false);
   const [showStepModal, setShowStepModal] = useState(false);
@@ -438,7 +473,14 @@ function LessonsCard({ courseId }: { courseId: string }) {
   useEffect(refreshLessons, [courseId]);
 
   function refreshDetail(lessonId: string) { lessonsApi.getLesson(lessonId).then(setLessonDetail); }
-  function selectLesson(id: string) { setSelectedLessonId(id); refreshDetail(id); }
+
+  // 树形展开——点已经展开的那一行收起，点别的行换成展开那一行（手风琴式，
+  // 同一时间只展开一个课时，步骤列表直接嵌在这一行底下，不用另外滚到
+  // 页面下方看）。
+  function toggleLesson(id: string) {
+    if (selectedLessonId === id) { setSelectedLessonId(null); setLessonDetail(null); return; }
+    setSelectedLessonId(id); refreshDetail(id);
+  }
 
   function toggleSort(key: LessonSortKey) {
     if (sortKey === key) setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
@@ -503,19 +545,70 @@ function LessonsCard({ courseId }: { courseId: string }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleLessons.map((l) => (
-                      <tr key={l.id} className={`border-b border-border last:border-0 transition-colors ${selectedLessonId === l.id ? "bg-muted" : "hover:bg-muted/50"}`}>
-                        <td className="py-2.5 px-3 font-medium">{l.title_i18n?.zh ?? l.title_i18n?.en}</td>
-                        <td className="px-3"><Badge variant="outline">{l.step_count} 个步骤</Badge></td>
-                        <td className="px-3">
-                          <div className="flex items-center justify-center gap-1">
-                            <IconAction icon={Layers} title="查看步骤" onClick={() => selectLesson(l.id)} />
-                            <IconAction icon={PencilLine} title="编辑" onClick={() => setEditingLesson(l)} />
-                            <IconAction icon={Trash2} title="删除" variant="danger" onClick={() => handleDeleteLesson(l)} />
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {visibleLessons.map((l) => {
+                      const isOpen = selectedLessonId === l.id;
+                      return (
+                        <Fragment key={l.id}>
+                          <tr className={`border-b border-border last:border-0 transition-colors cursor-pointer ${isOpen ? "bg-muted" : "hover:bg-muted/50"}`} onClick={() => toggleLesson(l.id)}>
+                            <td className="py-2.5 px-3 font-medium">
+                              <span className="inline-flex items-center gap-1.5">
+                                <ChevronRight size={14} className={`text-muted-foreground transition-transform flex-shrink-0 ${isOpen ? "rotate-90" : ""}`} />
+                                {l.title_i18n?.zh ?? l.title_i18n?.en}
+                              </span>
+                            </td>
+                            <td className="px-3"><Badge variant="outline">{l.step_count} 个步骤</Badge></td>
+                            <td className="px-3" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center justify-center gap-1">
+                                <IconAction icon={PencilLine} title="编辑" onClick={() => setEditingLesson(l)} />
+                                <IconAction icon={Trash2} title="删除" variant="danger" onClick={() => handleDeleteLesson(l)} />
+                              </div>
+                            </td>
+                          </tr>
+                          {isOpen && (
+                            <tr className="border-b border-border last:border-0">
+                              <td colSpan={3} className="bg-muted/20 p-0">
+                                <div className="pl-8 pr-3 py-3 border-l-2 border-primary/30 ml-5">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <span className="text-xs font-medium text-muted-foreground">步骤顺序</span>
+                                    <div className="flex items-center gap-3">
+                                      <a href={`/lesson/${l.id}`} target="_blank" rel="noreferrer" className="text-primary text-xs font-medium hover:underline">试玩课时 →</a>
+                                      <Button size="sm" onClick={() => setShowStepModal(true)}>+ 加步骤</Button>
+                                    </div>
+                                  </div>
+
+                                  {!lessonDetail || lessonDetail.id !== l.id ? (
+                                    <p className="text-xs text-muted-foreground py-4 text-center">加载中...</p>
+                                  ) : lessonDetail.steps.length === 0 ? (
+                                    <EmptyState title="这个课时还没有步骤" description="点右上角加一个——视频、PPT、题库练习题、或是从Activity题库选一个" />
+                                  ) : (
+                                    <ol className="space-y-1.5">
+                                      {lessonDetail.steps.map((s, i) => (
+                                        <li key={s.id} className="flex items-center justify-between border border-border bg-white rounded-lg p-2.5 text-sm">
+                                          <span className="min-w-0 truncate">
+                                            <span className="text-muted-foreground mr-2">{i + 1}.</span>
+                                            <Badge variant="outline" className="mr-2">{STEP_TYPE_LABELS[s.step_type]}</Badge>
+                                            {s.step_type === "level"
+                                              ? `${MODULE_LABELS[s.module_type ?? ""]?.emoji ?? ""} ${s.level_title_i18n?.zh ?? s.level_title_i18n?.en ?? s.module_type}`
+                                              : s.step_type === "quiz"
+                                              ? (s.bank_question_preview ? `${s.bank_category ? `[${s.bank_category}] ` : ""}${s.bank_question_preview}` : "（这道题已经从题库删除，请重新选一道）")
+                                              : `${s.media_title || s.media_url}${s.step_type === "ppt" && s.slide_urls && s.slide_urls.length > 1 ? `（共${s.slide_urls.length}页）` : ""}`}
+                                          </span>
+                                          <span className="flex items-center gap-2 flex-shrink-0">
+                                            <button onClick={() => handleMoveStep(s.id, "up")} disabled={i === 0} className="text-muted-foreground hover:text-primary disabled:opacity-30 disabled:hover:text-muted-foreground text-sm px-1">▲</button>
+                                            <button onClick={() => handleMoveStep(s.id, "down")} disabled={i === lessonDetail.steps.length - 1} className="text-muted-foreground hover:text-primary disabled:opacity-30 disabled:hover:text-muted-foreground text-sm px-1">▼</button>
+                                            <button onClick={() => handleDeleteStep(s.id)} className="text-muted-foreground hover:text-red-500 text-xs ml-1">删除</button>
+                                          </span>
+                                        </li>
+                                      ))}
+                                    </ol>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -524,44 +617,6 @@ function LessonsCard({ courseId }: { courseId: string }) {
           )}
         </CardContent>
       </Card>
-
-      {selectedLessonId && lessonDetail && (
-        <Card>
-          <CardHeader className="flex-row items-center justify-between space-y-0">
-            <CardTitle>{lessonDetail.title_i18n?.zh ?? lessonDetail.title_i18n?.en} — 步骤顺序</CardTitle>
-            <div className="flex gap-2">
-              <a href={`/lesson/${selectedLessonId}`} target="_blank" rel="noreferrer" className="text-primary text-xs font-medium hover:underline self-center">试玩课时 →</a>
-              <Button size="sm" onClick={() => setShowStepModal(true)}>+ 加步骤</Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {lessonDetail.steps.length === 0 ? (
-              <EmptyState title="这个课时还没有步骤" description="点右上角加一个——视频、PPT、或是从题库选一个 Activity" />
-            ) : (
-              <ol className="space-y-2">
-                {lessonDetail.steps.map((s, i) => (
-                  <li key={s.id} className="flex items-center justify-between border border-border rounded-lg p-3 text-sm">
-                    <span>
-                      <span className="text-muted-foreground mr-2">{i + 1}.</span>
-                      <Badge variant="outline" className="mr-2">{STEP_TYPE_LABELS[s.step_type]}</Badge>
-                      {s.step_type === "level"
-                        ? `${MODULE_LABELS[s.module_type ?? ""]?.emoji ?? ""} ${s.level_title_i18n?.zh ?? s.level_title_i18n?.en ?? s.module_type}`
-                        : s.step_type === "quiz"
-                        ? (s.bank_question_preview ? `${s.bank_category ? `[${s.bank_category}] ` : ""}${s.bank_question_preview}` : "（这道题已经从题库删除，请重新选一道）")
-                        : (s.media_title || s.media_url)}
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <button onClick={() => handleMoveStep(s.id, "up")} disabled={i === 0} className="text-muted-foreground hover:text-primary disabled:opacity-30 disabled:hover:text-muted-foreground text-sm px-1">▲</button>
-                      <button onClick={() => handleMoveStep(s.id, "down")} disabled={i === lessonDetail.steps.length - 1} className="text-muted-foreground hover:text-primary disabled:opacity-30 disabled:hover:text-muted-foreground text-sm px-1">▼</button>
-                      <button onClick={() => handleDeleteStep(s.id)} className="text-muted-foreground hover:text-red-500 text-xs ml-1">删除</button>
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </CardContent>
-        </Card>
-      )}
 
       <AddLessonModal open={showLessonModal} onClose={() => setShowLessonModal(false)} courseId={courseId} onSaved={refreshLessons} />
       <EditLessonModal lesson={editingLesson} onClose={() => setEditingLesson(null)} onSaved={() => { refreshLessons(); if (selectedLessonId) refreshDetail(selectedLessonId); }} />

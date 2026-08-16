@@ -72,7 +72,7 @@ export async function getSelfGuidedLesson(req: AuthRequest, res: Response): Prom
     }
 
     const { rows: steps } = await query(
-      `SELECT ls.id, ls.order_index, ls.step_type, ls.media_url, ls.media_title,
+      `SELECT ls.id, ls.order_index, ls.step_type, ls.media_url, ls.media_title, ls.slide_urls,
               ls.course_level_id, cl.title_i18n AS level_title_i18n, cl.module_type,
               ls.bank_question_id, eqb.category AS bank_category, eqb.question_type AS bank_question_type,
               eqb.config AS bank_config

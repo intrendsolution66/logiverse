@@ -21,7 +21,7 @@ interface Course { id: string; title_i18n: Record<string, string>; age_group?: s
 interface Lesson { id: string; title_i18n: Record<string, string>; order_index: number; created_at: string; step_count: number }
 interface Step {
   id: string; order_index: number; step_type: "video" | "ppt" | "level" | "quiz";
-  media_url?: string; media_title?: string;
+  media_url?: string; media_title?: string; slide_urls?: string[];
   course_level_id?: string; level_title_i18n?: Record<string, string>; module_type?: string;
   bank_question_id?: string; bank_category?: string; bank_question_type?: string; bank_question_preview?: string;
 }

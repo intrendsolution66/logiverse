@@ -112,12 +112,12 @@ export const lessonsApi = {
     id: string; course_id: string; title_i18n: Record<string,string>; order_index: number;
     steps: Array<{
       id: string; order_index: number; step_type: "video" | "ppt" | "level" | "quiz";
-      media_url?: string; media_title?: string;
+      media_url?: string; media_title?: string; slide_urls?: string[];
       course_level_id?: string; level_title_i18n?: Record<string,string>; module_type?: string;
       bank_question_id?: string; bank_category?: string; bank_question_type?: string; bank_question_preview?: string;
     }>;
   }>),
-  createStep: (lessonId: string, b: { step_type: string; media_url?: string; media_title?: string; course_level_id?: string; bank_question_id?: string }) =>
+  createStep: (lessonId: string, b: { step_type: string; media_url?: string; media_title?: string; slide_urls?: string[]; course_level_id?: string; bank_question_id?: string }) =>
     api.post(`/lessons/${lessonId}/steps`, b),
   moveStep: (stepId: string, direction: "up" | "down") => api.patch(`/lesson-steps/${stepId}/move`, { direction }),
   deleteStep: (stepId: string) => api.delete(`/lesson-steps/${stepId}`),
@@ -202,7 +202,7 @@ export const selfGuidedApi = {
     id: string; course_id: string; title_i18n: Record<string, string>; order_index: number;
     steps: Array<{
       id: string; order_index: number; step_type: "video" | "ppt" | "level" | "quiz";
-      media_url?: string; media_title?: string;
+      media_url?: string; media_title?: string; slide_urls?: string[];
       course_level_id?: string; level_title_i18n?: Record<string, string>; module_type?: string;
       bank_question_id?: string; bank_category?: string; bank_question_type?: string; bank_question_preview?: string;
     }>;
