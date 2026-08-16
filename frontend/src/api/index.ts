@@ -111,12 +111,13 @@ export const lessonsApi = {
   getLesson: (lessonId: string) => api.get(`/lessons/${lessonId}`).then(d<{
     id: string; course_id: string; title_i18n: Record<string,string>; order_index: number;
     steps: Array<{
-      id: string; order_index: number; step_type: "video" | "ppt" | "level";
+      id: string; order_index: number; step_type: "video" | "ppt" | "level" | "quiz";
       media_url?: string; media_title?: string;
       course_level_id?: string; level_title_i18n?: Record<string,string>; module_type?: string;
+      bank_question_id?: string; bank_category?: string; bank_question_type?: string; bank_question_preview?: string;
     }>;
   }>),
-  createStep: (lessonId: string, b: { step_type: string; media_url?: string; media_title?: string; course_level_id?: string }) =>
+  createStep: (lessonId: string, b: { step_type: string; media_url?: string; media_title?: string; course_level_id?: string; bank_question_id?: string }) =>
     api.post(`/lessons/${lessonId}/steps`, b),
   moveStep: (stepId: string, direction: "up" | "down") => api.patch(`/lesson-steps/${stepId}/move`, { direction }),
   deleteStep: (stepId: string) => api.delete(`/lesson-steps/${stepId}`),
@@ -200,9 +201,10 @@ export const selfGuidedApi = {
   getLesson: (lessonId: string) => api.get(`/self-guided/lessons/${lessonId}`).then(d<{
     id: string; course_id: string; title_i18n: Record<string, string>; order_index: number;
     steps: Array<{
-      id: string; order_index: number; step_type: "video" | "ppt" | "level";
+      id: string; order_index: number; step_type: "video" | "ppt" | "level" | "quiz";
       media_url?: string; media_title?: string;
       course_level_id?: string; level_title_i18n?: Record<string, string>; module_type?: string;
+      bank_question_id?: string; bank_category?: string; bank_question_type?: string; bank_question_preview?: string;
     }>;
   }>),
 };
@@ -211,15 +213,16 @@ export const selfGuidedApi = {
 //    Discovery 和 Lesson里的 level 步骤走的是下面 eduApi.submitProgress，跟这里无关) ──
 export const mediaProgressApi = {
   submit: (b: {
-    lesson_step_id: string; media_type: "video" | "ppt";
+    lesson_step_id: string; media_type: "video" | "ppt" | "quiz";
     seconds_watched?: number; duration_seconds?: number;
     last_slide_index?: number; total_slides?: number;
+    is_correct?: boolean; marks_earned?: number; marks_total?: number;
     completed?: boolean;
-  }) => api.post("/media-progress", b).then(d<{ id: string; completed: boolean; seconds_watched?: number; last_slide_index?: number; view_count: number }>),
+  }) => api.post("/media-progress", b).then(d<{ id: string; completed: boolean; seconds_watched?: number; last_slide_index?: number; is_correct?: boolean; marks_earned?: number; marks_total?: number; view_count: number }>),
   get: (lessonStepId: string) =>
     api.get("/media-progress", { params: { lessonStepId } }).then(d<{
       id: string; completed: boolean; seconds_watched?: number; duration_seconds?: number;
-      last_slide_index?: number; total_slides?: number; view_count: number;
+      last_slide_index?: number; total_slides?: number; is_correct?: boolean; marks_earned?: number; marks_total?: number; view_count: number;
     } | null>),
 };
 
@@ -762,4 +765,10 @@ export const examApi = {
     api.get(`/exam-papers/${paperId}/my-attempts`).then(d<Array<{
       id: string; status: string; score?: number; max_score?: number; started_at: string; submitted_at?: string;
     }>>),
+
+  // ── 题库单题——课时quiz步骤学生端用 ──────────────────────────────────────
+  playBankQuestion: (questionId: string) =>
+    api.get(`/exam-question-bank/${questionId}/play`).then(d<{ id: string; category: string; question_type: string; config: Record<string, unknown> }>),
+  checkBankQuestion: (questionId: string, answer: unknown) =>
+    api.post(`/exam-question-bank/${questionId}/check`, { answer }).then(d<{ is_correct: boolean }>),
 };

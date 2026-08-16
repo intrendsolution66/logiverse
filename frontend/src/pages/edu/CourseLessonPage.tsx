@@ -9,10 +9,11 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import { eduApi, lessonsApi, taxonomyApi, exerciseClassificationApi } from "@/api";
+import { eduApi, lessonsApi, taxonomyApi, exerciseClassificationApi, examApi } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Card, CardContent, CardHeader, CardTitle, Badge, EmptyState } from "@/components/ui/index";
 import { Modal } from "@/components/ui/modal";
+import { Eye, PencilLine, Trash2, ChevronRight, BookOpen, Layers, GraduationCap } from "lucide-react";
 import toast from "react-hot-toast";
 
 interface GradeTier { id: string; code: string; name_i18n: Record<string,string>; age_min?: number; age_max?: number }
@@ -31,7 +32,8 @@ const MODULE_LABELS: Record<string, { emoji: string; label: string }> = {
   line_match:   { emoji: "🔗", label: "连线配对" },
   coloring:     { emoji: "🎨", label: "填色游戏" },
 };
-const STEP_TYPE_LABELS: Record<string, string> = { video: "🎬 视频", ppt: "📊 PPT", level: "🎮 Activity（题库）" };
+const STEP_TYPE_LABELS: Record<string, string> = { video: "🎬 视频", ppt: "📊 PPT", level: "🎮 Activity（题库）", quiz: "📝 练习题（考试题库）" };
+const BANK_TYPE_LABELS: Record<string, string> = { multiple_choice: "☑️ 选择题", fill_blank: "📝 填充题", coloring: "🎨 填色题", sudoku: "🔢 数独", sticker_game: "🏷️ 贴纸游戏" };
 
 function SortHeader({ label, active, order, onClick }: { label: string; active: boolean; order: "asc"|"desc"; onClick: () => void }) {
   return (
@@ -41,6 +43,23 @@ function SortHeader({ label, active, order, onClick }: { label: string; active: 
         <span className={`text-[10px] transition-opacity ${active ? "opacity-100" : "opacity-0"}`}>{order === "asc" ? "▲" : "▼"}</span>
       </span>
     </th>
+  );
+}
+
+// 统一的图标操作按钮——view/edit/delete 三种颜色区分开，鼠标悬停有底色
+// 反馈，比纯文字链接更接近专业后台的观感（截图里那种操作列样式）。
+function IconAction({ icon: Icon, onClick, variant = "default", title }: {
+  icon: typeof Eye; onClick: () => void; variant?: "default" | "danger"; title: string;
+}) {
+  return (
+    <button
+      type="button" onClick={onClick} title={title}
+      className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition-colors ${
+        variant === "danger" ? "text-muted-foreground hover:text-red-600 hover:bg-red-50" : "text-muted-foreground hover:text-primary hover:bg-primary/10"
+      }`}
+    >
+      <Icon size={15} />
+    </button>
   );
 }
 
@@ -191,8 +210,21 @@ function EditLessonModal({ lesson, onClose, onSaved }: { lesson: { id: string; t
 // 加 level 步骤现在能从"全部" Activity 里搜索/筛选，不再局限于某一门
 // 课底下——这就是题库真正意义上的复用：一个迷宫 Activity 不管当初是在
 // 哪门课下面建的，都能被任何课时引用。
+function bankQuestionLabel(item: { question_type: string; config: Record<string, unknown> }): string {
+  const emoji = BANK_TYPE_LABELS[item.question_type]?.split(" ")[0] ?? "❓";
+  if (item.question_type === "multiple_choice") {
+    const q = item.config.question_i18n as Record<string, string> | undefined;
+    return `${emoji} ${q?.zh ?? q?.en ?? "（选择题）"}`;
+  }
+  if (item.question_type === "fill_blank") {
+    const s = item.config.sentence_i18n as Record<string, string> | undefined;
+    return `${emoji} ${s?.zh ?? s?.en ?? "（填充题）"}`;
+  }
+  return `${emoji} ${BANK_TYPE_LABELS[item.question_type] ?? item.question_type}`;
+}
+
 function AddStepModal({ open, onClose, lessonId, onSaved }: { open: boolean; onClose: () => void; lessonId: string | null; onSaved: () => void }) {
-  const [stepType, setStepType] = useState<"video" | "ppt" | "level">("video");
+  const [stepType, setStepType] = useState<"video" | "ppt" | "level" | "quiz">("video");
   const [mediaUrl, setMediaUrl] = useState("");
   const [mediaTitle, setMediaTitle] = useState("");
 
@@ -207,6 +239,15 @@ function AddStepModal({ open, onClose, lessonId, onSaved }: { open: boolean; onC
   }>>([]);
   const [loading, setLoading] = useState(false);
   const [pickedLevel, setPickedLevel] = useState<{ id: string; label: string } | null>(null);
+
+  // quiz(题库)分支专用——跟 level 分支的"全部Activity"是两套完全独立
+  // 的数据源，quiz 这边查的是 examApi.listQuestionBank，不是 eduApi.
+  // listAllActivities，两者字段结构不一样，不能共用同一份 results。
+  const [bankCategory, setBankCategory] = useState("");
+  const [bankCategories, setBankCategories] = useState<Array<{ category: string; question_count: number }>>([]);
+  const [bankResults, setBankResults] = useState<Array<{ id: string; category: string; question_type: string; config: Record<string, unknown> }>>([]);
+  const [bankLoading, setBankLoading] = useState(false);
+  const [pickedBankQuestion, setPickedBankQuestion] = useState<{ id: string; label: string } | null>(null);
 
   useEffect(() => { if (open) taxonomyApi.listSubjects().then((ss) => setSubjects(ss.map((s) => ({ id: s.id, name_zh: s.name_zh })))); }, [open]);
   useEffect(() => {
@@ -224,9 +265,19 @@ function AddStepModal({ open, onClose, lessonId, onSaved }: { open: boolean; onC
     }).then((r) => setResults(r.data)).finally(() => setLoading(false));
   }, [open, stepType, search, subjectId, categoryId]);
 
+  useEffect(() => { if (open && stepType === "quiz") examApi.listQuestionBankCategories().then(setBankCategories).catch(() => {}); }, [open, stepType]);
+  useEffect(() => {
+    if (!open || stepType !== "quiz") return;
+    setBankLoading(true);
+    examApi.listQuestionBank({ category: bankCategory || undefined, limit: 50 })
+      .then((r) => setBankResults(r.data))
+      .finally(() => setBankLoading(false));
+  }, [open, stepType, bankCategory]);
+
   function reset() {
     setStepType("video"); setMediaUrl(""); setMediaTitle("");
     setSearch(""); setSubjectId(""); setCategoryId(""); setPickedLevel(null);
+    setBankCategory(""); setPickedBankQuestion(null);
   }
 
   async function handleSave() {
@@ -235,6 +286,9 @@ function AddStepModal({ open, onClose, lessonId, onSaved }: { open: boolean; onC
       if (stepType === "level") {
         if (!pickedLevel) { toast.error("请选一个 Activity"); return; }
         await lessonsApi.createStep(lessonId, { step_type: "level", course_level_id: pickedLevel.id });
+      } else if (stepType === "quiz") {
+        if (!pickedBankQuestion) { toast.error("请选一道题库题目"); return; }
+        await lessonsApi.createStep(lessonId, { step_type: "quiz", bank_question_id: pickedBankQuestion.id });
       } else {
         if (!mediaUrl.trim()) { toast.error("请输入链接"); return; }
         await lessonsApi.createStep(lessonId, { step_type: stepType, media_url: mediaUrl.trim(), media_title: mediaTitle || undefined });
@@ -245,11 +299,11 @@ function AddStepModal({ open, onClose, lessonId, onSaved }: { open: boolean; onC
   }
 
   return (
-    <Modal open={open} onClose={() => { reset(); onClose(); }} title="加步骤" size={stepType === "level" ? "lg" : "sm"}>
+    <Modal open={open} onClose={() => { reset(); onClose(); }} title="加步骤" size={stepType === "level" || stepType === "quiz" ? "lg" : "sm"}>
       <div className="space-y-3">
         <div>
           <Label>步骤类型</Label>
-          <select className="w-full border rounded-md p-2 text-sm" value={stepType} onChange={(e) => { setStepType(e.target.value as "video" | "ppt" | "level"); setPickedLevel(null); }}>
+          <select className="w-full border rounded-md p-2 text-sm" value={stepType} onChange={(e) => { setStepType(e.target.value as "video" | "ppt" | "level" | "quiz"); setPickedLevel(null); setPickedBankQuestion(null); }}>
             {Object.entries(STEP_TYPE_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select>
         </div>
@@ -298,6 +352,52 @@ function AddStepModal({ open, onClose, lessonId, onSaved }: { open: boolean; onC
                           <td className="px-3 py-2 text-right">
                             <Button size="sm" variant={pickedLevel?.id === a.id ? "outline" : "default"} onClick={() => setPickedLevel({ id: a.id, label })}>
                               {pickedLevel?.id === a.id ? "已选" : "选它"}
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </>
+        ) : stepType === "quiz" ? (
+          <>
+            <p className="text-xs text-muted-foreground">从考试系统的题库里选——跟「试卷/比赛」用的是同一批题，判分逻辑也共用，不是另外重做一套。</p>
+            <div className="flex flex-wrap gap-2">
+              <select className="border rounded-md p-2 text-sm" value={bankCategory} onChange={(e) => setBankCategory(e.target.value)}>
+                <option value="">全部分类</option>
+                {bankCategories.map((c) => <option key={c.category} value={c.category}>{c.category}（{c.question_count}题）</option>)}
+              </select>
+            </div>
+
+            {pickedBankQuestion && (
+              <div className="flex items-center gap-2 bg-primary/5 border border-primary/30 rounded-lg px-3 py-2 text-sm">
+                <span className="flex-1">已选：{pickedBankQuestion.label}</span>
+                <button type="button" onClick={() => setPickedBankQuestion(null)} className="text-muted-foreground hover:text-destructive text-xs">✕ 换一个</button>
+              </div>
+            )}
+
+            <div className="max-h-[320px] overflow-y-auto rounded-lg border border-border">
+              {bankLoading ? (
+                <p className="text-sm text-muted-foreground text-center py-8">搜索中...</p>
+              ) : bankResults.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">题库里没有符合条件的题目——先去「试卷/比赛」的题库标签页加几题</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <tbody>
+                    {bankResults.map((item) => {
+                      const label = bankQuestionLabel(item);
+                      return (
+                        <tr key={item.id} className={`border-b border-border last:border-0 hover:bg-muted/50 ${pickedBankQuestion?.id === item.id ? "bg-primary/10" : ""}`}>
+                          <td className="px-3 py-2">
+                            <div className="font-medium">{label}</div>
+                            <div className="text-xs text-muted-foreground">{item.category}</div>
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <Button size="sm" variant={pickedBankQuestion?.id === item.id ? "outline" : "default"} onClick={() => setPickedBankQuestion({ id: item.id, label })}>
+                              {pickedBankQuestion?.id === item.id ? "已选" : "选它"}
                             </Button>
                           </td>
                         </tr>
@@ -399,9 +499,7 @@ function LessonsCard({ courseId }: { courseId: string }) {
                     <tr className="text-left text-muted-foreground bg-muted/50 border-b border-border">
                       <SortHeader label="课时名称" active={sortKey === "title"} order={sortOrder} onClick={() => toggleSort("title")} />
                       <SortHeader label="步骤数" active={sortKey === "step_count"} order={sortOrder} onClick={() => toggleSort("step_count")} />
-                      <th className="py-2.5 px-3 font-medium">view</th>
-                      <th className="py-2.5 px-3 font-medium">edit</th>
-                      <th className="py-2.5 px-3 font-medium">delete</th>
+                      <th className="py-2.5 px-3 font-medium text-center">操作</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -410,13 +508,11 @@ function LessonsCard({ courseId }: { courseId: string }) {
                         <td className="py-2.5 px-3 font-medium">{l.title_i18n?.zh ?? l.title_i18n?.en}</td>
                         <td className="px-3"><Badge variant="outline">{l.step_count} 个步骤</Badge></td>
                         <td className="px-3">
-                          <button type="button" onClick={() => selectLesson(l.id)} className="text-primary text-xs font-medium hover:underline">查看步骤</button>
-                        </td>
-                        <td className="px-3">
-                          <button type="button" onClick={() => setEditingLesson(l)} className="text-muted-foreground text-xs font-medium hover:text-foreground hover:underline">编辑</button>
-                        </td>
-                        <td className="px-3">
-                          <button type="button" onClick={() => handleDeleteLesson(l)} className="text-red-500 text-xs font-medium hover:text-red-600 hover:underline">删除</button>
+                          <div className="flex items-center justify-center gap-1">
+                            <IconAction icon={Layers} title="查看步骤" onClick={() => selectLesson(l.id)} />
+                            <IconAction icon={PencilLine} title="编辑" onClick={() => setEditingLesson(l)} />
+                            <IconAction icon={Trash2} title="删除" variant="danger" onClick={() => handleDeleteLesson(l)} />
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -450,6 +546,8 @@ function LessonsCard({ courseId }: { courseId: string }) {
                       <Badge variant="outline" className="mr-2">{STEP_TYPE_LABELS[s.step_type]}</Badge>
                       {s.step_type === "level"
                         ? `${MODULE_LABELS[s.module_type ?? ""]?.emoji ?? ""} ${s.level_title_i18n?.zh ?? s.level_title_i18n?.en ?? s.module_type}`
+                        : s.step_type === "quiz"
+                        ? (s.bank_question_preview ? `${s.bank_category ? `[${s.bank_category}] ` : ""}${s.bank_question_preview}` : "（这道题已经从题库删除，请重新选一道）")
                         : (s.media_title || s.media_url)}
                     </span>
                     <span className="flex items-center gap-2">
@@ -550,18 +648,50 @@ export default function CourseLessonPage() {
         <p className="text-sm text-muted-foreground mt-0.5">建立课程、编排课时（视频/PPT/Activity 按顺序组成的教案）——Activity 本身的建立/编辑去「Activity 设计管理」</p>
       </div>
 
+      <div className="grid grid-cols-2 sm:grid-cols-2 gap-4">
+        <div className="rounded-xl border border-border bg-white shadow-sm p-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center flex-shrink-0"><BookOpen size={18} /></div>
+          <div>
+            <div className="text-xs text-muted-foreground">总课程数</div>
+            <div className="text-xl font-bold text-foreground">{meta.total}</div>
+          </div>
+        </div>
+        <div className="rounded-xl border border-border bg-white shadow-sm p-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0"><GraduationCap size={18} /></div>
+          <div>
+            <div className="text-xs text-muted-foreground">等级数</div>
+            <div className="text-xl font-bold text-foreground">{tiers.length}</div>
+          </div>
+        </div>
+      </div>
+
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0">
           <CardTitle>课程列表</CardTitle>
           <Button size="sm" onClick={() => setShowCourseModal(true)}>+ 新建课程</Button>
         </CardHeader>
         <CardContent>
+          {/* 等级分类标签页——替代原本的下拉筛选，点一个等级直接切进去，
+              视觉上跟"总览/分类tab"这种专业后台样式对齐 */}
+          <div className="flex items-center gap-1.5 flex-wrap mb-3">
+            <button
+              type="button" onClick={() => setFilterTierId("")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filterTierId === "" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}
+            >
+              全部
+            </button>
+            {tiers.map((t) => (
+              <button
+                key={t.id} type="button" onClick={() => setFilterTierId(t.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filterTierId === t.id ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}
+              >
+                {t.code}
+              </button>
+            ))}
+          </div>
+
           <div className="flex flex-wrap gap-2 mb-4">
             <Input placeholder="搜索课程名称..." value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-[220px]" />
-            <select className={`${SELECT_CLASS} w-auto`} value={filterTierId} onChange={(e) => setFilterTierId(e.target.value)}>
-              <option value="">全部等级</option>
-              {tiers.map((t) => <option key={t.id} value={t.id}>{t.code} · {t.name_i18n?.zh ?? t.name_i18n?.en}</option>)}
-            </select>
           </div>
 
           {courses.length === 0 ? (
@@ -575,9 +705,7 @@ export default function CourseLessonPage() {
                       <SortHeader label="课程名称" active={sortKey === "title"} order={sortOrder} onClick={() => toggleSort("title")} />
                       <SortHeader label="等级" active={sortKey === "grade_tier"} order={sortOrder} onClick={() => toggleSort("grade_tier")} />
                       <SortHeader label="建立时间" active={sortKey === "created_at"} order={sortOrder} onClick={() => toggleSort("created_at")} />
-                      <th className="py-2.5 px-3 font-medium">view</th>
-                      <th className="py-2.5 px-3 font-medium">edit</th>
-                      <th className="py-2.5 px-3 font-medium">delete</th>
+                      <th className="py-2.5 px-3 font-medium text-center">操作</th>
                       <th className="py-2.5 px-3"></th>
                     </tr>
                   </thead>
@@ -588,16 +716,16 @@ export default function CourseLessonPage() {
                         <td className="px-3">{c.grade_tier_code ? <Badge variant="outline">{c.grade_tier_code}</Badge> : <span className="text-muted-foreground text-xs">未分级</span>}</td>
                         <td className="px-3 text-muted-foreground text-xs">{c.created_at ? new Date(c.created_at).toLocaleDateString() : ""}</td>
                         <td className="px-3">
-                          <button type="button" onClick={() => setViewingCourse(c)} className="text-primary text-xs font-medium hover:underline">查看</button>
-                        </td>
-                        <td className="px-3">
-                          <button type="button" onClick={() => setEditingCourse(c)} className="text-muted-foreground text-xs font-medium hover:text-foreground hover:underline">编辑</button>
-                        </td>
-                        <td className="px-3">
-                          <button type="button" onClick={() => handleDeleteCourse(c)} className="text-red-500 text-xs font-medium hover:text-red-600 hover:underline">删除</button>
+                          <div className="flex items-center justify-center gap-1">
+                            <IconAction icon={Eye} title="查看" onClick={() => setViewingCourse(c)} />
+                            <IconAction icon={PencilLine} title="编辑" onClick={() => setEditingCourse(c)} />
+                            <IconAction icon={Trash2} title="删除" variant="danger" onClick={() => handleDeleteCourse(c)} />
+                          </div>
                         </td>
                         <td className="px-3 text-right text-primary text-xs font-medium whitespace-nowrap">
-                          <button type="button" onClick={() => goManageLessons(c.id)} className="hover:underline">管理课时 →</button>
+                          <button type="button" onClick={() => goManageLessons(c.id)} className="inline-flex items-center gap-0.5 hover:underline">
+                            管理课时 <ChevronRight size={13} />
+                          </button>
                         </td>
                       </tr>
                     ))}

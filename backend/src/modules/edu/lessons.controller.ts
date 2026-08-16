@@ -22,8 +22,25 @@ import type { Response } from "express";
 import type { AuthRequest } from "../../middlewares/authenticate.js";
 import { query } from "../../config/db.js";
 import { ok, created, badRequest, notFound, serverError } from "../../utils/response.js";
+import { gradeQuestion, stripAnswers } from "./examPaper.controller.js";
 
-const STEP_TYPES = ["video", "ppt", "level"];
+const STEP_TYPES = ["video", "ppt", "level", "quiz"];
+
+// quiz 步骤的预览文字——只给设计器的步骤列表用来显示"这道题大概是什么"，
+// 不带任何正确答案信息(跟 level 步骤只返回 title/module_type、不返回
+// 完整config是同一个安全模型；quiz步骤的完整题目内容+判分要等课时播放
+// 器实际播放到这一步时，另外走专属的"去掉答案版"接口取，不在这里)。
+export function bankQuestionPreview(questionType: string, config: Record<string, unknown>): string {
+  if (questionType === "multiple_choice") {
+    const q = config.question_i18n as Record<string, string> | undefined;
+    return q?.zh ?? q?.en ?? "（选择题）";
+  }
+  if (questionType === "fill_blank") {
+    const s = config.sentence_i18n as Record<string, string> | undefined;
+    return s?.zh ?? s?.en ?? "（填充题）";
+  }
+  return "（题库题目）";
+}
 
 // 某门课底下的 Lesson 列表——现在查的是 course_lessons 这张关联表，不是
 // lessons.course_id。排序用的是"这个 Lesson 在这门课底下"的 order_index，
@@ -154,14 +171,25 @@ export async function getLesson(req: AuthRequest, res: Response): Promise<void> 
 
     const { rows: steps } = await query(
       `SELECT ls.id, ls.order_index, ls.step_type, ls.media_url, ls.media_title,
-              ls.course_level_id, cl.title_i18n AS level_title_i18n, cl.module_type
+              ls.course_level_id, cl.title_i18n AS level_title_i18n, cl.module_type,
+              ls.bank_question_id, eqb.category AS bank_category, eqb.question_type AS bank_question_type,
+              eqb.config AS bank_config
        FROM edu.lesson_steps ls
        LEFT JOIN edu.course_levels cl ON cl.id = ls.course_level_id
+       LEFT JOIN edu.exam_question_bank eqb ON eqb.id = ls.bank_question_id
        WHERE ls.lesson_id = $1
        ORDER BY ls.order_index ASC`,
       [lessonId]
     );
-    ok(res, { ...lessonRows[0], courses: courseRows, steps });
+    // quiz 步骤——把预览文字算出来，同时去掉 bank_config(不该带着完整
+    // config、更不该带着正确答案离开这个函数），只留分类/题型/预览三样
+    // 够设计器步骤列表显示用的信息。
+    const cleanedSteps = steps.map((s) => {
+      if (s.step_type !== "quiz" || !s.bank_config) return s;
+      const { bank_config, ...rest } = s;
+      return { ...rest, bank_question_preview: bankQuestionPreview(s.bank_question_type, bank_config) };
+    });
+    ok(res, { ...lessonRows[0], courses: courseRows, steps: cleanedSteps });
   } catch (err) { serverError(res, err); }
 }
 
@@ -232,7 +260,7 @@ export async function moveLessonInCourse(req: AuthRequest, res: Response): Promi
 export async function createStep(req: AuthRequest, res: Response): Promise<void> {
   try {
     const { lessonId } = req.params;
-    const { step_type, media_url, media_title, course_level_id } = req.body as Record<string, string>;
+    const { step_type, media_url, media_title, course_level_id, bank_question_id } = req.body as Record<string, string>;
     if (!step_type || !STEP_TYPES.includes(step_type as string)) {
       badRequest(res, `step_type must be one of: ${STEP_TYPES.join(", ")}`); return;
     }
@@ -241,6 +269,11 @@ export async function createStep(req: AuthRequest, res: Response): Promise<void>
     }
     if (step_type === "level" && !course_level_id) {
       badRequest(res, "course_level_id is required for level steps"); return;
+    }
+    if (step_type === "quiz") {
+      if (!bank_question_id) { badRequest(res, "bank_question_id is required for quiz steps"); return; }
+      const { rows: bankRows } = await query(`SELECT id FROM edu.exam_question_bank WHERE id = $1`, [bank_question_id]);
+      if (!bankRows.length) { badRequest(res, "题库里找不到这道题——可能已经被删除了，请重新选一道"); return; }
     }
 
     // Always append at the end — order_index is never taken from the
@@ -253,10 +286,10 @@ export async function createStep(req: AuthRequest, res: Response): Promise<void>
     const nextIndex = maxRows[0].next_index;
 
     const { rows } = await query(
-      `INSERT INTO edu.lesson_steps (lesson_id, order_index, step_type, media_url, media_title, course_level_id)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, order_index, step_type, media_url, media_title, course_level_id`,
-      [lessonId, nextIndex, step_type, media_url ?? null, media_title ?? null, course_level_id ?? null]
+      `INSERT INTO edu.lesson_steps (lesson_id, order_index, step_type, media_url, media_title, course_level_id, bank_question_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, order_index, step_type, media_url, media_title, course_level_id, bank_question_id`,
+      [lessonId, nextIndex, step_type, media_url ?? null, media_title ?? null, course_level_id ?? null, bank_question_id ?? null]
     );
     created(res, rows[0]);
   } catch (err) { serverError(res, err); }
@@ -298,5 +331,38 @@ export async function deleteStep(req: AuthRequest, res: Response): Promise<void>
     const { stepId } = req.params;
     await query(`DELETE FROM edu.lesson_steps WHERE id = $1`, [stepId]);
     ok(res, null, "Deleted");
+  } catch (err) { serverError(res, err); }
+}
+
+// ── quiz 步骤——学生播放/判分 (authenticate only) ────────────────────────────
+//
+// 只要求登录，不额外做权限校验：能拿到这个 bank_question_id，说明前面
+// 已经通过了 lesson 本身的访问门槛(Self Guided Learning 那层的订阅/年级
+// 校验，见 selfGuidedApi.getLesson)——跟 level 步骤直接导去
+// /levels/:levelId/play、复用那边自己的门槛检查是同一个信任模型，这里
+// 不重新校验一遍"这个学生是否真的有权限上这堂课"。
+
+// 播放这道quiz步骤——去答案版内容，学生浏览器永远看不到正确答案。
+export async function playBankQuestion(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { questionId } = req.params;
+    const { rows } = await query(`SELECT id, category, question_type, config FROM edu.exam_question_bank WHERE id = $1`, [questionId]);
+    if (!rows.length) { notFound(res, "题目不存在——可能已经从题库删除了"); return; }
+    const q = rows[0];
+    ok(res, { id: q.id, category: q.category, question_type: q.question_type, config: stripAnswers(q.question_type, q.config) });
+  } catch (err) { serverError(res, err); }
+}
+
+// 提交这道quiz步骤的答案——服务器端判分，跟考试系统共用同一套
+// gradeQuestion() 判分逻辑，只返回对不对，不返回config/正确答案本身。
+export async function checkBankQuestion(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { questionId } = req.params;
+    const { answer } = req.body as { answer?: unknown };
+    const { rows } = await query(`SELECT question_type, config FROM edu.exam_question_bank WHERE id = $1`, [questionId]);
+    if (!rows.length) { notFound(res, "题目不存在——可能已经从题库删除了"); return; }
+    const q = rows[0];
+    const isCorrect = gradeQuestion(q.question_type, q.config, answer);
+    ok(res, { is_correct: isCorrect });
   } catch (err) { serverError(res, err); }
 }

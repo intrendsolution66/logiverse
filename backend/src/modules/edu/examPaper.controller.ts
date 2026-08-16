@@ -43,7 +43,7 @@ function shuffleArray<T>(arr: T[]): T[] {
   return a;
 }
 
-function gradeQuestion(questionType: string, config: Record<string, unknown>, studentAnswer: unknown): boolean {
+export function gradeQuestion(questionType: string, config: Record<string, unknown>, studentAnswer: unknown): boolean {
   if (questionType === "multiple_choice") {
     const correctIds = new Set((config.correct_option_ids as string[]) ?? []);
     const selected = Array.isArray(studentAnswer) ? (studentAnswer as string[]) : [];
@@ -102,7 +102,7 @@ function gradeQuestion(questionType: string, config: Record<string, unknown>, st
 // correct_option_ids，fill_blank 去掉每个 blank 的 accepted_answers，
 // 只留 sentence_i18n 和"这里有几个空"这个数量信息（前端渲染输入框
 // 要知道空的数量，但不需要、也不能知道答案是什么）。
-function stripAnswers(questionType: string, config: Record<string, unknown>): Record<string, unknown> {
+export function stripAnswers(questionType: string, config: Record<string, unknown>): Record<string, unknown> {
   if (questionType === "multiple_choice") {
     const { correct_option_ids, ...rest } = config;
     return rest;

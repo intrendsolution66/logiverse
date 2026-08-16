@@ -17,6 +17,7 @@ import {
   listMyAttemptsForPaper, getExamPaperLeaderboard, getExamPaperPreview,
   generateExamPaperPdf,
 } from "./examPaper.controller.js";
+import { playBankQuestion, checkBankQuestion } from "./lessons.controller.js";
 
 const router = Router();
 
@@ -50,6 +51,12 @@ router.patch ("/exam-question-bank/:questionId",    authenticate, authorize("cou
 router.delete("/exam-question-bank/:questionId",    authenticate, authorize("courses.manage"), deleteQuestionBankQuestion);
 router.get   ("/exam-question-bank/importable",     authenticate, authorize("courses.manage"), listImportableActivities); // ?module_type=xxx
 router.post  ("/exam-question-bank/import",         authenticate, authorize("courses.manage"), importFromActivity);
+
+// ── 题库单题——课时quiz步骤学生端播放/判分 (authenticate only，不要求
+//    courses.manage——学生本来就该能读到去答案版内容+提交判分，见
+//    lessons.controller.ts 里 playBankQuestion/checkBankQuestion 的说明) ──
+router.get ("/exam-question-bank/:questionId/play",  authenticate, playBankQuestion);
+router.post("/exam-question-bank/:questionId/check", authenticate, checkBankQuestion);
 
 // ── 受邀学生名单 (classes.manage) ────────────────────────────────────────────
 router.get   ("/exam-papers/:paperId/students",              authenticate, authorize("classes.manage"), listExamPaperStudents);

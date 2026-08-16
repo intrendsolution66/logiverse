@@ -12,6 +12,7 @@ import type { AuthRequest } from "../../middlewares/authenticate.js";
 import { query } from "../../config/db.js";
 import { ok, notFound, forbidden, serverError } from "../../utils/response.js";
 import { getActiveSubscription } from "./subscriptionGate.js";
+import { bankQuestionPreview } from "./lessons.controller.js";
 
 export async function listSelfGuidedCourses(req: AuthRequest, res: Response): Promise<void> {
   try {
@@ -72,12 +73,24 @@ export async function getSelfGuidedLesson(req: AuthRequest, res: Response): Prom
 
     const { rows: steps } = await query(
       `SELECT ls.id, ls.order_index, ls.step_type, ls.media_url, ls.media_title,
-              ls.course_level_id, cl.title_i18n AS level_title_i18n, cl.module_type
+              ls.course_level_id, cl.title_i18n AS level_title_i18n, cl.module_type,
+              ls.bank_question_id, eqb.category AS bank_category, eqb.question_type AS bank_question_type,
+              eqb.config AS bank_config
        FROM edu.lesson_steps ls
        LEFT JOIN edu.course_levels cl ON cl.id = ls.course_level_id
+       LEFT JOIN edu.exam_question_bank eqb ON eqb.id = ls.bank_question_id
        WHERE ls.lesson_id = $1 ORDER BY ls.order_index ASC`,
       [lessonId]
     );
-    ok(res, { ...lessonRows[0], steps });
+    // quiz 步骤——跟设计器那边 lessons.controller.ts#getLesson 同一套处理：
+    // 只给分类/题型/预览文字够渲染步骤列表/播放器提示用，bank_config
+    // (含正确答案)不能带着离开这个函数，真正要作答时前端另外调
+    // playBankQuestion 拿去答案版内容。
+    const cleanedSteps = steps.map((s) => {
+      if (s.step_type !== "quiz" || !s.bank_config) return s;
+      const { bank_config, ...rest } = s;
+      return { ...rest, bank_question_preview: bankQuestionPreview(s.bank_question_type, bank_config) };
+    });
+    ok(res, { ...lessonRows[0], steps: cleanedSteps });
   } catch (err) { serverError(res, err); }
 }
