@@ -157,7 +157,26 @@ function ExamPaperEditor({ paperId, onBack }: { paperId: string; onBack: () => v
       a.href = url; a.download = `${title}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch (err) { toast.error(t("examDesigner.pdfFailed")); }
+    } catch (err: any) {
+      // downloadPaperPdf 用 responseType:"blob"——出错时后端返回的错误JSON
+      // 也会被axios当成Blob对待，不会自动解析，所以 err.response.data.message
+      // 这种常规写法在这里读不到东西，要手动把Blob内容读出来再parse一次，
+      // 不然不管后端实际报什么错，前端永远只能显示写死的兜底文案，排查
+      // 起来很难受(之前这里就是这样，见"生成PDF失败——请确认试卷至少
+      // 有1道题目"这句话不管什么原因失败都会显示的问题)。
+      let message = t("examDesigner.pdfFailed");
+      const data = err?.response?.data;
+      if (data instanceof Blob) {
+        try {
+          const text = await data.text();
+          const parsed = JSON.parse(text);
+          if (parsed?.message) message = parsed.message;
+        } catch { /* Blob内容不是JSON文字(比如网络层错误没有响应体)，用兜底文案 */ }
+      } else if (data?.message) {
+        message = data.message;
+      }
+      toast.error(message);
+    }
   }
 
   if (loading || !paper) return <div className="max-w-4xl mx-auto py-8 px-4"><p className="text-sm text-muted-foreground">{t("exam.loading")}</p></div>;
