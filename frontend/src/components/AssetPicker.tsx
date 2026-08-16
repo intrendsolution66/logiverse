@@ -20,7 +20,7 @@
 //      行为完全不变，multiple默认false。
 
 import { useState, useEffect } from "react";
-import { assetsApi } from "@/api";
+import { assetsApi, assetChunkUploadApi } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input, Label, EmptyState } from "@/components/ui/index";
 import { Modal } from "@/components/ui/modal";
@@ -58,6 +58,30 @@ function readAsDataURL(file: File): Promise<{ dataUrl: string; width: number; he
     fr.onerror = reject;
     fr.readAsDataURL(file);
   });
+}
+
+// 视频走分片上传——之前这里跟图片/PPT一样，整个文件读成base64塞进一个
+// HTTP请求发给createAsset，视频稍微大一点（比如173MB）转成base64会
+// 膨胀到230MB+，这么大的请求体在到达Node后端之前就会被Nginx/Cloudflare
+// Tunnel这层反向代理拒绝（代理默认的请求体大小限制通常远小于这个），
+// 浏览器只会看到笼统的"CORS blocked / net::ERR_FAILED"，看不出真正
+// 原因是文件太大——后端其实早就有分片上传的接口(assetChunkUploadApi)，
+// 只是之前没有从这里接上，纯粹是"接线没接"的问题，不是没做过。
+const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB一片，后端单片上限是8MB，留一点余量
+
+async function uploadVideoChunked(file: File, onProgress: (pct: number) => void): Promise<string> {
+  const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+  const { uploadId } = await assetChunkUploadApi.init({
+    fileName: file.name, fileSize: file.size, totalChunks, mimeType: file.type || "video/mp4",
+  });
+  for (let i = 0; i < totalChunks; i++) {
+    const start = i * CHUNK_SIZE;
+    const chunk = file.slice(start, start + CHUNK_SIZE);
+    await assetChunkUploadApi.uploadChunk(uploadId, i, chunk);
+    onProgress(Math.round(((i + 1) / totalChunks) * 100));
+  }
+  const { url } = await assetChunkUploadApi.complete(uploadId);
+  return url;
 }
 
 // 视频/PPT 不是图片，没有"宽高"这个概念，也不能拿去 new Image() 解码
@@ -103,6 +127,7 @@ export default function AssetPicker({ category, label, moduleType, onSelect, mul
   const [uploadName, setUploadName] = useState("");
   const [uploadTags, setUploadTags] = useState("");
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null); // 只有视频走分片上传时才有值，其他类型走原本的一次性上传，没有进度概念
 
   // 弹窗关掉时清空搜索/多选状态，下次打开是干净的
   useEffect(() => {
@@ -178,6 +203,7 @@ export default function AssetPicker({ category, label, moduleType, onSelect, mul
   }
 
   async function handleUploadAndUse() {
+    if (uploadProgress !== null) return; // 正在上传中，避免重复点击触发第二次上传
     if (uploadFiles.length === 0) { toast.error(multiple ? "请选至少一张图片" : "请选一个文件"); return; }
     const tags = uploadTags.split(/[,，]/).map((t) => t.trim()).filter(Boolean).slice(0, 3);
     const isNonImage = NON_IMAGE_CATEGORIES.has(category);
@@ -187,7 +213,15 @@ export default function AssetPicker({ category, label, moduleType, onSelect, mul
     if (!multiple || uploadFiles.length === 1) {
       try {
         let res;
-        if (isNonImage) {
+        if (category === "video") {
+          // 视频走分片上传——见 uploadVideoChunked 上面的说明。上传完成后
+          // 拿到的是一个真实URL（不是data:开头的base64），createAsset那边
+          // 已经能识别"已经是URL了，原样存，不重复处理"这种情况。
+          setUploadProgress(0);
+          const url = await uploadVideoChunked(uploadFiles[0], setUploadProgress);
+          res = await assetsApi.createAsset({ category, name: uploadName || undefined, file_data: url, width: 0, height: 0, module_type: moduleType, tags });
+          setUploadProgress(null);
+        } else if (isNonImage) {
           const dataUrl = await readFileAsDataURLOnly(uploadFiles[0]);
           res = await assetsApi.createAsset({ category, name: uploadName || undefined, file_data: dataUrl, width: 0, height: 0, module_type: moduleType, tags });
         } else {
@@ -217,6 +251,7 @@ export default function AssetPicker({ category, label, moduleType, onSelect, mul
         setUploadName(""); setUploadTags(""); setUploadFiles([]);
         setOpen(false);
       } catch (err: unknown) {
+        setUploadProgress(null);
         const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "上传失败";
         toast.error(msg);
       }
@@ -361,8 +396,16 @@ export default function AssetPicker({ category, label, moduleType, onSelect, mul
                   </div>
                 )}
               </div>
-              <Button className="w-full" onClick={handleUploadAndUse}>
-                {multiple && uploadFiles.length > 1 ? `上传并使用 ${uploadFiles.length} 张` : "上传并使用"}
+              {uploadProgress !== null && (
+                <div className="space-y-1">
+                  <div className="h-2 rounded-full bg-muted overflow-hidden">
+                    <div className="h-full bg-primary transition-all" style={{ width: `${uploadProgress}%` }} />
+                  </div>
+                  <p className="text-xs text-muted-foreground text-center">上传中… {uploadProgress}%（视频较大，请耐心等待，不要关闭这个窗口）</p>
+                </div>
+              )}
+              <Button className="w-full" onClick={handleUploadAndUse} disabled={uploadProgress !== null}>
+                {uploadProgress !== null ? `上传中… ${uploadProgress}%` : multiple && uploadFiles.length > 1 ? `上传并使用 ${uploadFiles.length} 张` : "上传并使用"}
               </Button>
             </div>
           )}
