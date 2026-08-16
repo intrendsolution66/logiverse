@@ -1038,11 +1038,26 @@ export async function generateExamPaperPdf(req: AuthRequest, res: Response): Pro
     const page = await browser.newPage();
     try {
       await page.setContent(html, { waitUntil: "domcontentloaded" }); // setContent的waitUntil类型比goto窄，不支持networkidle0；这份HTML全是内嵌文字+CSS没有外部资源要等，domcontentloaded足够
-      const pdfBuffer = await page.pdf({ format: "A4", printBackground: true });
+      // ⚠️ 新版 Puppeteer 的 page.pdf() 返回的是 Uint8Array，不是真正的 Node
+      // Buffer——Express 的 res.send() 内部靠 Buffer.isBuffer() 判断"这是不是
+      // 二进制内容"，判断为 false 的话会自动退化成 res.json()，把这段二进制
+      // 数据当成普通对象做 JSON.stringify()，产出类似 {"0":37,"1":80,...}
+      // 这种畸形JSON——这正是之前"生成的PDF文件打不开"的根因，文件名/大小
+      // 看起来都正常，但内容其实是一段JSON文字，不是真的PDF二进制。
+      // Buffer.from() 显式转换成真正的 Buffer，Express 才能正确识别并原样
+      // 发送二进制内容。
+      const pdfBuffer = Buffer.from(await page.pdf({ format: "A4", printBackground: true }));
       const title18n = paper.title_i18n as Record<string, string>;
       const title = title18n?.[lang] || title18n?.zh || "exam";
+      // Content-Disposition 的 filename="..." 是给纯ASCII用的旧语法，中文标题
+      // 直接塞进去(哪怕先 encodeURIComponent)不符合RFC 6266，容易导致部分
+      // 浏览器/下载工具解析失败或存出乱码文件名。正确做法是用 filename*=
+      // UTF-8''<percent-encoded> 这个专门支持非ASCII文件名的语法，同时保留
+      // 一个ASCII fallback文件名(filename=...)给不认 filename* 语法的老客户端。
+      const asciiFallback = "exam-paper.pdf";
+      const encodedTitle = encodeURIComponent(`${title}.pdf`);
       res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(title)}.pdf"`);
+      res.setHeader("Content-Disposition", `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedTitle}`);
       res.send(pdfBuffer);
     } finally {
       await page.close(); // 页面用完就关，浏览器进程本身留着复用给下次请求

@@ -10,7 +10,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import toast from "react-hot-toast";
 import { examApi } from "@/api";
-import { ColoringShapeSvg, type ColoringConfig } from "@/lib/coloringShapes";
+import { ColoringShapeSvg, getCroppedViewBox, type ColoringConfig } from "@/lib/coloringShapes";
 import { IllustrationView, type Illustration } from "@/lib/illustrationShapes";
 import { STICKER_CANVAS_SIZE } from "@/lib/gameCanvas";
 
@@ -207,7 +207,7 @@ function ColoringReview({ question }: { question: ReviewQuestion }) {
 
   return (
     <>
-      <svg viewBox={`0 0 ${config.canvas_width} ${config.canvas_height}`} className="w-full border border-border rounded-xl bg-white" style={{ maxWidth: 380 }}>
+      <svg viewBox={getCroppedViewBox(config)} className="w-full border border-border rounded-xl bg-white" style={{ maxWidth: 380 }}>
         {config.bg_image_url && <image href={config.bg_image_url} x={0} y={0} width={config.canvas_width} height={config.canvas_height} preserveAspectRatio="xMidYMid meet" />}
         {(config.regions ?? []).map((r) => {
           const studentColor = given[r.id];
@@ -297,4 +297,5 @@ function StickerGameReview({ question }: { question: ReviewQuestion }) {
     </div>
   );
 }
+
 

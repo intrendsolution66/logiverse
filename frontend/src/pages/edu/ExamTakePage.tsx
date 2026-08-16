@@ -14,7 +14,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import toast from "react-hot-toast";
 import { examApi } from "@/api";
-import { ColoringShapeSvg, type ColoringConfig } from "@/lib/coloringShapes";
+import { ColoringShapeSvg, getCroppedViewBox, type ColoringConfig } from "@/lib/coloringShapes";
 import { IllustrationView, type Illustration } from "@/lib/illustrationShapes";
 import { STICKER_CANVAS_SIZE } from "@/lib/gameCanvas";
 
@@ -121,48 +121,51 @@ export default function ExamTakePage() {
   if (loading) return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">{t("exam.loading")}</div>;
 
   return (
-    <div className="min-h-screen bg-muted/20">
-      <div className="sticky top-0 z-10 bg-white border-b border-border px-4 py-3 flex items-center justify-between">
+    <div className="h-screen flex flex-col bg-muted/20">
+      <div className="flex-shrink-0 bg-white border-b border-border px-4 py-3 flex items-center justify-between">
         <h1 className="font-semibold text-foreground truncate">{title}</h1>
         <div className={`font-mono text-lg font-bold px-3 py-1 rounded-lg ${timeLow ? "bg-red-100 text-red-600 animate-pulse" : "bg-muted text-foreground"}`}>
           {minutes}:{seconds.toString().padStart(2, "0")}
         </div>
       </div>
 
-      <div className="max-w-2xl lg:max-w-4xl xl:max-w-6xl 2xl:max-w-7xl mx-auto py-6 px-4 lg:px-8">
-        <div className="flex items-center justify-between mb-3 text-sm">
-          <span className="text-muted-foreground">{t("exam.questionOf", { current: currentIndex + 1, total: questions.length })}</span>
-          <span className="text-xs text-muted-foreground">{t("exam.answered", { count: Object.keys(answers).length, total: questions.length })}</span>
-        </div>
-
-        {questions[currentIndex] && (
-          <QuestionCard
-            key={questions[currentIndex].id} index={currentIndex + 1}
-            question={questions[currentIndex]} value={answers[questions[currentIndex].id]}
-            onChange={(v) => setAnswer(questions[currentIndex].id, v)}
-          />
-        )}
-
-        <div className="flex items-center justify-between gap-2 mt-4">
-          <div className="flex gap-1.5">
-            <button onClick={() => setCurrentIndex(0)} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.firstQuestion")}</button>
-            <button onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.prevQuestion")}</button>
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-2xl lg:max-w-4xl xl:max-w-6xl 2xl:max-w-7xl mx-auto py-6 px-4 lg:px-8">
+          <div className="flex items-center justify-between mb-3 text-sm">
+            <span className="text-muted-foreground">{t("exam.questionOf", { current: currentIndex + 1, total: questions.length })}</span>
+            <span className="text-xs text-muted-foreground">{t("exam.answered", { count: Object.keys(answers).length, total: questions.length })}</span>
           </div>
-          <div className="flex gap-1.5">
-            <button onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.nextQuestion")}</button>
-            <button onClick={() => setCurrentIndex(questions.length - 1)} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.lastQuestion")}</button>
-          </div>
-        </div>
 
-        <div className="pt-6 pb-10 flex flex-col items-center gap-2">
-          {!allAnswered && <p className="text-xs text-amber-600">{t("exam.take.unansweredWarning")}</p>}
-          <button
-            onClick={() => { if (confirm(t("exam.take.confirmSubmit"))) handleSubmit(); }}
-            disabled={submitting}
-            className="text-base font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground disabled:opacity-50"
-          >
-            {submitting ? t("exam.take.submitting") : t("exam.take.submitButton")}
-          </button>
+          {questions[currentIndex] && (
+            <QuestionCard
+              key={questions[currentIndex].id} index={currentIndex + 1}
+              question={questions[currentIndex]} value={answers[questions[currentIndex].id]}
+              onChange={(v) => setAnswer(questions[currentIndex].id, v)}
+            />
+          )}
+        </div>
+      </div>
+
+      <div className="flex-shrink-0 bg-white border-t border-border px-4 py-3">
+        <div className="max-w-2xl lg:max-w-4xl xl:max-w-6xl 2xl:max-w-7xl mx-auto flex flex-col gap-2">
+          {!allAnswered && <p className="text-xs text-amber-600 text-center">{t("exam.take.unansweredWarning")}</p>}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex gap-1.5">
+              <button onClick={() => setCurrentIndex(0)} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.firstQuestion")}</button>
+              <button onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.prevQuestion")}</button>
+            </div>
+            <button
+              onClick={() => { if (confirm(t("exam.take.confirmSubmit"))) handleSubmit(); }}
+              disabled={submitting}
+              className="text-sm font-semibold px-6 py-2 rounded-xl bg-primary text-primary-foreground disabled:opacity-50"
+            >
+              {submitting ? t("exam.take.submitting") : t("exam.take.submitButton")}
+            </button>
+            <div className="flex gap-1.5">
+              <button onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.nextQuestion")}</button>
+              <button onClick={() => setCurrentIndex(questions.length - 1)} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.lastQuestion")}</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -215,7 +218,11 @@ export function MultipleChoiceQuestion({ config, value, onChange }: {
 
   return (
     <>
-      {illustration && <div className="mb-3"><IllustrationView illustration={illustration} /></div>}
+      {illustration && (
+        <div className="mb-3 flex justify-center">
+          <IllustrationView illustration={illustration} style={{ maxHeight: "38vh", width: "auto", maxWidth: "100%" }} />
+        </div>
+      )}
       <p className="text-2xl sm:text-3xl md:text-4xl font-medium text-foreground mb-4 leading-snug">{questionText}</p>
       <div className={isShort ? "flex flex-wrap gap-2" : "space-y-2"}>
         {options.map((opt) => {
@@ -263,7 +270,11 @@ export function FillBlankQuestion({ config, value, onChange }: {
 
   return (
     <>
-      {illustration && <div className="mb-3"><IllustrationView illustration={illustration} /></div>}
+      {illustration && (
+        <div className="mb-3 flex justify-center">
+          <IllustrationView illustration={illustration} style={{ maxHeight: "38vh", width: "auto", maxWidth: "100%" }} />
+        </div>
+      )}
       <p className="text-2xl sm:text-3xl md:text-4xl font-medium text-foreground leading-relaxed flex flex-wrap items-center gap-x-2 gap-y-3">
       {segments.map((seg, i) => (
         <span key={i} className="inline-flex items-center gap-1.5">
@@ -304,7 +315,7 @@ export function ColoringQuestion({ config, value, onChange }: {
           />
         ))}
       </div>
-      <svg viewBox={`0 0 ${config.canvas_width} ${config.canvas_height}`} className="w-full border border-border rounded-xl bg-white" style={{ maxWidth: 420 }}>
+      <svg viewBox={getCroppedViewBox(config)} className="w-full border border-border rounded-xl bg-white" style={{ maxWidth: 420 }}>
         {config.bg_image_url && <image href={config.bg_image_url} x={0} y={0} width={config.canvas_width} height={config.canvas_height} preserveAspectRatio="xMidYMid meet" />}
         {(config.regions ?? []).map((r) => {
           const fill = r.colorable ? (given[r.id] ?? "#f8fafc") : (r.decoration_color ?? "#e2e8f0");
