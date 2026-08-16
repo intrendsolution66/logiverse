@@ -105,8 +105,8 @@ export default function ExamPreviewPage() {
   if (questions.length === 0) return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">{t("exam.noQuestions")}</div>;
 
   return (
-    <div className="min-h-screen bg-muted/20">
-      <div className="sticky top-0 z-10 bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between">
+    <div className="h-screen flex flex-col bg-muted/20">
+      <div className="flex-shrink-0 bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm text-amber-800">
           <span className="font-semibold">{t("exam.preview.badge")}</span>
           <span className="text-xs text-amber-700">{t("exam.preview.notice")}</span>
@@ -114,64 +114,65 @@ export default function ExamPreviewPage() {
         <button onClick={() => window.close()} className="text-xs text-amber-700 hover:text-amber-900 underline">{t("exam.preview.backToEditor")}</button>
       </div>
 
-      <div className="bg-white border-b border-border px-4 py-3">
+      <div className="flex-shrink-0 bg-white border-b border-border px-4 py-3">
         <h1 className="font-semibold text-foreground">{title}</h1>
         <p className="text-xs text-muted-foreground mt-0.5">{t("exam.preview.fullMarks", { marks: totalMarks, count: questions.length })}</p>
       </div>
 
-      <div className="max-w-2xl lg:max-w-4xl xl:max-w-6xl 2xl:max-w-7xl mx-auto py-6 px-4 lg:px-8 space-y-5">
-        {finished && (
-          <div className="rounded-2xl bg-white border-2 border-primary/40 shadow-sm p-5 text-center">
-            <div className="text-4xl mb-1">🧪</div>
-            <div className="text-2xl font-bold text-foreground">{score} <span className="text-base text-muted-foreground font-normal">/ {totalMarks}</span></div>
-            <p className="text-xs text-muted-foreground mt-1">{t("exam.preview.resultNote")}</p>
-            <div className="flex gap-2 justify-center mt-3">
-              <button onClick={load} className="text-sm font-medium px-4 py-2 rounded-xl bg-primary text-primary-foreground">{t("exam.preview.retry")}</button>
-              <button onClick={() => window.close()} className="text-sm font-medium px-4 py-2 rounded-xl bg-muted text-foreground">{t("exam.preview.backToEditor")}</button>
-            </div>
-          </div>
-        )}
-
-        {finished ? (
-          <>
-            {questions.map((q, i) => (
-              <PreviewQuestionCard key={q.id} index={i + 1} question={q} value={answers[q.id]} onChange={(v) => setAnswer(q.id, v)} finished={finished} />
-            ))}
-          </>
-        ) : (
-          <>
-            <div className="flex items-center justify-between mb-3 text-sm">
-              <span className="text-muted-foreground">{t("exam.questionOf", { current: currentIndex + 1, total: questions.length })}</span>
-              <span className="text-xs text-muted-foreground">{t("exam.answered", { count: Object.keys(answers).length, total: questions.length })}</span>
-            </div>
-
-            {questions[currentIndex] && (
-              <PreviewQuestionCard
-                key={questions[currentIndex].id} index={currentIndex + 1}
-                question={questions[currentIndex]} value={answers[questions[currentIndex].id]}
-                onChange={(v) => setAnswer(questions[currentIndex].id, v)} finished={false}
-              />
-            )}
-
-            <div className="flex items-center justify-between gap-2 mt-4">
-              <div className="flex gap-1.5">
-                <button onClick={() => setCurrentIndex(0)} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.firstQuestion")}</button>
-                <button onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.prevQuestion")}</button>
-              </div>
-              <div className="flex gap-1.5">
-                <button onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.nextQuestion")}</button>
-                <button onClick={() => setCurrentIndex(questions.length - 1)} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.lastQuestion")}</button>
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-2xl lg:max-w-4xl xl:max-w-6xl 2xl:max-w-7xl mx-auto py-6 px-4 lg:px-8 space-y-5">
+          {finished && (
+            <div className="rounded-2xl bg-white border-2 border-primary/40 shadow-sm p-5 text-center">
+              <div className="text-4xl mb-1">🧪</div>
+              <div className="text-2xl font-bold text-foreground">{score} <span className="text-base text-muted-foreground font-normal">/ {totalMarks}</span></div>
+              <p className="text-xs text-muted-foreground mt-1">{t("exam.preview.resultNote")}</p>
+              <div className="flex gap-2 justify-center mt-3">
+                <button onClick={load} className="text-sm font-medium px-4 py-2 rounded-xl bg-primary text-primary-foreground">{t("exam.preview.retry")}</button>
+                <button onClick={() => window.close()} className="text-sm font-medium px-4 py-2 rounded-xl bg-muted text-foreground">{t("exam.preview.backToEditor")}</button>
               </div>
             </div>
-          </>
-        )}
+          )}
 
-        {!finished && (
-          <div className="pt-6 pb-10 flex justify-center">
-            <button onClick={handleSubmit} className="text-base font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground">{t("exam.preview.submit")}</button>
-          </div>
-        )}
+          {finished ? (
+            <>
+              {questions.map((q, i) => (
+                <PreviewQuestionCard key={q.id} index={i + 1} question={q} value={answers[q.id]} onChange={(v) => setAnswer(q.id, v)} finished={finished} />
+              ))}
+            </>
+          ) : (
+            <>
+              <div className="flex items-center justify-between mb-3 text-sm">
+                <span className="text-muted-foreground">{t("exam.questionOf", { current: currentIndex + 1, total: questions.length })}</span>
+                <span className="text-xs text-muted-foreground">{t("exam.answered", { count: Object.keys(answers).length, total: questions.length })}</span>
+              </div>
+
+              {questions[currentIndex] && (
+                <PreviewQuestionCard
+                  key={questions[currentIndex].id} index={currentIndex + 1}
+                  question={questions[currentIndex]} value={answers[questions[currentIndex].id]}
+                  onChange={(v) => setAnswer(questions[currentIndex].id, v)} finished={false}
+                />
+              )}
+            </>
+          )}
+        </div>
       </div>
+
+      {!finished && (
+        <div className="flex-shrink-0 bg-white border-t border-border px-4 py-3">
+          <div className="max-w-2xl lg:max-w-4xl xl:max-w-6xl 2xl:max-w-7xl mx-auto flex items-center justify-between gap-2">
+            <div className="flex gap-1.5">
+              <button onClick={() => setCurrentIndex(0)} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.firstQuestion")}</button>
+              <button onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.prevQuestion")}</button>
+            </div>
+            <button onClick={handleSubmit} className="text-sm font-semibold px-6 py-2 rounded-xl bg-primary text-primary-foreground">{t("exam.preview.submit")}</button>
+            <div className="flex gap-1.5">
+              <button onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.nextQuestion")}</button>
+              <button onClick={() => setCurrentIndex(questions.length - 1)} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.lastQuestion")}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

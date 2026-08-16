@@ -118,3 +118,4 @@ export function ColoringShapeSvg({ region, fill, onPointerDown, onClick, selecte
   if (tag === "ellipse") return <ellipse {...(attrs as any)} {...commonProps} />;
   return <polygon {...(attrs as any)} {...commonProps} />;
 }
+
