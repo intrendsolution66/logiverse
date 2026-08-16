@@ -749,7 +749,10 @@ function QuestionBankTab() {
   const [filterCategory, setFilterCategory] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [editingItem, setEditingItem] = useState<ExamQuestionBankItem | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const EDITABLE_TYPES = new Set(["multiple_choice", "fill_blank", "coloring"]);
 
   useEffect(() => { load(); }, [filterCategory]);
 
@@ -774,11 +777,17 @@ function QuestionBankTab() {
         <Input placeholder={t("examDesigner.bank.filterPlaceholder")} value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="w-64" />
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setShowImport(true)}>{t("examDesigner.bank.importFromActivity")}</Button>
-          <Button onClick={() => setShowAdd(true)}><Plus size={14} className="mr-1" /> {t("examDesigner.bank.addQuestion")}</Button>
+          <Button onClick={() => { setEditingItem(null); setShowAdd(true); }}><Plus size={14} className="mr-1" /> {t("examDesigner.bank.addQuestion")}</Button>
         </div>
       </div>
 
-      {showAdd && <AddBankQuestionForm onDone={() => { setShowAdd(false); load(); }} onCancel={() => setShowAdd(false)} />}
+      {showAdd && (
+        <AddBankQuestionForm
+          editing={editingItem}
+          onDone={() => { setShowAdd(false); setEditingItem(null); load(); }}
+          onCancel={() => { setShowAdd(false); setEditingItem(null); }}
+        />
+      )}
       {showImport && <ImportFromActivityForm onDone={() => { setShowImport(false); load(); }} onCancel={() => setShowImport(false)} />}
 
       {loading ? (
@@ -801,6 +810,11 @@ function QuestionBankTab() {
                   ? t("examDesigner.bank.typeSudoku")
                   : t("examDesigner.bank.typeSticker")}
               </div>
+              {EDITABLE_TYPES.has(it.question_type) && (
+                <button onClick={() => { setEditingItem(it); setShowAdd(true); }} className="text-muted-foreground hover:text-foreground p-1.5 flex-shrink-0">
+                  <PencilLine size={15} />
+                </button>
+              )}
               <button onClick={() => handleDelete(it.id)} className="text-muted-foreground hover:text-red-600 p-1.5 flex-shrink-0"><Trash2 size={15} /></button>
             </div>
           ))}
@@ -921,45 +935,69 @@ function ImportFromActivityForm({ onDone, onCancel }: { onDone: () => void; onCa
   );
 }
 
-function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+function AddBankQuestionForm({ editing, onDone, onCancel }: { editing?: ExamQuestionBankItem | null; onDone: () => void; onCancel: () => void }) {
   const { t } = useTranslation();
-  const [category, setCategory] = useState("");
-  const [qType, setQType] = useState<"multiple_choice" | "fill_blank" | "coloring">("multiple_choice");
-  const [mcAnswerMode, setMcAnswerMode] = useState<"single" | "multi">("single");
-  const [mcOptions, setMcOptions] = useState<MCOption[]>([
-    { id: "opt1", zh: "", en: "", ms: "", correct: false },
-    { id: "opt2", zh: "", en: "", ms: "", correct: false },
-  ]);
-  const [mcQuestionZh, setMcQuestionZh] = useState("");
-  const [mcQuestionEn, setMcQuestionEn] = useState("");
-  const [mcQuestionMs, setMcQuestionMs] = useState("");
-  const [fbSentenceZh, setFbSentenceZh] = useState("");
-  const [fbSentenceEn, setFbSentenceEn] = useState("");
-  const [fbSentenceMs, setFbSentenceMs] = useState("");
-  const [fbBlankAnswers, setFbBlankAnswers] = useState<string[]>([""]);
-  const [coloringConfig, setColoringConfig] = useState<ColoringConfig | null>(null);
-  const [showIllustration, setShowIllustration] = useState(false);
-  const [illustration, setIllustration] = useState<Illustration | null>(null);
+  const isEditing = !!editing;
+  const editConfig = (editing?.config ?? {}) as Record<string, unknown>;
+
+  const [category, setCategory] = useState(editing?.category ?? "");
+  const [qType, setQType] = useState<"multiple_choice" | "fill_blank" | "coloring">((editing?.question_type as any) ?? "multiple_choice");
+  const [mcAnswerMode, setMcAnswerMode] = useState<"single" | "multi">((editConfig.answer_mode as "single" | "multi") ?? "single");
+  const [mcOptions, setMcOptions] = useState<MCOption[]>(() => {
+    if (editing?.question_type === "multiple_choice") {
+      const opts = (editConfig.options as Array<{ id: string; text_i18n?: Record<string, string>; image_url?: string }>) ?? [];
+      const correctIds = new Set((editConfig.correct_option_ids as string[]) ?? []);
+      if (opts.length > 0) {
+        return opts.map((o) => ({
+          id: o.id, zh: o.text_i18n?.zh ?? "", en: o.text_i18n?.en ?? "", ms: o.text_i18n?.ms ?? "",
+          correct: correctIds.has(o.id), image_url: o.image_url,
+        }));
+      }
+    }
+    return [
+      { id: "opt1", zh: "", en: "", ms: "", correct: false },
+      { id: "opt2", zh: "", en: "", ms: "", correct: false },
+    ];
+  });
+  const mcQi18n = (editConfig.question_i18n ?? {}) as Record<string, string>;
+  const [mcQuestionZh, setMcQuestionZh] = useState(mcQi18n.zh ?? "");
+  const [mcQuestionEn, setMcQuestionEn] = useState(mcQi18n.en ?? "");
+  const [mcQuestionMs, setMcQuestionMs] = useState(mcQi18n.ms ?? "");
+  const fbSi18n = (editConfig.sentence_i18n ?? {}) as Record<string, string>;
+  const [fbSentenceZh, setFbSentenceZh] = useState(fbSi18n.zh ?? "");
+  const [fbSentenceEn, setFbSentenceEn] = useState(fbSi18n.en ?? "");
+  const [fbSentenceMs, setFbSentenceMs] = useState(fbSi18n.ms ?? "");
+  const [fbBlankAnswers, setFbBlankAnswers] = useState<string[]>(() => {
+    if (editing?.question_type === "fill_blank") {
+      const blanks = (editConfig.blanks as Array<{ accepted_answers: string[] }>) ?? [];
+      if (blanks.length > 0) return blanks.map((b) => (b.accepted_answers ?? []).join(", "));
+    }
+    return [""];
+  });
+  const [coloringConfig, setColoringConfig] = useState<ColoringConfig | null>(
+    editing?.question_type === "coloring" ? (editConfig as unknown as ColoringConfig) : null
+  );
+  const editIllustration = (editConfig.illustration as Illustration | undefined) ?? undefined;
+  const [showIllustration, setShowIllustration] = useState(!!editIllustration);
+  const [illustration, setIllustration] = useState<Illustration | null>(editIllustration ?? null);
 
   async function handleSubmit() {
     if (!category.trim()) { toast.error(t("examDesigner.bank.needCategory")); return; }
     try {
+      let config: Record<string, unknown>;
       if (qType === "multiple_choice") {
         const filled = mcOptions.filter((o) => o.zh.trim() || o.image_url);
         if (filled.length < 2) { toast.error(t("examDesigner.form.needTwoOptions")); return; }
         const correct = filled.filter((o) => o.correct);
         if (correct.length === 0) { toast.error(t("examDesigner.form.needCorrectOption")); return; }
         if (!mcQuestionZh.trim()) { toast.error(t("examDesigner.form.needQuestionText")); return; }
-        await examApi.createBankQuestion({
-          category: category.trim(), question_type: "multiple_choice",
-          config: {
-            answer_mode: mcAnswerMode,
-            options: filled.map((o) => ({ id: o.id, text_i18n: { zh: o.zh || undefined, en: o.en || undefined, ms: o.ms || undefined }, image_url: o.image_url || undefined })),
-            correct_option_ids: correct.map((o) => o.id),
-            question_i18n: { zh: mcQuestionZh.trim(), en: mcQuestionEn.trim() || undefined, ms: mcQuestionMs.trim() || undefined },
-            illustration: illustration ?? undefined,
-          },
-        });
+        config = {
+          answer_mode: mcAnswerMode,
+          options: filled.map((o) => ({ id: o.id, text_i18n: { zh: o.zh || undefined, en: o.en || undefined, ms: o.ms || undefined }, image_url: o.image_url || undefined })),
+          correct_option_ids: correct.map((o) => o.id),
+          question_i18n: { zh: mcQuestionZh.trim(), en: mcQuestionEn.trim() || undefined, ms: mcQuestionMs.trim() || undefined },
+          illustration: illustration ?? undefined,
+        };
       } else if (qType === "fill_blank") {
         const blankCount = (fbSentenceZh.match(/___/g) ?? []).length;
         if (!fbSentenceZh.trim() || blankCount === 0) { toast.error(t("examDesigner.form.needSentenceBlank")); return; }
@@ -967,23 +1005,27 @@ function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCance
         if (fbSentenceMs.trim() && (fbSentenceMs.match(/___/g) ?? []).length !== blankCount) { toast.error(t("examDesigner.form.blankCountMismatchMs", { n: blankCount })); return; }
         const blanks = fbBlankAnswers.slice(0, blankCount).map((s) => s.split(",").map((x) => x.trim()).filter(Boolean));
         if (blanks.some((b) => b.length === 0)) { toast.error(t("examDesigner.form.needBlankAnswer")); return; }
-        await examApi.createBankQuestion({
-          category: category.trim(), question_type: "fill_blank",
-          config: {
-            sentence_i18n: { zh: fbSentenceZh.trim(), en: fbSentenceEn.trim() || undefined, ms: fbSentenceMs.trim() || undefined },
-            blanks: blanks.map((accepted) => ({ accepted_answers: accepted })), illustration: illustration ?? undefined,
-          },
-        });
+        config = {
+          sentence_i18n: { zh: fbSentenceZh.trim(), en: fbSentenceEn.trim() || undefined, ms: fbSentenceMs.trim() || undefined },
+          blanks: blanks.map((accepted) => ({ accepted_answers: accepted })), illustration: illustration ?? undefined,
+        };
       } else {
         if (!coloringConfig) { toast.error(t("examDesigner.form.needShape")); return; }
         const colorable = coloringConfig.regions.filter((r) => r.colorable);
         if (colorable.length === 0) { toast.error(t("examDesigner.form.needColorableRegion")); return; }
         if (colorable.some((r) => !r.correct_color)) { toast.error(t("examDesigner.form.needCorrectColor")); return; }
-        await examApi.createBankQuestion({ category: category.trim(), question_type: "coloring", config: coloringConfig as unknown as Record<string, unknown> });
+        config = coloringConfig as unknown as Record<string, unknown>;
       }
-      toast.success(t("examDesigner.bank.addToBankSuccess"));
+
+      if (isEditing && editing) {
+        await examApi.updateBankQuestion(editing.id, { category: category.trim(), question_type: qType, config });
+        toast.success(t("examDesigner.form.saveSuccess"));
+      } else {
+        await examApi.createBankQuestion({ category: category.trim(), question_type: qType, config });
+        toast.success(t("examDesigner.bank.addToBankSuccess"));
+      }
       onDone();
-    } catch (err: any) { toast.error(err?.response?.data?.message ?? t("examDesigner.form.addFailed")); }
+    } catch (err: any) { toast.error(err?.response?.data?.message ?? (isEditing ? t("examDesigner.form.saveFailed") : t("examDesigner.form.addFailed"))); }
   }
 
   return (
@@ -1071,7 +1113,7 @@ function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCance
         </>
       ))}
       <div className="flex gap-2 pt-2">
-        <Button onClick={handleSubmit}>{t("examDesigner.bank.addToBank")}</Button>
+        <Button onClick={handleSubmit}>{isEditing ? t("examDesigner.form.submitSave") : t("examDesigner.bank.addToBank")}</Button>
         <Button variant="outline" onClick={onCancel}>{t("examDesigner.form.cancel")}</Button>
       </div>
     </div>
