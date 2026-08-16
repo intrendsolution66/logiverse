@@ -188,7 +188,7 @@ export default function IllustrationEditor({ initial, onChange }: {
           onClick={() => setSelectedGroupId(null)}
           onContextMenu={(e) => e.preventDefault()}
         >
-          {bgImageUrl && <image href={bgImageUrl} x={0} y={0} width={CANVAS_W} height={CANVAS_H} preserveAspectRatio="xMidYMid slice" />}
+          {bgImageUrl && <image href={bgImageUrl} x={0} y={0} width={CANVAS_W} height={CANVAS_H} preserveAspectRatio="xMidYMid meet" />}
           {sorted.map((el) => {
             const isSelected = elementGroupId(el) === selectedGroupId;
             const onDbl = () => setPopupGroupId(elementGroupId(el));

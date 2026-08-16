@@ -179,7 +179,7 @@ function ColoringReview({ question }: { question: ReviewQuestion }) {
   return (
     <>
       <svg viewBox={`0 0 ${config.canvas_width} ${config.canvas_height}`} className="w-full border border-border rounded-xl bg-white" style={{ maxWidth: 380 }}>
-        {config.bg_image_url && <image href={config.bg_image_url} x={0} y={0} width={config.canvas_width} height={config.canvas_height} preserveAspectRatio="xMidYMid slice" />}
+        {config.bg_image_url && <image href={config.bg_image_url} x={0} y={0} width={config.canvas_width} height={config.canvas_height} preserveAspectRatio="xMidYMid meet" />}
         {(config.regions ?? []).map((r) => {
           const studentColor = given[r.id];
           const fill = r.colorable ? (studentColor ?? "#f8fafc") : (r.decoration_color ?? "#e2e8f0");
@@ -268,3 +268,4 @@ function StickerGameReview({ question }: { question: ReviewQuestion }) {
     </div>
   );
 }
+

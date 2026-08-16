@@ -19,6 +19,7 @@ import { CheckSquare, PencilLine, X, Plus, FileText, Users, Trophy, Download, Tr
 import { examApi, adminUsersApi, type ExamPaper, type ExamPaperQuestion, type ExamQuestionBankItem } from "@/api";
 import ColoringQuestionEditor from "@/components/ColoringQuestionEditor";
 import IllustrationEditor from "@/components/IllustrationEditor";
+import MultiLangInput from "@/components/MultiLangInput";
 import { IllustrationView, type Illustration } from "@/lib/illustrationShapes";
 import type { ColoringConfig } from "@/lib/coloringShapes";
 
@@ -242,14 +243,11 @@ function BasicInfoTab({ paper, onSaved }: { paper: ExamPaper; onSaved: () => voi
 
   return (
     <div className="rounded-xl bg-white border border-border shadow-sm p-5 space-y-4">
-      <div>
-        <Label>试卷名称（至少中文必填，英文/马来文选填——学生作答时会跟着当下切换的界面语言显示对应文字）</Label>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <Input placeholder="中文" value={title} onChange={(e) => setTitle(e.target.value)} />
-          <Input placeholder="English" value={titleEn} onChange={(e) => setTitleEn(e.target.value)} />
-          <Input placeholder="Bahasa Melayu" value={titleMs} onChange={(e) => setTitleMs(e.target.value)} />
-        </div>
-      </div>
+      <MultiLangInput
+        label="试卷名称（学生作答时会跟着当下切换的界面语言显示对应文字）"
+        values={{ zh: title, en: titleEn, ms: titleMs }}
+        onChange={(lang, v) => (lang === "zh" ? setTitle(v) : lang === "en" ? setTitleEn(v) : setTitleMs(v))}
+      />
       <div>
         <Label>说明（选填，学生看不到，只是给自己留备注用）</Label>
         <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className={INPUT_CLASS} />
@@ -493,14 +491,11 @@ function AddFixedQuestionForm({ paperId, onDone, onCancel }: { paperId: string; 
 
       {qType !== "coloring" && (qType === "multiple_choice" ? (
         <>
-          <div>
-            <Label>题目文字（至少中文必填）</Label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <Input placeholder="中文" value={mcQuestionZh} onChange={(e) => setMcQuestionZh(e.target.value)} />
-              <Input placeholder="English" value={mcQuestionEn} onChange={(e) => setMcQuestionEn(e.target.value)} />
-              <Input placeholder="Bahasa Melayu" value={mcQuestionMs} onChange={(e) => setMcQuestionMs(e.target.value)} />
-            </div>
-          </div>
+          <MultiLangInput
+            label="题目文字" multiline
+            values={{ zh: mcQuestionZh, en: mcQuestionEn, ms: mcQuestionMs }}
+            onChange={(lang, v) => (lang === "zh" ? setMcQuestionZh(v) : lang === "en" ? setMcQuestionEn(v) : setMcQuestionMs(v))}
+          />
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground">答题方式：</span>
             <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
@@ -527,11 +522,12 @@ function AddFixedQuestionForm({ paperId, onDone, onCancel }: { paperId: string; 
                     disabled={mcOptions.length <= 2} className="w-7 h-7 flex-shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-30"
                   ><X size={14} /></button>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 pl-9">
-                  <Input placeholder="中文" value={opt.zh} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, zh: e.target.value } : o)))} />
-                  <Input placeholder="English" value={opt.en} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, en: e.target.value } : o)))} />
-                  <Input placeholder="Bahasa Melayu" value={opt.ms} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, ms: e.target.value } : o)))} />
-                </div>
+                <MultiLangInput
+                  label="选项文字（至少中文或图片其一）"
+                  values={{ zh: opt.zh, en: opt.en, ms: opt.ms }}
+                  onChange={(lang, v) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, [lang]: v } : o)))}
+                  required={null}
+                />
               </div>
             ))}
             <Button type="button" variant="outline" size="sm" onClick={() => setMcOptions((arr) => [...arr, { id: `opt${Date.now()}`, zh: "", en: "", ms: "", correct: false }])}>+ 加一个选项</Button>
@@ -539,14 +535,11 @@ function AddFixedQuestionForm({ paperId, onDone, onCancel }: { paperId: string; 
         </>
       ) : (
         <>
-          <div>
-            <Label>题目句子（用 ___ 三个下划线标记空的位置，至少中文必填；英文/马来文如果填了，空格数量要跟中文一致）</Label>
-            <div className="space-y-1.5">
-              <Input placeholder="中文，例如：1 + 1 = ___" value={fbSentenceZh} onChange={(e) => setFbSentenceZh(e.target.value)} />
-              <Input placeholder="English（选填）" value={fbSentenceEn} onChange={(e) => setFbSentenceEn(e.target.value)} />
-              <Input placeholder="Bahasa Melayu（选填）" value={fbSentenceMs} onChange={(e) => setFbSentenceMs(e.target.value)} />
-            </div>
-          </div>
+          <MultiLangInput
+            label="题目句子（用 ___ 三个下划线标记空的位置；英文/马来文如果填了，空格数量要跟中文一致）"
+            values={{ zh: fbSentenceZh, en: fbSentenceEn, ms: fbSentenceMs }}
+            onChange={(lang, v) => (lang === "zh" ? setFbSentenceZh(v) : lang === "en" ? setFbSentenceEn(v) : setFbSentenceMs(v))}
+          />
           {(() => {
             const blankCount = (fbSentenceZh.match(/___/g) ?? []).length;
             if (blankCount === 0) return <p className="text-xs text-muted-foreground/60">先在上面句子里加至少一个 ___</p>;
@@ -893,14 +886,11 @@ function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCance
       )}
       {qType !== "coloring" && (qType === "multiple_choice" ? (
         <>
-          <div>
-            <Label>题目文字（至少中文必填）</Label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <Input placeholder="中文" value={mcQuestionZh} onChange={(e) => setMcQuestionZh(e.target.value)} />
-              <Input placeholder="English" value={mcQuestionEn} onChange={(e) => setMcQuestionEn(e.target.value)} />
-              <Input placeholder="Bahasa Melayu" value={mcQuestionMs} onChange={(e) => setMcQuestionMs(e.target.value)} />
-            </div>
-          </div>
+          <MultiLangInput
+            label="题目文字" multiline
+            values={{ zh: mcQuestionZh, en: mcQuestionEn, ms: mcQuestionMs }}
+            onChange={(lang, v) => (lang === "zh" ? setMcQuestionZh(v) : lang === "en" ? setMcQuestionEn(v) : setMcQuestionMs(v))}
+          />
           <div className="flex items-center gap-3">
             <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
               {(["single", "multi"] as const).map((m) => (
@@ -920,11 +910,12 @@ function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCance
                   <span className="text-xs text-muted-foreground flex-1">选项（至少中文或图片其一）</span>
                   <button onClick={() => setMcOptions((arr) => (arr.length > 2 ? arr.filter((o) => o.id !== opt.id) : arr))} disabled={mcOptions.length <= 2} className="w-7 h-7 flex-shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-30"><X size={14} /></button>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 pl-9">
-                  <Input placeholder="中文" value={opt.zh} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, zh: e.target.value } : o)))} />
-                  <Input placeholder="English" value={opt.en} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, en: e.target.value } : o)))} />
-                  <Input placeholder="Bahasa Melayu" value={opt.ms} onChange={(e) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, ms: e.target.value } : o)))} />
-                </div>
+                <MultiLangInput
+                  label="选项文字（至少中文或图片其一）"
+                  values={{ zh: opt.zh, en: opt.en, ms: opt.ms }}
+                  onChange={(lang, v) => setMcOptions((arr) => arr.map((o) => (o.id === opt.id ? { ...o, [lang]: v } : o)))}
+                  required={null}
+                />
               </div>
             ))}
             <Button variant="outline" size="sm" onClick={() => setMcOptions((arr) => [...arr, { id: `opt${Date.now()}`, zh: "", en: "", ms: "", correct: false }])}>+ 加一个选项</Button>
@@ -932,14 +923,11 @@ function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCance
         </>
       ) : (
         <>
-          <div>
-            <Label>题目句子（用 ___ 标记空，至少中文必填）</Label>
-            <div className="space-y-1.5">
-              <Input placeholder="中文" value={fbSentenceZh} onChange={(e) => setFbSentenceZh(e.target.value)} />
-              <Input placeholder="English（选填）" value={fbSentenceEn} onChange={(e) => setFbSentenceEn(e.target.value)} />
-              <Input placeholder="Bahasa Melayu（选填）" value={fbSentenceMs} onChange={(e) => setFbSentenceMs(e.target.value)} />
-            </div>
-          </div>
+          <MultiLangInput
+            label="题目句子（用 ___ 标记空）"
+            values={{ zh: fbSentenceZh, en: fbSentenceEn, ms: fbSentenceMs }}
+            onChange={(lang, v) => (lang === "zh" ? setFbSentenceZh(v) : lang === "en" ? setFbSentenceEn(v) : setFbSentenceMs(v))}
+          />
           {(() => {
             const blankCount = (fbSentenceZh.match(/___/g) ?? []).length;
             if (blankCount === 0) return null;

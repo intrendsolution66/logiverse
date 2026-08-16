@@ -84,7 +84,7 @@ export function IllustrationView({ illustration, className, style }: {
   return (
     <svg viewBox={`0 0 ${illustration.canvas_width} ${illustration.canvas_height}`} className={className} style={style}>
       {illustration.bg_image_url && (
-        <image href={illustration.bg_image_url} x={0} y={0} width={illustration.canvas_width} height={illustration.canvas_height} preserveAspectRatio="xMidYMid slice" />
+        <image href={illustration.bg_image_url} x={0} y={0} width={illustration.canvas_width} height={illustration.canvas_height} preserveAspectRatio="xMidYMid meet" />
       )}
       {sorted.map((el) => {
         if (el.kind === "shape") return <IllustrationShapeSvg key={el.id} el={el} />;

@@ -140,7 +140,7 @@ export default function ColoringQuestionEditor({ initial, onChange }: {
           onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
           onClick={() => setSelectedGroupId(null)}
         >
-          {bgImageUrl && <image href={bgImageUrl} x={0} y={0} width={CANVAS_W} height={CANVAS_H} preserveAspectRatio="xMidYMid slice" />}
+          {bgImageUrl && <image href={bgImageUrl} x={0} y={0} width={CANVAS_W} height={CANVAS_H} preserveAspectRatio="xMidYMid meet" />}
           {regions.map((r) => {
             const isSelected = (r.group_id ?? r.id) === selectedGroupId;
             const fill = r.colorable ? "#f8fafc" : (r.decoration_color ?? "#e2e8f0");
