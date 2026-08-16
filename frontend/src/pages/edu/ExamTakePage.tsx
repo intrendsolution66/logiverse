@@ -13,7 +13,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import toast from "react-hot-toast";
-import { examApi } from "@/api";
+import { examApi, type ExamPaper } from "@/api";
 import { ColoringShapeSvg, getCroppedViewBox, type ColoringConfig } from "@/lib/coloringShapes";
 import { IllustrationView, type Illustration } from "@/lib/illustrationShapes";
 import { STICKER_CANVAS_SIZE } from "@/lib/gameCanvas";
@@ -23,6 +23,17 @@ import { STICKER_CANVAS_SIZE } from "@/lib/gameCanvas";
 // useTranslation()拿locale，传进来。
 export function pickText(i18nObj: Record<string, string> | undefined, locale: string): string {
   return i18nObj?.[locale] || i18nObj?.zh || i18nObj?.en || "";
+}
+
+// 倒计时格式化——不用"天"这种要翻译的字，小时数直接累加撑到两位数
+// 以上(比如10天就是240:xx:xx)，避免额外的多语言复数/单位处理。
+function formatCountdown(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const hh = Math.floor(totalSec / 3600);
+  const mm = Math.floor((totalSec % 3600) / 60);
+  const ss = totalSec % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(hh)}:${pad(mm)}:${pad(ss)}`;
 }
 
 export interface TakeQuestion {
@@ -37,6 +48,16 @@ export default function ExamTakePage() {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
 
+  // 三段式流程——封面页(看总分/时限，还没开考的话显示倒计时) → 须知页
+  // (读须知+勾选确认) → 正式答题(这时才真正调 startAttempt 开始计时)。
+  // 只有已经在作答中(刷新页面重新进来)才跳过前两步直接续上，别让学生
+  // 每次刷新都要重新走一遍确认流程。
+  const [step, setStep] = useState<"cover" | "gate" | "exam">("cover");
+  const [paperInfo, setPaperInfo] = useState<(ExamPaper & { attempt_status?: string }) | null>(null);
+  const [loadingInfo, setLoadingInfo] = useState(true);
+  const [now, setNow] = useState(Date.now());
+  const [agreed, setAgreed] = useState(false);
+
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [questions, setQuestions] = useState<TakeQuestion[]>([]);
@@ -47,8 +68,36 @@ export default function ExamTakePage() {
   const [currentIndex, setCurrentIndex] = useState(0); // 一题一页——当前显示第几题(0-based)
   const submittedRef = useRef(false); // 防止倒计时和手动交卷同时触发两次提交
 
+  // 封面页用——只读试卷基本信息(标题/总分/时限/开考截止时间/须知)，
+  // 不触发 startAttempt，不会提前开始计时。复用学生"我的试卷"列表接口，
+  // 从里面找出这一份，不需要额外的后端接口。
   useEffect(() => {
     if (!paperId) return;
+    examApi.listMyPapers()
+      .then((list) => {
+        const found = list.find((p) => p.id === paperId);
+        if (!found) { toast.error(t("exam.cover.loadFailed")); navigate("/my-exams"); return; }
+        setPaperInfo(found);
+        if (found.attempt_status === "in_progress") setStep("exam"); // 已经在作答中——跳过封面/须知，直接续上
+      })
+      .catch(() => { toast.error(t("exam.cover.loadFailed")); navigate("/my-exams"); })
+      .finally(() => setLoadingInfo(false));
+  }, [paperId]);
+
+  // 封面页倒计时——每秒重新算一次"现在"，还没到开考时间就显示倒计时
+  useEffect(() => {
+    if (step !== "cover") return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [step]);
+
+  const opensAtMs = paperInfo?.opens_at ? new Date(paperInfo.opens_at).getTime() : null;
+  const notOpenYet = opensAtMs !== null && now < opensAtMs;
+  const closesAtMs = paperInfo?.closes_at ? new Date(paperInfo.closes_at).getTime() : null;
+  const alreadyClosed = closesAtMs !== null && now > closesAtMs;
+
+  useEffect(() => {
+    if (step !== "exam" || !paperId) return;
     examApi.startAttempt(paperId)
       .then((data) => {
         setAttemptId(data.attempt_id); setTitle(pickText(data.title_i18n, locale));
@@ -60,7 +109,7 @@ export default function ExamTakePage() {
         navigate("/my-exams");
       })
       .finally(() => setLoading(false));
-  }, [paperId]);
+  }, [step, paperId]);
 
   const handleSubmit = useCallback(async () => {
     if (!attemptId || submittedRef.current) return;
@@ -79,7 +128,7 @@ export default function ExamTakePage() {
 
   // 倒计时——归零自动交卷，逻辑上跟单个游戏引擎的countdown模式一致
   useEffect(() => {
-    if (loading || remaining <= 0) return;
+    if (step !== "exam" || loading || remaining <= 0) return;
     const id = setInterval(() => {
       setRemaining((r) => {
         if (r <= 1) { clearInterval(id); handleSubmit(); return 0; }
@@ -87,7 +136,7 @@ export default function ExamTakePage() {
       });
     }, 1000);
     return () => clearInterval(id);
-  }, [loading, handleSubmit]); // remaining 不放进依赖——只在mount时启动一次倒计时循环，避免每秒都重新建定时器
+  }, [step, loading, handleSubmit]); // remaining 不放进依赖——只在mount时启动一次倒计时循环，避免每秒都重新建定时器
 
   function setAnswer(questionId: string, value: unknown) {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
@@ -118,6 +167,69 @@ export default function ExamTakePage() {
   const timeLow = remaining < 60;
   const minutes = Math.floor(remaining / 60), seconds = remaining % 60;
 
+  // ── 封面页 ────────────────────────────────────────────────────────────────
+  if (step === "cover") {
+    if (loadingInfo) return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">{t("exam.loading")}</div>;
+    if (!paperInfo) return null;
+    return (
+      <div className="min-h-screen bg-muted/20 flex items-center justify-center px-4 py-10">
+        <div className="max-w-lg w-full rounded-2xl bg-white border border-border shadow-sm p-8 text-center space-y-4">
+          <h1 className="text-2xl font-bold text-foreground">{pickText(paperInfo.title_i18n, locale)}</h1>
+          <div className="flex items-center justify-center gap-4 text-sm text-muted-foreground">
+            <span>{t("exam.cover.totalMarksLabel", { n: paperInfo.total_marks })}</span>
+            <span>{t("exam.cover.timeLimitLabel", { n: paperInfo.time_limit_minutes })}</span>
+          </div>
+
+          {alreadyClosed ? (
+            <p className="text-sm text-red-600 font-medium">{t("exam.cover.closedAlready")}</p>
+          ) : notOpenYet ? (
+            <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-4 space-y-1.5">
+              <p className="text-sm font-semibold text-amber-800">{t("exam.cover.notOpenYet")}</p>
+              <p className="text-xs text-amber-700">{t("exam.cover.countdownLabel")}</p>
+              <div className="font-mono text-2xl font-bold text-amber-800">{formatCountdown((opensAtMs as number) - now)}</div>
+              <p className="text-xs text-amber-700">{t("exam.cover.opensAtTime", { time: new Date(paperInfo.opens_at as string).toLocaleString(locale) })}</p>
+            </div>
+          ) : (
+            <button onClick={() => setStep("gate")} className="text-sm font-semibold px-6 py-2.5 rounded-xl bg-primary text-primary-foreground">
+              {t("exam.cover.nextButton")}
+            </button>
+          )}
+
+          <button onClick={() => navigate("/my-exams")} className="block mx-auto text-xs text-muted-foreground hover:text-foreground underline">
+            {t("exam.cover.backToMyExams")}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── 须知确认页 ────────────────────────────────────────────────────────────
+  if (step === "gate") {
+    const instructionsText = pickText(paperInfo?.instructions_i18n, locale) || t("exam.gate.emptyDefault");
+    return (
+      <div className="min-h-screen bg-muted/20 flex items-center justify-center px-4 py-10">
+        <div className="max-w-lg w-full rounded-2xl bg-white border border-border shadow-sm p-8 space-y-4">
+          <h1 className="text-xl font-bold text-foreground text-center">{t("exam.gate.title")}</h1>
+          <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed max-h-[45vh] overflow-y-auto">{instructionsText}</p>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="w-4 h-4 flex-shrink-0" />
+            {t("exam.gate.agreeCheckbox")}
+          </label>
+          <div className="flex items-center justify-between gap-2 pt-2">
+            <button onClick={() => setStep("cover")} className="px-4 py-2 rounded-xl text-sm bg-muted text-foreground">{t("exam.gate.backButton")}</button>
+            <button
+              onClick={() => setStep("exam")} disabled={!agreed}
+              className="px-6 py-2 rounded-xl text-sm font-semibold bg-primary text-primary-foreground disabled:opacity-40"
+            >
+              {t("exam.gate.startButton")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── 正式答题 ──────────────────────────────────────────────────────────────
   if (loading) return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">{t("exam.loading")}</div>;
 
   return (

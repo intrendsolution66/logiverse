@@ -289,6 +289,9 @@ function BasicInfoTab({ paper, onSaved }: { paper: ExamPaper; onSaved: () => voi
   const [titleEn, setTitleEn] = useState(paper.title_i18n?.en ?? "");
   const [titleMs, setTitleMs] = useState(paper.title_i18n?.ms ?? "");
   const [description, setDescription] = useState(paper.description ?? "");
+  const [instructionsZh, setInstructionsZh] = useState(paper.instructions_i18n?.zh ?? "");
+  const [instructionsEn, setInstructionsEn] = useState(paper.instructions_i18n?.en ?? "");
+  const [instructionsMs, setInstructionsMs] = useState(paper.instructions_i18n?.ms ?? "");
   const [timeLimit, setTimeLimit] = useState(paper.time_limit_minutes);
   const [opensAt, setOpensAt] = useState(paper.opens_at?.slice(0, 16) ?? "");
   const [closesAt, setClosesAt] = useState(paper.closes_at?.slice(0, 16) ?? "");
@@ -304,6 +307,9 @@ function BasicInfoTab({ paper, onSaved }: { paper: ExamPaper; onSaved: () => voi
       await examApi.updatePaper(paper.id, {
         title_i18n: { zh: title.trim(), en: titleEn.trim() || undefined, ms: titleMs.trim() || undefined },
         description: description || undefined,
+        instructions_i18n: (instructionsZh.trim() || instructionsEn.trim() || instructionsMs.trim())
+          ? { zh: instructionsZh.trim() || undefined, en: instructionsEn.trim() || undefined, ms: instructionsMs.trim() || undefined }
+          : undefined,
         time_limit_minutes: timeLimit,
         opens_at: opensAt || undefined, closes_at: closesAt || undefined,
         allow_retake: allowRetake, max_attempts: allowRetake ? maxAttempts : 1,
@@ -326,6 +332,12 @@ function BasicInfoTab({ paper, onSaved }: { paper: ExamPaper; onSaved: () => voi
         <Label>{t("examDesigner.basic.descLabel")}</Label>
         <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className={INPUT_CLASS} />
       </div>
+      <MultiLangInput
+        label={t("examDesigner.basic.instructionsLabel")} multiline
+        values={{ zh: instructionsZh, en: instructionsEn, ms: instructionsMs }}
+        onChange={(lang, v) => (lang === "zh" ? setInstructionsZh(v) : lang === "en" ? setInstructionsEn(v) : setInstructionsMs(v))}
+        required={null}
+      />
       <div>
         <Label>{t("examDesigner.basic.timeLimitLabel")}</Label>
         <Input type="number" min={1} value={timeLimit} onChange={(e) => setTimeLimit(+e.target.value)} className="w-32" />
@@ -544,6 +556,15 @@ function AddFixedQuestionForm({ paperId, editing, onDone, onCancel }: { paperId:
   const [showIllustration, setShowIllustration] = useState(!!editIllustration);
   const [illustration, setIllustration] = useState<Illustration | null>(editIllustration ?? null);
 
+  // 解答字段(选择题/填充题/填色题都能用——学生答错这道题之后，回顾成绩
+  // 时能看到这两个链接，帮助理解正确解法。只存链接，不存文件本体——
+  // 视频/PPT通常比图片大很多，走链接比塞base64进数据库合理)
+  const editExplanationVideo = (editConfig.explanation_video_url as string | undefined) ?? "";
+  const editExplanationPpt = (editConfig.explanation_ppt_url as string | undefined) ?? "";
+  const [showExplanation, setShowExplanation] = useState(!!editExplanationVideo || !!editExplanationPpt);
+  const [explanationVideoUrl, setExplanationVideoUrl] = useState(editExplanationVideo);
+  const [explanationPptUrl, setExplanationPptUrl] = useState(editExplanationPpt);
+
   async function handleSubmit() {
     try {
       let config: Record<string, unknown>;
@@ -579,6 +600,9 @@ function AddFixedQuestionForm({ paperId, editing, onDone, onCancel }: { paperId:
         if (colorable.some((r) => !r.correct_color)) { toast.error(t("examDesigner.form.needCorrectColor")); return; }
         config = coloringConfig as unknown as Record<string, unknown>;
       }
+
+      if (explanationVideoUrl.trim()) config.explanation_video_url = explanationVideoUrl.trim();
+      if (explanationPptUrl.trim()) config.explanation_ppt_url = explanationPptUrl.trim();
 
       if (isEditing && editing) {
         await examApi.updateQuestion(paperId, editing.id, { slot_type: "fixed", question_type: questionType, marks, config });
@@ -622,6 +646,24 @@ function AddFixedQuestionForm({ paperId, editing, onDone, onCancel }: { paperId:
           )}
         </div>
       )}
+
+      <div className="rounded-lg border border-border bg-muted/20 p-3">
+        <button type="button" onClick={() => setShowExplanation((v) => !v)} className="text-xs font-medium text-foreground flex items-center gap-1.5">
+          {t("examDesigner.form.explanationToggle")}{showExplanation ? "▲" : "▼"}
+        </button>
+        {showExplanation && (
+          <div className="mt-3 space-y-2.5">
+            <div>
+              <Label>{t("examDesigner.form.explanationVideoLabel")}</Label>
+              <Input value={explanationVideoUrl} onChange={(e) => setExplanationVideoUrl(e.target.value)} placeholder={t("examDesigner.form.explanationVideoPlaceholder")} />
+            </div>
+            <div>
+              <Label>{t("examDesigner.form.explanationPptLabel")}</Label>
+              <Input value={explanationPptUrl} onChange={(e) => setExplanationPptUrl(e.target.value)} placeholder={t("examDesigner.form.explanationPptPlaceholder")} />
+            </div>
+          </div>
+        )}
+      </div>
 
       {qType !== "coloring" && (qType === "multiple_choice" ? (
         <>
@@ -999,6 +1041,11 @@ function AddBankQuestionForm({ editing, onDone, onCancel }: { editing?: ExamQues
   const editIllustration = (editConfig.illustration as Illustration | undefined) ?? undefined;
   const [showIllustration, setShowIllustration] = useState(!!editIllustration);
   const [illustration, setIllustration] = useState<Illustration | null>(editIllustration ?? null);
+  const editExplanationVideo = (editConfig.explanation_video_url as string | undefined) ?? "";
+  const editExplanationPpt = (editConfig.explanation_ppt_url as string | undefined) ?? "";
+  const [showExplanation, setShowExplanation] = useState(!!editExplanationVideo || !!editExplanationPpt);
+  const [explanationVideoUrl, setExplanationVideoUrl] = useState(editExplanationVideo);
+  const [explanationPptUrl, setExplanationPptUrl] = useState(editExplanationPpt);
 
   async function handleSubmit() {
     if (!category.trim()) { toast.error(t("examDesigner.bank.needCategory")); return; }
@@ -1035,6 +1082,9 @@ function AddBankQuestionForm({ editing, onDone, onCancel }: { editing?: ExamQues
         if (colorable.some((r) => !r.correct_color)) { toast.error(t("examDesigner.form.needCorrectColor")); return; }
         config = coloringConfig as unknown as Record<string, unknown>;
       }
+
+      if (explanationVideoUrl.trim()) config.explanation_video_url = explanationVideoUrl.trim();
+      if (explanationPptUrl.trim()) config.explanation_ppt_url = explanationPptUrl.trim();
 
       if (isEditing && editing) {
         await examApi.updateBankQuestion(editing.id, { category: category.trim(), question_type: qType, config });
@@ -1073,6 +1123,23 @@ function AddBankQuestionForm({ editing, onDone, onCancel }: { editing?: ExamQues
           )}
         </div>
       )}
+      <div className="rounded-lg border border-border bg-muted/20 p-3">
+        <button type="button" onClick={() => setShowExplanation((v) => !v)} className="text-xs font-medium text-foreground flex items-center gap-1.5">
+          {t("examDesigner.form.explanationToggle")}{showExplanation ? "▲" : "▼"}
+        </button>
+        {showExplanation && (
+          <div className="mt-3 space-y-2.5">
+            <div>
+              <Label>{t("examDesigner.form.explanationVideoLabel")}</Label>
+              <Input value={explanationVideoUrl} onChange={(e) => setExplanationVideoUrl(e.target.value)} placeholder={t("examDesigner.form.explanationVideoPlaceholder")} />
+            </div>
+            <div>
+              <Label>{t("examDesigner.form.explanationPptLabel")}</Label>
+              <Input value={explanationPptUrl} onChange={(e) => setExplanationPptUrl(e.target.value)} placeholder={t("examDesigner.form.explanationPptPlaceholder")} />
+            </div>
+          </div>
+        )}
+      </div>
       {qType !== "coloring" && (qType === "multiple_choice" ? (
         <>
           <MultiLangInput

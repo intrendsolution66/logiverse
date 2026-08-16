@@ -164,11 +164,32 @@
       "incorrectLabel": "✗ Salah",
       "yourChoice": "(pilihan anda)",
       "emptyAnswer": "(kosong)",
-      "shouldBe": "Sepatutnya"
+      "shouldBe": "Sepatutnya",
+      "explanationTitle": "📚 Penyelesaian",
+      "watchVideo": "▶️ Tonton video penyelesaian",
+      "viewPpt": "📄 Lihat PPT penyelesaian"
     },
     "instructions": {
       "coloring": "Pilih warna dahulu, kemudian ketik kawasan pada kanvas untuk mewarnakannya",
       "sticker": "Ketik pelekat di bawah dahulu, kemudian ketik lokasinya pada kanvas"
+    },
+    "cover": {
+      "totalMarksLabel": "Jumlah {{n}} markah",
+      "timeLimitLabel": "Had masa {{n}} minit",
+      "notOpenYet": "Belum dibuka lagi",
+      "countdownLabel": "Masa sehingga dibuka",
+      "opensAtTime": "Dibuka pada: {{time}}",
+      "closedAlready": "Tempoh menjawab telah tamat — anda tidak boleh mula sekarang",
+      "loadFailed": "Gagal memuatkan maklumat kertas",
+      "nextButton": "Seterusnya: Baca Arahan",
+      "backToMyExams": "← Kembali ke Kertas Saya"
+    },
+    "gate": {
+      "title": "Arahan Peperiksaan",
+      "emptyDefault": "Sila jawab dengan teliti dan jujur. Semoga berjaya.",
+      "agreeCheckbox": "Saya telah membaca arahan di atas dan bersetuju untuk bermula",
+      "backButton": "Kembali",
+      "startButton": "Mula Peperiksaan"
     },
     "myExams": {
       "title": "Kertas Saya",
@@ -238,6 +259,7 @@
       "reviewHintAfterCloseSet": "Pelajar melihat jumlah markah sejurus selepas menghantar; butiran soalan demi soalan/jawapan betul hanya dibuka selepas masa ditutup, untuk mengelakkan kebocoran jawapan oleh mereka yang menghantar awal",
       "reviewHintAfterCloseUnset": "⚠️ Masa ditutup belum ditetapkan — dalam mod pertandingan rasmi tanpa masa ditutup, butiran soalan tidak akan pernah dibuka. Pertimbangkan untuk menetapkannya atau tukar ke mod Latihan",
       "reviewHintImmediate": "Pelajar boleh melihat butiran soalan demi soalan/jawapan betul sejurus selepas menghantar — sesuai untuk latihan biasa",
+      "instructionsLabel": "Arahan Sebelum Peperiksaan (pilihan — pelajar akan melihat teks ini sebelum bermula, dan perlu menandakan kotak mengesahkan mereka telah membaca sebelum boleh mula)",
       "titleRequired": "Sila isi nama kertas (sekurang-kurangnya dalam Bahasa Cina)",
       "saveSuccess": "Disimpan",
       "saveFailed": "Gagal menyimpan",
@@ -267,6 +289,11 @@
       "typeColoring": "🎨 Mewarna",
       "marksLabel": "Markah",
       "illustrationToggle": "🖼️ Ilustrasi Soalan (pilihan, hiasan sahaja, tidak menjejaskan pemarkahan)",
+      "explanationToggle": "📚 Lampirkan Penyelesaian (pilihan, pautan video/PPT, dipaparkan kepada pelajar selepas mereka tersalah jawab)",
+      "explanationVideoLabel": "Pautan Video Penyelesaian",
+      "explanationVideoPlaceholder": "Tampal pautan video (cth YouTube atau URL video yang dimuat naik)",
+      "explanationPptLabel": "Pautan PPT Penyelesaian",
+      "explanationPptPlaceholder": "Tampal pautan PPT/slaid",
       "questionTextLabel": "Teks Soalan",
       "answerModeLabel": "Cara Menjawab:",
       "single": "Satu Pilihan",

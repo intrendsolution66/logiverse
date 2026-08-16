@@ -164,11 +164,32 @@
       "incorrectLabel": "✗ Incorrect",
       "yourChoice": "(your choice)",
       "emptyAnswer": "(blank)",
-      "shouldBe": "Should be"
+      "shouldBe": "Should be",
+      "explanationTitle": "📚 Solution",
+      "watchVideo": "▶️ Watch video solution",
+      "viewPpt": "📄 View PPT solution"
     },
     "instructions": {
       "coloring": "Pick a color, then tap the areas on the canvas to color them",
       "sticker": "Tap a sticker below, then tap its spot on the canvas"
+    },
+    "cover": {
+      "totalMarksLabel": "Total {{n}} marks",
+      "timeLimitLabel": "Time limit {{n}} min",
+      "notOpenYet": "Not open yet",
+      "countdownLabel": "Time until it opens",
+      "opensAtTime": "Opens at: {{time}}",
+      "closedAlready": "The submission window has already closed — you can't start now",
+      "loadFailed": "Failed to load exam info",
+      "nextButton": "Next: Read Instructions",
+      "backToMyExams": "← Back to My Exams"
+    },
+    "gate": {
+      "title": "Exam Instructions",
+      "emptyDefault": "Please answer carefully and honestly. Good luck.",
+      "agreeCheckbox": "I have read the instructions above and agree to begin",
+      "backButton": "Back",
+      "startButton": "Start Exam"
     },
     "myExams": {
       "title": "My Exams",
@@ -238,6 +259,7 @@
       "reviewHintAfterCloseSet": "Students see their total score right after submitting; question-by-question details/correct answers only unlock after the closing time, preventing early submitters from leaking answers",
       "reviewHintAfterCloseUnset": "⚠️ No closing time set — in official competition mode without a closing time, question details will never unlock. Consider adding one or switching to Practice mode",
       "reviewHintImmediate": "Students can see question-by-question details/correct answers right after submitting — good for regular practice",
+      "instructionsLabel": "Pre-exam Instructions (optional — students see this text before starting, and must check a box confirming they've read it before they can begin)",
       "titleRequired": "Please enter a paper name (at least in Chinese)",
       "saveSuccess": "Saved",
       "saveFailed": "Save failed",
@@ -267,6 +289,11 @@
       "typeColoring": "🎨 Coloring",
       "marksLabel": "Marks",
       "illustrationToggle": "🖼️ Illustration (optional, purely decorative, doesn't affect grading)",
+      "explanationToggle": "📚 Attach Solution (optional, video/PPT link, shown to students after they get it wrong)",
+      "explanationVideoLabel": "Video Solution Link",
+      "explanationVideoPlaceholder": "Paste a video link (e.g. YouTube or an uploaded video URL)",
+      "explanationPptLabel": "PPT Solution Link",
+      "explanationPptPlaceholder": "Paste a PPT/slides link",
       "questionTextLabel": "Question Text",
       "answerModeLabel": "Answer Mode:",
       "single": "Single",

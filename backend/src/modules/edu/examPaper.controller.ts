@@ -171,13 +171,14 @@ export async function listExamPapers(req: AuthRequest, res: Response): Promise<v
 
 export async function createExamPaper(req: AuthRequest, res: Response): Promise<void> {
   try {
-    const { title_i18n, description, time_limit_minutes, opens_at, closes_at, org_id, allow_retake, max_attempts, review_policy } = req.body as Record<string, unknown>;
+    const { title_i18n, description, instructions_i18n, time_limit_minutes, opens_at, closes_at, org_id, allow_retake, max_attempts, review_policy } = req.body as Record<string, unknown>;
     if (!title_i18n) { badRequest(res, "title_i18n is required"); return; }
     if (review_policy && !["immediate", "after_close"].includes(review_policy as string)) { badRequest(res, "review_policy 必须是 immediate 或 after_close"); return; }
     const { rows } = await query(
-      `INSERT INTO edu.exam_papers (title_i18n, description, time_limit_minutes, opens_at, closes_at, org_id, created_by, allow_retake, max_attempts, review_policy)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-      [JSON.stringify(title_i18n), description ?? null, time_limit_minutes ?? 60, opens_at ?? null, closes_at ?? null, org_id ?? null, req.user!.sub,
+      `INSERT INTO edu.exam_papers (title_i18n, description, instructions_i18n, time_limit_minutes, opens_at, closes_at, org_id, created_by, allow_retake, max_attempts, review_policy)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      [JSON.stringify(title_i18n), description ?? null, instructions_i18n ? JSON.stringify(instructions_i18n) : null,
+       time_limit_minutes ?? 60, opens_at ?? null, closes_at ?? null, org_id ?? null, req.user!.sub,
        allow_retake ?? false, (allow_retake ? (max_attempts ?? 3) : 1), review_policy ?? "after_close"]
     );
     created(res, rows[0]);
@@ -201,18 +202,20 @@ export async function updateExamPaper(req: AuthRequest, res: Response): Promise<
   try {
     const paper = await getPaperOr404(req.params.paperId);
     if (!paper) { notFound(res, "试卷不存在"); return; }
-    const { title_i18n, description, time_limit_minutes, opens_at, closes_at, allow_retake, max_attempts, review_policy } = req.body as Record<string, unknown>;
+    const { title_i18n, description, instructions_i18n, time_limit_minutes, opens_at, closes_at, allow_retake, max_attempts, review_policy } = req.body as Record<string, unknown>;
     if (review_policy && !["immediate", "after_close"].includes(review_policy as string)) { badRequest(res, "review_policy 必须是 immediate 或 after_close"); return; }
     const { rows } = await query(
       `UPDATE edu.exam_papers SET
          title_i18n = COALESCE($2, title_i18n), description = $3,
-         time_limit_minutes = COALESCE($4, time_limit_minutes),
-         opens_at = $5, closes_at = $6,
-         allow_retake = COALESCE($7, allow_retake), max_attempts = COALESCE($8, max_attempts),
-         review_policy = COALESCE($9, review_policy),
+         instructions_i18n = $4,
+         time_limit_minutes = COALESCE($5, time_limit_minutes),
+         opens_at = $6, closes_at = $7,
+         allow_retake = COALESCE($8, allow_retake), max_attempts = COALESCE($9, max_attempts),
+         review_policy = COALESCE($10, review_policy),
          updated_at = now()
        WHERE id = $1 RETURNING *`,
       [req.params.paperId, title_i18n ? JSON.stringify(title_i18n) : null, description ?? paper.description,
+       instructions_i18n !== undefined ? (instructions_i18n ? JSON.stringify(instructions_i18n) : null) : paper.instructions_i18n,
        time_limit_minutes ?? null, opens_at ?? null, closes_at ?? null,
        allow_retake ?? null, max_attempts ?? null, review_policy ?? null]
     );
@@ -617,8 +620,8 @@ export async function removeExamPaperStudent(req: AuthRequest, res: Response): P
 export async function listMyExamPapers(req: AuthRequest, res: Response): Promise<void> {
   try {
     const { rows } = await query(
-      `SELECT ep.id, ep.title_i18n, ep.description, ep.time_limit_minutes, ep.opens_at, ep.closes_at,
-              ep.status, ep.total_marks,
+      `SELECT ep.id, ep.title_i18n, ep.description, ep.instructions_i18n, ep.time_limit_minutes, ep.opens_at, ep.closes_at,
+              ep.status, ep.total_marks, ep.allow_retake,
               ea.id AS attempt_id, ea.status AS attempt_status, ea.score, ea.submitted_at
        FROM edu.exam_paper_students eps
        JOIN edu.exam_papers ep ON ep.id = eps.paper_id

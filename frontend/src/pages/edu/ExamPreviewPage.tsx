@@ -1,6 +1,3 @@
-// frontend/src/pages/edu/ExamPreviewPage.tsx
-//
-// 运营/设计师"试玩预览"页面——测试自己设计的考卷实际玩起来是什么样，
 // 不受白名单/发布状态/开考截止时间限制(草稿也能试玩)，交卷后立刻在
 // 本地算分显示结果，完全不写入 exam_attempts 这张表——不会污染真实的
 // 排行榜、不会占用任何学生的重考次数。
@@ -18,6 +15,7 @@ import {
   pickText, MultipleChoiceQuestion, FillBlankQuestion, ColoringQuestion, SudokuQuestion, StickerGameQuestion,
   type TakeQuestion,
 } from "./ExamTakePage";
+import { ReviewCard, type ReviewQuestion } from "./ExamResultPage";
 import type { ColoringConfig } from "@/lib/coloringShapes";
 
 // ── 本地判分——跟后端 gradeQuestion() 一一对应 ────────────────────────────────
@@ -133,61 +131,59 @@ export default function ExamPreviewPage() {
             </div>
           )}
 
-          {finished ? (
-            <>
-              {questions.map((q, i) => (
-                <PreviewQuestionCard key={q.id} index={i + 1} question={q} value={answers[q.id]} onChange={(v) => setAnswer(q.id, v)} finished={finished} />
-              ))}
-            </>
-          ) : (
-            <>
-              <div className="flex items-center justify-between mb-3 text-sm">
-                <span className="text-muted-foreground">{t("exam.questionOf", { current: currentIndex + 1, total: questions.length })}</span>
-                <span className="text-xs text-muted-foreground">{t("exam.answered", { count: Object.keys(answers).length, total: questions.length })}</span>
-              </div>
+          <div className="flex items-center justify-between mb-3 text-sm">
+            <span className="text-muted-foreground">{t("exam.questionOf", { current: currentIndex + 1, total: questions.length })}</span>
+            {!finished && <span className="text-xs text-muted-foreground">{t("exam.answered", { count: Object.keys(answers).length, total: questions.length })}</span>}
+          </div>
 
-              {questions[currentIndex] && (
-                <PreviewQuestionCard
-                  key={questions[currentIndex].id} index={currentIndex + 1}
-                  question={questions[currentIndex]} value={answers[questions[currentIndex].id]}
-                  onChange={(v) => setAnswer(questions[currentIndex].id, v)} finished={false}
-                />
-              )}
-            </>
+          {questions[currentIndex] && (
+            finished ? (
+              <ReviewCard
+                key={questions[currentIndex].id} index={currentIndex + 1}
+                question={{
+                  id: questions[currentIndex].id, order_index: questions[currentIndex].order_index,
+                  question_type: questions[currentIndex].question_type, marks: questions[currentIndex].marks,
+                  config: questions[currentIndex].config, student_answer: answers[questions[currentIndex].id],
+                  is_correct: gradeQuestionLocally(questions[currentIndex].question_type, questions[currentIndex].config, answers[questions[currentIndex].id]),
+                } as ReviewQuestion}
+              />
+            ) : (
+              <PreviewQuestionCard
+                key={questions[currentIndex].id} index={currentIndex + 1}
+                question={questions[currentIndex]} value={answers[questions[currentIndex].id]}
+                onChange={(v) => setAnswer(questions[currentIndex].id, v)}
+              />
+            )
           )}
         </div>
       </div>
 
-      {!finished && (
-        <div className="flex-shrink-0 bg-white border-t border-border px-4 py-3">
-          <div className="max-w-2xl lg:max-w-4xl xl:max-w-6xl 2xl:max-w-7xl mx-auto flex items-center justify-between gap-2">
-            <div className="flex gap-1.5">
-              <button onClick={() => setCurrentIndex(0)} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.firstQuestion")}</button>
-              <button onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.prevQuestion")}</button>
-            </div>
-            <button onClick={handleSubmit} className="text-sm font-semibold px-6 py-2 rounded-xl bg-primary text-primary-foreground">{t("exam.preview.submit")}</button>
-            <div className="flex gap-1.5">
-              <button onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.nextQuestion")}</button>
-              <button onClick={() => setCurrentIndex(questions.length - 1)} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.lastQuestion")}</button>
-            </div>
+      <div className="flex-shrink-0 bg-white border-t border-border px-4 py-3">
+        <div className="max-w-2xl lg:max-w-4xl xl:max-w-6xl 2xl:max-w-7xl mx-auto flex items-center justify-between gap-2">
+          <div className="flex gap-1.5">
+            <button onClick={() => setCurrentIndex(0)} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.firstQuestion")}</button>
+            <button onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.prevQuestion")}</button>
+          </div>
+          {!finished && <button onClick={handleSubmit} className="text-sm font-semibold px-6 py-2 rounded-xl bg-primary text-primary-foreground">{t("exam.preview.submit")}</button>}
+          <div className="flex gap-1.5">
+            <button onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.nextQuestion")}</button>
+            <button onClick={() => setCurrentIndex(questions.length - 1)} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.lastQuestion")}</button>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
-function PreviewQuestionCard({ index, question, value, onChange, finished }: {
-  index: number; question: TakeQuestion; value: unknown; onChange: (v: unknown) => void; finished: boolean;
+function PreviewQuestionCard({ index, question, value, onChange }: {
+  index: number; question: TakeQuestion; value: unknown; onChange: (v: unknown) => void;
 }) {
   const { t } = useTranslation();
-  const isCorrect = finished ? gradeQuestionLocally(question.question_type, question.config, value) : null;
   return (
-    <div className={`rounded-2xl bg-white border shadow-sm p-5 ${finished ? (isCorrect ? "border-emerald-300" : "border-red-300") : "border-border"}`}>
+    <div className="rounded-2xl bg-white border border-border shadow-sm p-5">
       <div className="flex items-center gap-2 mb-3">
         <span className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-xs font-semibold flex-shrink-0">{index}</span>
         <span className="text-xs text-muted-foreground">{t("exam.marksUnit", { n: question.marks })}</span>
-        {finished && <span className={`text-xs font-semibold ml-auto ${isCorrect ? "text-emerald-600" : "text-red-600"}`}>{isCorrect ? t("exam.correct") : t("exam.incorrect")}</span>}
       </div>
       {question.question_type === "multiple_choice"
         ? <MultipleChoiceQuestion config={question.config} value={value as string[] | undefined} onChange={onChange} />

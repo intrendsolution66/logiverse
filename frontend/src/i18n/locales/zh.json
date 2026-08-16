@@ -164,11 +164,32 @@
       "incorrectLabel": "✗ 答错",
       "yourChoice": "(你选的)",
       "emptyAnswer": "(空白)",
-      "shouldBe": "这里应该是"
+      "shouldBe": "这里应该是",
+      "explanationTitle": "📚 解答",
+      "watchVideo": "▶️ 观看视频解答",
+      "viewPpt": "📄 查看PPT解答"
     },
     "instructions": {
       "coloring": "先选一个颜色，再点画布上要上色的区域",
       "sticker": "先点下面要用的贴纸，再点画布上对应的位置"
+    },
+    "cover": {
+      "totalMarksLabel": "总分 {{n}} 分",
+      "timeLimitLabel": "时限 {{n}} 分钟",
+      "notOpenYet": "还没到开考时间",
+      "countdownLabel": "距离开考还有",
+      "opensAtTime": "开考时间：{{time}}",
+      "closedAlready": "已经过了作答时间，不能再开始",
+      "loadFailed": "加载试卷信息失败",
+      "nextButton": "下一步：查看须知",
+      "backToMyExams": "← 返回我的试卷"
+    },
+    "gate": {
+      "title": "考试须知",
+      "emptyDefault": "请认真作答，诚信考试，祝考试顺利。",
+      "agreeCheckbox": "我已阅读以上须知，同意开始作答",
+      "backButton": "上一步",
+      "startButton": "开始考试"
     },
     "myExams": {
       "title": "我的试卷",
@@ -238,6 +259,7 @@
       "reviewHintAfterCloseSet": "学生交卷后先看到总分，逐题详情/正确答案要等截止时间过了才能看，防止先交卷的人泄题",
       "reviewHintAfterCloseUnset": "⚠️ 还没填截止时间——正式比赛模式下不填截止时间，逐题详情会一直看不到，建议补上或改成自主练习",
       "reviewHintImmediate": "学生交卷后立刻能看逐题详情/正确答案，适合平时练习",
+      "instructionsLabel": "考前须知（选填，学生开始作答前会看到这段文字，勾选确认后才能进入答题）",
       "titleRequired": "请填写试卷名称（至少中文）",
       "saveSuccess": "已保存",
       "saveFailed": "保存失败",
@@ -267,6 +289,11 @@
       "typeColoring": "🎨 填色题",
       "marksLabel": "分值",
       "illustrationToggle": "🖼️ 题目配图（选填，纯装饰性插图，不影响判分）",
+      "explanationToggle": "📚 附加解答（选填，视频/PPT链接，学生答错后能看到）",
+      "explanationVideoLabel": "视频解答链接",
+      "explanationVideoPlaceholder": "粘贴视频链接（比如YouTube或已上传视频的网址）",
+      "explanationPptLabel": "PPT解答链接",
+      "explanationPptPlaceholder": "粘贴PPT/幻灯片链接",
       "questionTextLabel": "题目文字",
       "answerModeLabel": "答题方式：",
       "single": "单选",

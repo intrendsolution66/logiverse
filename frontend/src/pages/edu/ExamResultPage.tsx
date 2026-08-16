@@ -15,11 +15,11 @@ import { IllustrationView, type Illustration } from "@/lib/illustrationShapes";
 import { STICKER_CANVAS_SIZE } from "@/lib/gameCanvas";
 
 // 按当前界面语言取文字——取不到就退回中文，再退回英文。
-function pickText(i18nObj: Record<string, string> | undefined, locale: string): string {
+export function pickText(i18nObj: Record<string, string> | undefined, locale: string): string {
   return i18nObj?.[locale] || i18nObj?.zh || i18nObj?.en || "";
 }
 
-interface ReviewQuestion {
+export interface ReviewQuestion {
   id: string; order_index: number; question_type: string; marks: number;
   config: Record<string, unknown>; student_answer: unknown; is_correct: boolean;
 }
@@ -96,7 +96,7 @@ export default function ExamResultPage() {
   );
 }
 
-function ReviewCard({ index, question }: { index: number; question: ReviewQuestion }) {
+export function ReviewCard({ index, question }: { index: number; question: ReviewQuestion }) {
   const { t } = useTranslation();
   return (
     <div className={`rounded-xl bg-white border-2 shadow-sm p-4 ${question.is_correct ? "border-emerald-300" : "border-red-300"}`}>
@@ -115,6 +115,23 @@ function ReviewCard({ index, question }: { index: number; question: ReviewQuesti
         : question.question_type === "sudoku"
         ? <SudokuReview question={question} />
         : <StickerGameReview question={question} />}
+      {!question.is_correct && !!(question.config?.explanation_video_url || question.config?.explanation_ppt_url) && (
+        <div className="mt-3 pt-3 border-t border-border/60 space-y-1.5">
+          <p className="text-xs font-semibold text-muted-foreground">{t("exam.result.explanationTitle")}</p>
+          <div className="flex flex-wrap gap-2">
+            {!!question.config?.explanation_video_url && (
+              <a href={question.config.explanation_video_url as string} target="_blank" rel="noopener noreferrer" className="text-xs font-medium px-3 py-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20">
+                {t("exam.result.watchVideo")}
+              </a>
+            )}
+            {!!question.config?.explanation_ppt_url && (
+              <a href={question.config.explanation_ppt_url as string} target="_blank" rel="noopener noreferrer" className="text-xs font-medium px-3 py-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20">
+                {t("exam.result.viewPpt")}
+              </a>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -297,5 +314,4 @@ function StickerGameReview({ question }: { question: ReviewQuestion }) {
     </div>
   );
 }
-
 

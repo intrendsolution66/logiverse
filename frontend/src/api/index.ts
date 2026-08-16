@@ -612,6 +612,7 @@ export const dataCleanupApi = {
 
 export interface ExamPaper {
   id: string; title_i18n: Record<string, string>; description?: string;
+  instructions_i18n?: Record<string, string>; // 考前须知——学生开始作答前的封面/须知页显示，勾选确认后才能真正开始
   time_limit_minutes: number; opens_at?: string; closes_at?: string;
   status: "draft" | "published" | "closed";
   total_marks: number; allow_retake: boolean; max_attempts: number;
@@ -644,7 +645,8 @@ export const examApi = {
       meta: res.data.meta as { page: number; limit: number; total: number; totalPages: number },
     })),
   createPaper: (b: {
-    title_i18n: { zh: string; en?: string; ms?: string }; description?: string; time_limit_minutes?: number;
+    title_i18n: { zh: string; en?: string; ms?: string }; description?: string;
+    instructions_i18n?: { zh?: string; en?: string; ms?: string }; time_limit_minutes?: number;
     opens_at?: string; closes_at?: string; allow_retake?: boolean; max_attempts?: number;
     review_policy?: "immediate" | "after_close";
   }) => api.post("/exam-papers", b).then(d<ExamPaper>),
@@ -653,7 +655,8 @@ export const examApi = {
   getPaperForEdit: (paperId: string) =>
     api.get(`/exam-papers/${paperId}`).then(d<ExamPaper & { questions: ExamPaperQuestion[] }>),
   updatePaper: (paperId: string, b: Partial<{
-    title_i18n: { zh: string; en?: string; ms?: string }; description: string; time_limit_minutes: number;
+    title_i18n: { zh: string; en?: string; ms?: string }; description: string;
+    instructions_i18n: { zh?: string; en?: string; ms?: string }; time_limit_minutes: number;
     opens_at: string; closes_at: string; allow_retake: boolean; max_attempts: number;
     review_policy: "immediate" | "after_close";
   }>) => api.patch(`/exam-papers/${paperId}`, b),
