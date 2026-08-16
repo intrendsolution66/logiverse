@@ -112,19 +112,21 @@ function MultipleChoiceReview({ question }: { question: ReviewQuestion }) {
   const options = (config.options as Array<{ id: string; text_i18n: Record<string, string>; image_url?: string }>) ?? [];
   const correctIds = new Set((config.correct_option_ids as string[]) ?? []);
   const studentIds = new Set((question.student_answer as string[]) ?? []);
+  const hasImages = options.some((o) => o.image_url);
+  const isShort = !hasImages && options.every((o) => pickText(o.text_i18n, locale).length <= 6);
 
   return (
     <>
       {illustration && <div className="mb-2"><IllustrationView illustration={illustration} /></div>}
-      <p className="text-sm font-medium text-foreground mb-2">{questionText}</p>
-      <div className="space-y-1.5">
+      <p className="text-xl sm:text-2xl md:text-3xl font-medium text-foreground mb-3 leading-snug">{questionText}</p>
+      <div className={isShort ? "flex flex-wrap gap-1.5" : "space-y-1.5"}>
         {options.map((opt) => {
           const isCorrect = correctIds.has(opt.id);
           const wasSelected = studentIds.has(opt.id);
           return (
             <div
               key={opt.id}
-              className={`px-3 py-2 rounded-lg text-sm flex items-center gap-2 ${
+              className={`${isShort ? "min-w-[3.5rem]" : ""} px-3 py-2 rounded-lg text-sm flex items-center gap-2 ${
                 isCorrect ? "bg-emerald-50 text-emerald-700" : wasSelected ? "bg-red-50 text-red-600" : "text-muted-foreground"
               }`}
             >
@@ -153,7 +155,7 @@ function FillBlankReview({ question }: { question: ReviewQuestion }) {
   return (
     <>
       {illustration && <div className="mb-2"><IllustrationView illustration={illustration} /></div>}
-      <p className="text-sm text-foreground leading-relaxed flex flex-wrap items-center gap-x-1 gap-y-2">
+      <p className="text-xl sm:text-2xl md:text-3xl text-foreground leading-relaxed flex flex-wrap items-center gap-x-1.5 gap-y-2">
       {segments.map((seg, i) => (
         <span key={i} className="inline-flex items-center gap-1">
           {seg && <span>{seg}</span>}

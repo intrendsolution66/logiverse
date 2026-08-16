@@ -210,28 +210,31 @@ export function MultipleChoiceQuestion({ config, value, onChange }: {
     onChange([...next]);
   }
 
+  const hasImages = options.some((o) => o.image_url);
+  const isShort = !hasImages && options.every((o) => pickText(o.text_i18n, locale).length <= 6);
+
   return (
     <>
       {illustration && <div className="mb-3"><IllustrationView illustration={illustration} /></div>}
-      <p className="text-base font-medium text-foreground mb-3">{questionText}</p>
-      <div className="space-y-2">
+      <p className="text-2xl sm:text-3xl md:text-4xl font-medium text-foreground mb-4 leading-snug">{questionText}</p>
+      <div className={isShort ? "flex flex-wrap gap-2" : "space-y-2"}>
         {options.map((opt) => {
           const isSelected = selected.has(opt.id);
           const optText = pickText(opt.text_i18n, locale);
           return (
             <button
               key={opt.id} type="button" onClick={() => toggle(opt.id)}
-              className={`w-full text-left px-4 py-3 rounded-xl border-2 flex items-center gap-3 transition-colors ${
+              className={`${isShort ? "min-w-[5.5rem]" : "w-full"} text-left px-5 py-4 rounded-xl border-2 flex items-center gap-3 transition-colors ${
                 isSelected ? "border-primary bg-primary/10" : "border-border bg-white hover:border-primary/40"
               }`}
             >
-              <span className={`w-5 h-5 flex-shrink-0 border-2 flex items-center justify-center text-xs ${isMulti ? "rounded-md" : "rounded-full"} ${
+              <span className={`w-6 h-6 sm:w-7 sm:h-7 flex-shrink-0 border-2 flex items-center justify-center text-sm ${isMulti ? "rounded-md" : "rounded-full"} ${
                 isSelected ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40"
               }`}>
                 {isSelected ? "✓" : ""}
               </span>
-              {opt.image_url && <img src={opt.image_url} alt="" className="w-14 h-14 rounded-lg object-cover flex-shrink-0" />}
-              {optText && <span className="text-sm">{optText}</span>}
+              {opt.image_url && <img src={opt.image_url} alt="" className="w-16 h-16 sm:w-20 sm:h-20 rounded-lg object-cover flex-shrink-0" />}
+              {optText && <span className="text-lg sm:text-xl md:text-2xl">{optText}</span>}
             </button>
           );
         })}
@@ -261,14 +264,14 @@ export function FillBlankQuestion({ config, value, onChange }: {
   return (
     <>
       {illustration && <div className="mb-3"><IllustrationView illustration={illustration} /></div>}
-      <p className="text-base font-medium text-foreground leading-relaxed flex flex-wrap items-center gap-x-1.5 gap-y-2">
+      <p className="text-2xl sm:text-3xl md:text-4xl font-medium text-foreground leading-relaxed flex flex-wrap items-center gap-x-2 gap-y-3">
       {segments.map((seg, i) => (
         <span key={i} className="inline-flex items-center gap-1.5">
           {seg && <span>{seg}</span>}
           {i < blankCount && (
             <input
               type="text" value={values[i] ?? ""} onChange={(e) => setBlank(i, e.target.value)}
-              className="inline-block w-24 px-2 py-1 rounded-lg border-2 border-primary/50 bg-white text-center font-semibold outline-none focus:border-primary"
+              className="inline-block w-28 sm:w-32 md:w-40 px-2 py-1 rounded-lg border-2 border-primary/50 bg-white text-center font-semibold outline-none focus:border-primary text-2xl sm:text-3xl md:text-4xl"
             />
           )}
         </span>

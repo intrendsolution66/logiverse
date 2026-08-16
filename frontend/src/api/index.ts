@@ -623,7 +623,7 @@ export interface ExamPaper {
 export interface ExamPaperQuestion {
   id: string; paper_id: string; order_index: number;
   slot_type: "fixed" | "random_category";
-  question_type?: "multiple_choice" | "fill_blank"; // slot_type='fixed' 时才有
+  question_type?: "multiple_choice" | "fill_blank" | "coloring"; // slot_type='fixed' 时才有
   marks: number;
   config?: Record<string, unknown>; // slot_type='fixed' 时才有(含正确答案，仅设计师能看)
   random_category?: string; random_count?: number; // slot_type='random_category' 时才有

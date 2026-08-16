@@ -20,6 +20,12 @@ import {
 
 const router = Router();
 
+// ── 学生端"我的试卷"列表 —— 必须放在 /exam-papers/:paperId 之前！
+//    否则字符串 "mine" 会被 Express 当成 :paperId 参数匹配掉，导致这条
+//    路由永远走不到，学生请求会命中上面 courses.manage 权限的 :paperId
+//    路由，返回403(这正是之前学生端"我的试卷"加载失败的根因) ──────────────
+router.get("/exam-papers/mine", authenticate, listMyExamPapers);
+
 // ── 试卷本身 (courses.manage) ────────────────────────────────────────────────
 router.get   ("/exam-papers",             authenticate, authorize("courses.manage"), listExamPapers);
 router.post  ("/exam-papers",             authenticate, authorize("courses.manage"), createExamPaper);
@@ -56,7 +62,6 @@ router.delete("/exam-papers/:paperId/students/:studentId",   authenticate, autho
 router.get("/exam-papers/:paperId/leaderboard", authenticate, authorize("courses.manage"), getExamPaperLeaderboard);
 
 // ── 学生端作答 (authenticate only — 白名单/时间窗口/次数上限检查在 controller 内部做) ──
-router.get ("/exam-papers/mine",                    authenticate, listMyExamPapers);
 router.post("/exam-papers/:paperId/start",          authenticate, startExamAttempt);
 router.get ("/exam-papers/:paperId/my-attempts",    authenticate, listMyAttemptsForPaper);
 router.post("/exam-attempts/:attemptId/submit",     authenticate, submitExamAttempt);
