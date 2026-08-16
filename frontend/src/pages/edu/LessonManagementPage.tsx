@@ -20,9 +20,10 @@ import toast from "react-hot-toast";
 interface Course { id: string; title_i18n: Record<string, string>; age_group?: string; grade_tier_id?: string; grade_tier_name_i18n?: Record<string, string> }
 interface Lesson { id: string; title_i18n: Record<string, string>; order_index: number; created_at: string; step_count: number }
 interface Step {
-  id: string; order_index: number; step_type: "video" | "ppt" | "level";
+  id: string; order_index: number; step_type: "video" | "ppt" | "level" | "quiz";
   media_url?: string; media_title?: string;
   course_level_id?: string; level_title_i18n?: Record<string, string>; module_type?: string;
+  bank_question_id?: string; bank_category?: string; bank_question_type?: string; bank_question_preview?: string;
 }
 interface GradeTier { id: string; code: string; name_i18n: Record<string, string> }
 
@@ -31,7 +32,7 @@ const MODULE_EMOJI: Record<string, string> = {
   word_problem: "📝", maze: "🧭", sudoku: "🔢", line_match: "🔗", coloring: "🎨",
   ppt_lecture: "📊", video_lecture: "🎬",
 };
-const STEP_TYPE_LABELS: Record<string, string> = { video: "🎬 视频", ppt: "📊 PPT", level: "🎮 Activity" };
+const STEP_TYPE_LABELS: Record<string, string> = { video: "🎬 视频", ppt: "📊 PPT", level: "🎮 Activity", quiz: "📝 练习题（考试题库）" };
 
 function zh(obj?: Record<string, string>): string { return obj?.zh ?? obj?.en ?? "（未命名）"; }
 
