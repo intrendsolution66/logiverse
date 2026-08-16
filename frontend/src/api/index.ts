@@ -631,7 +631,7 @@ export interface ExamPaperQuestion {
 
 export interface ExamQuestionBankItem {
   id: string; category: string;
-  question_type: "multiple_choice" | "fill_blank";
+  question_type: "multiple_choice" | "fill_blank" | "coloring" | "sudoku" | "sticker_game";
   config: Record<string, unknown>;
   created_at: string;
 }
