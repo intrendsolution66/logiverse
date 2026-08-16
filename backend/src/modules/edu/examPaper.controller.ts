@@ -566,10 +566,11 @@ export async function listExamPaperStudents(req: AuthRequest, res: Response): Pr
     const paper = await getPaperOr404(req.params.paperId);
     if (!paper) { notFound(res, "试卷不存在"); return; }
     const { rows } = await query(
-      `SELECT eps.*, u.full_name_zh, u.full_name_en, u.username, u.email,
+      `SELECT eps.*, up.full_name_zh, up.full_name_en, u.username, u.email,
               ea.status AS attempt_status, ea.score, ea.max_score, ea.submitted_at
        FROM edu.exam_paper_students eps
        JOIN auth.users u ON u.id = eps.student_id
+       LEFT JOIN auth.user_profiles up ON up.user_id = u.id
        LEFT JOIN edu.exam_attempts ea ON ea.paper_id = eps.paper_id AND ea.student_id = eps.student_id
          AND ea.id = (SELECT id FROM edu.exam_attempts WHERE paper_id = eps.paper_id AND student_id = eps.student_id ORDER BY started_at DESC LIMIT 1)
        WHERE eps.paper_id = $1 ORDER BY eps.invited_at ASC`,
@@ -881,12 +882,13 @@ export async function getExamPaperLeaderboard(req: AuthRequest, res: Response): 
     const paper = await getPaperOr404(req.params.paperId);
     if (!paper) { notFound(res, "试卷不存在"); return; }
     const { rows } = await query(
-      `SELECT u.id AS student_id, u.full_name_zh, u.full_name_en, u.username, MAX(ea.score) AS best_score,
+      `SELECT u.id AS student_id, up.full_name_zh, up.full_name_en, u.username, MAX(ea.score) AS best_score,
               MIN(ea.submitted_at) FILTER (WHERE ea.score = (SELECT MAX(score) FROM edu.exam_attempts WHERE paper_id = ea.paper_id AND student_id = ea.student_id)) AS best_submitted_at
        FROM edu.exam_attempts ea
        JOIN auth.users u ON u.id = ea.student_id
+       LEFT JOIN auth.user_profiles up ON up.user_id = u.id
        WHERE ea.paper_id = $1 AND ea.status = 'submitted'
-       GROUP BY u.id, u.full_name_zh, u.full_name_en, u.username
+       GROUP BY u.id, up.full_name_zh, up.full_name_en, u.username
        ORDER BY best_score DESC, best_submitted_at ASC`, // 同分的话，谁先达到这个最佳成绩排前面
       [req.params.paperId]
     );

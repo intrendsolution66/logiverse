@@ -123,5 +123,68 @@
       "coloring": "Coloring",
       "sticker_game": "Sticker Game"
     }
+  },
+  "exam": {
+    "loading": "Loading...",
+    "noQuestions": "This exam paper has no questions yet",
+    "questionOf": "Question {{current}} / {{total}}",
+    "answered": "{{count}} / {{total}} answered",
+    "firstQuestion": "First",
+    "prevQuestion": "Previous",
+    "nextQuestion": "Next",
+    "lastQuestion": "Last",
+    "marksUnit": "{{n}} marks",
+    "correct": "✓ Correct",
+    "incorrect": "✗ Incorrect",
+    "preview": {
+      "badge": "🧪 Preview Mode",
+      "notice": "Not counted as a real result — for testing question content only",
+      "backToEditor": "Back to editor (close this tab)",
+      "fullMarks": "Total {{marks}} marks · {{count}} questions",
+      "resultNote": "Preview result — not a real student's score",
+      "retry": "🔄 Try again",
+      "submit": "✅ Submit to see result",
+      "loadFailed": "Failed to load preview"
+    },
+    "take": {
+      "cannotStart": "Unable to start the attempt",
+      "submitted": "Submitted",
+      "submitFailed": "Submission failed, please try again",
+      "unansweredWarning": "Some questions are still unanswered — unanswered questions are marked wrong",
+      "confirmSubmit": "Submit now? Answers cannot be changed afterward.",
+      "submitting": "Submitting...",
+      "submitButton": "✅ Submit"
+    },
+    "result": {
+      "loadFailed": "Failed to load result",
+      "reviewBlockedDefault": "Question-by-question review is not available yet",
+      "backToMyExams": "← Back to My Exams",
+      "submittedLabel": "Submitted",
+      "correctWithMarks": "✓ Correct +{{marks}}",
+      "incorrectLabel": "✗ Incorrect",
+      "yourChoice": "(your choice)",
+      "emptyAnswer": "(blank)",
+      "shouldBe": "Should be"
+    },
+    "instructions": {
+      "coloring": "Pick a color, then tap the areas on the canvas to color them",
+      "sticker": "Tap a sticker below, then tap its spot on the canvas"
+    },
+    "myExams": {
+      "title": "My Exams",
+      "subtitle": "These are the exam papers/competitions assigned to you",
+      "loadFailed": "Failed to load the exam list",
+      "empty": "No exam papers have been assigned to you yet",
+      "notStarted": "Not started",
+      "inProgressContinue": "In progress — continue",
+      "submittedScore": "Submitted · {{score}}/{{total}}",
+      "minutes": "{{n}} min",
+      "fullMarks": "Total {{n}} marks",
+      "opensAt": "Opens at {{time}}",
+      "closed": "The submission window has closed",
+      "viewScore": "View score",
+      "continueButton": "Continue",
+      "startButton": "Start"
+    }
   }
 }

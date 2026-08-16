@@ -62,7 +62,7 @@ function gradeQuestionLocally(questionType: string, config: Record<string, unkno
 
 export default function ExamPreviewPage() {
   const { paperId } = useParams<{ paperId: string }>();
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const locale = i18n.language;
 
   const [title, setTitle] = useState("");
@@ -82,7 +82,7 @@ export default function ExamPreviewPage() {
         setTitle(pickText(data.title_i18n, locale)); setTotalMarks(data.total_marks);
         setQuestions(data.questions as TakeQuestion[]);
       })
-      .catch((err: any) => toast.error(err?.response?.data?.message ?? "加载预览失败"))
+      .catch((err: any) => toast.error(err?.response?.data?.message ?? t("exam.preview.loadFailed")))
       .finally(() => setLoading(false));
   }, [paperId, locale]);
 
@@ -101,33 +101,33 @@ export default function ExamPreviewPage() {
     setFinished(true);
   }
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">加载中...</div>;
-  if (questions.length === 0) return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">这份试卷还没有题目</div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">{t("exam.loading")}</div>;
+  if (questions.length === 0) return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">{t("exam.noQuestions")}</div>;
 
   return (
     <div className="min-h-screen bg-muted/20">
       <div className="sticky top-0 z-10 bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm text-amber-800">
-          <span className="font-semibold">🧪 试玩预览模式</span>
-          <span className="text-xs text-amber-700">不计入任何真实成绩，仅供测试题目内容</span>
+          <span className="font-semibold">{t("exam.preview.badge")}</span>
+          <span className="text-xs text-amber-700">{t("exam.preview.notice")}</span>
         </div>
-        <button onClick={() => window.close()} className="text-xs text-amber-700 hover:text-amber-900 underline">返回编辑器（关闭本标签页）</button>
+        <button onClick={() => window.close()} className="text-xs text-amber-700 hover:text-amber-900 underline">{t("exam.preview.backToEditor")}</button>
       </div>
 
       <div className="bg-white border-b border-border px-4 py-3">
         <h1 className="font-semibold text-foreground">{title}</h1>
-        <p className="text-xs text-muted-foreground mt-0.5">满分 {totalMarks} · 共 {questions.length} 题</p>
+        <p className="text-xs text-muted-foreground mt-0.5">{t("exam.preview.fullMarks", { marks: totalMarks, count: questions.length })}</p>
       </div>
 
-      <div className="max-w-2xl mx-auto py-6 px-4 space-y-5">
+      <div className="max-w-2xl lg:max-w-4xl xl:max-w-6xl 2xl:max-w-7xl mx-auto py-6 px-4 lg:px-8 space-y-5">
         {finished && (
           <div className="rounded-2xl bg-white border-2 border-primary/40 shadow-sm p-5 text-center">
             <div className="text-4xl mb-1">🧪</div>
             <div className="text-2xl font-bold text-foreground">{score} <span className="text-base text-muted-foreground font-normal">/ {totalMarks}</span></div>
-            <p className="text-xs text-muted-foreground mt-1">预览结果，不代表任何学生的真实成绩</p>
+            <p className="text-xs text-muted-foreground mt-1">{t("exam.preview.resultNote")}</p>
             <div className="flex gap-2 justify-center mt-3">
-              <button onClick={load} className="text-sm font-medium px-4 py-2 rounded-xl bg-primary text-primary-foreground">🔄 重新试玩</button>
-              <button onClick={() => window.close()} className="text-sm font-medium px-4 py-2 rounded-xl bg-muted text-foreground">返回编辑器（关闭本标签页）</button>
+              <button onClick={load} className="text-sm font-medium px-4 py-2 rounded-xl bg-primary text-primary-foreground">{t("exam.preview.retry")}</button>
+              <button onClick={() => window.close()} className="text-sm font-medium px-4 py-2 rounded-xl bg-muted text-foreground">{t("exam.preview.backToEditor")}</button>
             </div>
           </div>
         )}
@@ -141,8 +141,8 @@ export default function ExamPreviewPage() {
         ) : (
           <>
             <div className="flex items-center justify-between mb-3 text-sm">
-              <span className="text-muted-foreground">第 {currentIndex + 1} / {questions.length} 题</span>
-              <span className="text-xs text-muted-foreground">{Object.keys(answers).length} / {questions.length} 已作答</span>
+              <span className="text-muted-foreground">{t("exam.questionOf", { current: currentIndex + 1, total: questions.length })}</span>
+              <span className="text-xs text-muted-foreground">{t("exam.answered", { count: Object.keys(answers).length, total: questions.length })}</span>
             </div>
 
             {questions[currentIndex] && (
@@ -155,12 +155,12 @@ export default function ExamPreviewPage() {
 
             <div className="flex items-center justify-between gap-2 mt-4">
               <div className="flex gap-1.5">
-                <button onClick={() => setCurrentIndex(0)} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">首题</button>
-                <button onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">上一题</button>
+                <button onClick={() => setCurrentIndex(0)} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.firstQuestion")}</button>
+                <button onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.prevQuestion")}</button>
               </div>
               <div className="flex gap-1.5">
-                <button onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">下一题</button>
-                <button onClick={() => setCurrentIndex(questions.length - 1)} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">末题</button>
+                <button onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.nextQuestion")}</button>
+                <button onClick={() => setCurrentIndex(questions.length - 1)} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.lastQuestion")}</button>
               </div>
             </div>
           </>
@@ -168,7 +168,7 @@ export default function ExamPreviewPage() {
 
         {!finished && (
           <div className="pt-6 pb-10 flex justify-center">
-            <button onClick={handleSubmit} className="text-base font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground">✅ 提交查看结果</button>
+            <button onClick={handleSubmit} className="text-base font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground">{t("exam.preview.submit")}</button>
           </div>
         )}
       </div>
@@ -179,13 +179,14 @@ export default function ExamPreviewPage() {
 function PreviewQuestionCard({ index, question, value, onChange, finished }: {
   index: number; question: TakeQuestion; value: unknown; onChange: (v: unknown) => void; finished: boolean;
 }) {
+  const { t } = useTranslation();
   const isCorrect = finished ? gradeQuestionLocally(question.question_type, question.config, value) : null;
   return (
     <div className={`rounded-2xl bg-white border shadow-sm p-5 ${finished ? (isCorrect ? "border-emerald-300" : "border-red-300") : "border-border"}`}>
       <div className="flex items-center gap-2 mb-3">
         <span className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-xs font-semibold flex-shrink-0">{index}</span>
-        <span className="text-xs text-muted-foreground">{question.marks}分</span>
-        {finished && <span className={`text-xs font-semibold ml-auto ${isCorrect ? "text-emerald-600" : "text-red-600"}`}>{isCorrect ? "✓ 答对" : "✗ 答错"}</span>}
+        <span className="text-xs text-muted-foreground">{t("exam.marksUnit", { n: question.marks })}</span>
+        {finished && <span className={`text-xs font-semibold ml-auto ${isCorrect ? "text-emerald-600" : "text-red-600"}`}>{isCorrect ? t("exam.correct") : t("exam.incorrect")}</span>}
       </div>
       {question.question_type === "multiple_choice"
         ? <MultipleChoiceQuestion config={question.config} value={value as string[] | undefined} onChange={onChange} />

@@ -123,5 +123,68 @@
       "coloring": "Mewarna",
       "sticker_game": "Permainan Pelekat"
     }
+  },
+  "exam": {
+    "loading": "Memuatkan...",
+    "noQuestions": "Kertas ini belum ada soalan lagi",
+    "questionOf": "Soalan {{current}} / {{total}}",
+    "answered": "{{count}} / {{total}} telah dijawab",
+    "firstQuestion": "Pertama",
+    "prevQuestion": "Sebelum",
+    "nextQuestion": "Seterusnya",
+    "lastQuestion": "Terakhir",
+    "marksUnit": "{{n}} markah",
+    "correct": "✓ Betul",
+    "incorrect": "✗ Salah",
+    "preview": {
+      "badge": "🧪 Mod Pratonton",
+      "notice": "Tidak dikira sebagai keputusan sebenar, untuk menguji kandungan soalan sahaja",
+      "backToEditor": "Kembali ke editor (tutup tab ini)",
+      "fullMarks": "Jumlah {{marks}} markah · {{count}} soalan",
+      "resultNote": "Keputusan pratonton, bukan keputusan sebenar mana-mana pelajar",
+      "retry": "🔄 Cuba lagi",
+      "submit": "✅ Hantar untuk lihat keputusan",
+      "loadFailed": "Gagal memuatkan pratonton"
+    },
+    "take": {
+      "cannotStart": "Tidak dapat memulakan percubaan",
+      "submitted": "Telah dihantar",
+      "submitFailed": "Penghantaran gagal, sila cuba lagi",
+      "unansweredWarning": "Masih ada soalan yang belum dijawab — soalan yang tidak dijawab akan dikira salah",
+      "confirmSubmit": "Pasti mahu hantar sekarang? Jawapan tidak boleh diubah selepas ini.",
+      "submitting": "Menghantar...",
+      "submitButton": "✅ Hantar"
+    },
+    "result": {
+      "loadFailed": "Gagal memuatkan keputusan",
+      "reviewBlockedDefault": "Semakan soalan demi soalan belum tersedia lagi",
+      "backToMyExams": "← Kembali ke Kertas Saya",
+      "submittedLabel": "Telah dihantar",
+      "correctWithMarks": "✓ Betul +{{marks}}",
+      "incorrectLabel": "✗ Salah",
+      "yourChoice": "(pilihan anda)",
+      "emptyAnswer": "(kosong)",
+      "shouldBe": "Sepatutnya"
+    },
+    "instructions": {
+      "coloring": "Pilih warna dahulu, kemudian ketik kawasan pada kanvas untuk mewarnakannya",
+      "sticker": "Ketik pelekat di bawah dahulu, kemudian ketik lokasinya pada kanvas"
+    },
+    "myExams": {
+      "title": "Kertas Saya",
+      "subtitle": "Ini adalah kertas peperiksaan/pertandingan yang diberikan kepada anda",
+      "loadFailed": "Gagal memuatkan senarai kertas",
+      "empty": "Belum ada kertas peperiksaan yang diberikan kepada anda",
+      "notStarted": "Belum bermula",
+      "inProgressContinue": "Sedang dijawab — sambung",
+      "submittedScore": "Telah dihantar · {{score}}/{{total}}",
+      "minutes": "{{n}} minit",
+      "fullMarks": "Jumlah {{n}} markah",
+      "opensAt": "Bermula pada {{time}}",
+      "closed": "Tempoh menjawab telah tamat",
+      "viewScore": "Lihat keputusan",
+      "continueButton": "Sambung",
+      "startButton": "Mula"
+    }
   }
 }

@@ -27,6 +27,7 @@ interface ReviewQuestion {
 export default function ExamResultPage() {
   const { attemptId } = useParams<{ attemptId: string }>();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [basic, setBasic] = useState<{ score?: number; max_score?: number; status: string } | null>(null);
   const [review, setReview] = useState<{ questions: ReviewQuestion[] } | null>(null);
   const [reviewBlockedMsg, setReviewBlockedMsg] = useState<string | null>(null);
@@ -38,29 +39,29 @@ export default function ExamResultPage() {
       try {
         const b = await examApi.getAttempt(attemptId);
         setBasic(b);
-      } catch (err) { toast.error("加载成绩失败"); setLoading(false); return; }
+      } catch (err) { toast.error(t("exam.result.loadFailed")); setLoading(false); return; }
       try {
         const r = await examApi.getAttemptReview(attemptId);
         setReview(r);
       } catch (err: any) {
-        setReviewBlockedMsg(err?.response?.data?.message ?? "逐题详情暂时还看不了");
+        setReviewBlockedMsg(err?.response?.data?.message ?? t("exam.result.reviewBlockedDefault"));
       }
       setLoading(false);
     })();
   }, [attemptId]);
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">加载中...</div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">{t("exam.loading")}</div>;
   if (!basic) return null;
 
   return (
     <div className="min-h-screen bg-muted/20 py-8 px-4">
       <div className="max-w-2xl mx-auto">
-        <button onClick={() => navigate("/my-exams")} className="text-sm text-muted-foreground hover:text-foreground mb-4">← 返回我的试卷</button>
+        <button onClick={() => navigate("/my-exams")} className="text-sm text-muted-foreground hover:text-foreground mb-4">{t("exam.result.backToMyExams")}</button>
 
         <div className="rounded-2xl bg-white border border-border shadow-sm p-6 text-center mb-5">
           <div className="text-5xl mb-2">🎉</div>
           <div className="text-3xl font-bold text-foreground">{basic.score} <span className="text-lg text-muted-foreground font-normal">/ {basic.max_score}</span></div>
-          <p className="text-sm text-muted-foreground mt-1">已交卷</p>
+          <p className="text-sm text-muted-foreground mt-1">{t("exam.result.submittedLabel")}</p>
         </div>
 
         {reviewBlockedMsg && (
@@ -80,12 +81,13 @@ export default function ExamResultPage() {
 }
 
 function ReviewCard({ index, question }: { index: number; question: ReviewQuestion }) {
+  const { t } = useTranslation();
   return (
     <div className={`rounded-xl bg-white border-2 shadow-sm p-4 ${question.is_correct ? "border-emerald-300" : "border-red-300"}`}>
       <div className="flex items-center gap-2 mb-2">
         <span className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-xs font-semibold">{index}</span>
         <span className={`text-xs font-semibold ${question.is_correct ? "text-emerald-600" : "text-red-600"}`}>
-          {question.is_correct ? `✓ 答对 +${question.marks}` : "✗ 答错"}
+          {question.is_correct ? t("exam.result.correctWithMarks", { marks: question.marks }) : t("exam.result.incorrectLabel")}
         </span>
       </div>
       {question.question_type === "multiple_choice"
@@ -102,7 +104,7 @@ function ReviewCard({ index, question }: { index: number; question: ReviewQuesti
 }
 
 function MultipleChoiceReview({ question }: { question: ReviewQuestion }) {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const locale = i18n.language;
   const config = question.config;
   const questionText = pickText(config.question_i18n as Record<string, string>, locale);
@@ -129,7 +131,7 @@ function MultipleChoiceReview({ question }: { question: ReviewQuestion }) {
               {isCorrect ? "✓" : wasSelected ? "✗" : "·"}
               {opt.image_url && <img src={opt.image_url} alt="" className="w-8 h-8 rounded object-cover" />}
               {pickText(opt.text_i18n, locale)}
-              {wasSelected && !isCorrect && <span className="text-xs">(你选的)</span>}
+              {wasSelected && !isCorrect && <span className="text-xs">{t("exam.result.yourChoice")}</span>}
             </div>
           );
         })}
@@ -139,7 +141,7 @@ function MultipleChoiceReview({ question }: { question: ReviewQuestion }) {
 }
 
 function FillBlankReview({ question }: { question: ReviewQuestion }) {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const locale = i18n.language;
   const config = question.config;
   const sentence = pickText(config.sentence_i18n as Record<string, string>, locale);
@@ -158,7 +160,7 @@ function FillBlankReview({ question }: { question: ReviewQuestion }) {
           {i < blanks.length && (
             <span className="inline-flex items-center gap-1">
               <span className={`px-2 py-0.5 rounded ${studentAnswers[i] && blanks[i].accepted_answers.some((a) => a.trim().toLowerCase() === String(studentAnswers[i]).trim().toLowerCase()) ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600 line-through"}`}>
-                {studentAnswers[i] || "(空白)"}
+                {studentAnswers[i] || t("exam.result.emptyAnswer")}
               </span>
               {!(studentAnswers[i] && blanks[i].accepted_answers.some((a) => a.trim().toLowerCase() === String(studentAnswers[i]).trim().toLowerCase())) && (
                 <span className="text-emerald-700 text-xs">→ {blanks[i].accepted_answers[0]}</span>
@@ -173,6 +175,7 @@ function FillBlankReview({ question }: { question: ReviewQuestion }) {
 }
 
 function ColoringReview({ question }: { question: ReviewQuestion }) {
+  const { t } = useTranslation();
   const config = question.config as unknown as ColoringConfig;
   const given = (question.student_answer ?? {}) as Record<string, string>;
 
@@ -194,7 +197,7 @@ function ColoringReview({ question }: { question: ReviewQuestion }) {
             if (isRegionCorrect) return null;
             return (
               <span key={r.id} className="text-xs bg-red-50 text-red-700 rounded-lg px-2 py-1 flex items-center gap-1.5">
-                这里应该是
+                {t("exam.result.shouldBe")}
                 <span className="w-3.5 h-3.5 rounded inline-block border border-border" style={{ backgroundColor: r.correct_color }} />
               </span>
             );

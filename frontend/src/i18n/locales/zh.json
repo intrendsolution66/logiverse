@@ -123,5 +123,68 @@
       "coloring": "填色游戏",
       "sticker_game": "贴纸游戏"
     }
+  },
+  "exam": {
+    "loading": "加载中...",
+    "noQuestions": "这份试卷还没有题目",
+    "questionOf": "第 {{current}} / {{total}} 题",
+    "answered": "{{count}} / {{total}} 已作答",
+    "firstQuestion": "首题",
+    "prevQuestion": "上一题",
+    "nextQuestion": "下一题",
+    "lastQuestion": "末题",
+    "marksUnit": "{{n}}分",
+    "correct": "✓ 答对",
+    "incorrect": "✗ 答错",
+    "preview": {
+      "badge": "🧪 试玩预览模式",
+      "notice": "不计入任何真实成绩，仅供测试题目内容",
+      "backToEditor": "返回编辑器（关闭本标签页）",
+      "fullMarks": "满分 {{marks}} · 共 {{count}} 题",
+      "resultNote": "预览结果，不代表任何学生的真实成绩",
+      "retry": "🔄 重新试玩",
+      "submit": "✅ 提交查看结果",
+      "loadFailed": "加载预览失败"
+    },
+    "take": {
+      "cannotStart": "无法开始作答",
+      "submitted": "已交卷",
+      "submitFailed": "交卷失败，请重试",
+      "unansweredWarning": "还有题目没作答完，交卷后没作答的题目算错",
+      "confirmSubmit": "确定要交卷吗？交卷后不能修改。",
+      "submitting": "交卷中...",
+      "submitButton": "✅ 交卷"
+    },
+    "result": {
+      "loadFailed": "加载成绩失败",
+      "reviewBlockedDefault": "逐题详情暂时还看不了",
+      "backToMyExams": "← 返回我的试卷",
+      "submittedLabel": "已交卷",
+      "correctWithMarks": "✓ 答对 +{{marks}}",
+      "incorrectLabel": "✗ 答错",
+      "yourChoice": "(你选的)",
+      "emptyAnswer": "(空白)",
+      "shouldBe": "这里应该是"
+    },
+    "instructions": {
+      "coloring": "先选一个颜色，再点画布上要上色的区域",
+      "sticker": "先点下面要用的贴纸，再点画布上对应的位置"
+    },
+    "myExams": {
+      "title": "我的试卷",
+      "subtitle": "这些是你被分配到的试卷/比赛",
+      "loadFailed": "加载试卷列表失败",
+      "empty": "目前还没有分配给你的试卷",
+      "notStarted": "还没开始",
+      "inProgressContinue": "作答中——继续",
+      "submittedScore": "已交卷 · {{score}}/{{total}}",
+      "minutes": "{{n}}分钟",
+      "fullMarks": "满分{{n}}",
+      "opensAt": "要等到 {{time}} 才能开始",
+      "closed": "已经过了作答时间",
+      "viewScore": "查看成绩",
+      "continueButton": "继续作答",
+      "startButton": "开始作答"
+    }
   }
 }

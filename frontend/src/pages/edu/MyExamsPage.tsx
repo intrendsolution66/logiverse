@@ -12,7 +12,7 @@ import toast from "react-hot-toast";
 import { examApi } from "@/api";
 
 export default function MyExamsPage() {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const locale = i18n.language; // "zh" | "en" | "ms"，跟着学生当下切换的界面语言走
   const pickText = (i18nObj?: Record<string, string>) => i18nObj?.[locale] || i18nObj?.zh || i18nObj?.en || "";
 
@@ -25,13 +25,13 @@ export default function MyExamsPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    examApi.listMyPapers().then(setPapers).catch(() => toast.error("加载试卷列表失败")).finally(() => setLoading(false));
+    examApi.listMyPapers().then(setPapers).catch(() => toast.error(t("exam.myExams.loadFailed"))).finally(() => setLoading(false));
   }, []);
 
   function statusLabel(p: (typeof papers)[number]): { text: string; color: string } {
-    if (!p.attempt_status) return { text: "还没开始", color: "text-muted-foreground" };
-    if (p.attempt_status === "in_progress") return { text: "作答中——继续", color: "text-amber-600" };
-    return { text: `已交卷 · ${p.score}/${p.total_marks}`, color: "text-emerald-600" };
+    if (!p.attempt_status) return { text: t("exam.myExams.notStarted"), color: "text-muted-foreground" };
+    if (p.attempt_status === "in_progress") return { text: t("exam.myExams.inProgressContinue"), color: "text-amber-600" };
+    return { text: t("exam.myExams.submittedScore", { score: p.score, total: p.total_marks }), color: "text-emerald-600" };
   }
 
   function canStart(p: (typeof papers)[number]): boolean {
@@ -43,13 +43,13 @@ export default function MyExamsPage() {
 
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
-      <h1 className="text-2xl font-bold text-foreground mb-1">我的试卷</h1>
-      <p className="text-sm text-muted-foreground mb-6">这些是你被分配到的试卷/比赛</p>
+      <h1 className="text-2xl font-bold text-foreground mb-1">{t("exam.myExams.title")}</h1>
+      <p className="text-sm text-muted-foreground mb-6">{t("exam.myExams.subtitle")}</p>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">加载中...</p>
+        <p className="text-sm text-muted-foreground">{t("exam.loading")}</p>
       ) : papers.length === 0 ? (
-        <p className="text-sm text-muted-foreground/60 text-center py-12">目前还没有分配给你的试卷</p>
+        <p className="text-sm text-muted-foreground/60 text-center py-12">{t("exam.myExams.empty")}</p>
       ) : (
         <div className="space-y-3">
           {papers.map((p) => {
@@ -60,13 +60,13 @@ export default function MyExamsPage() {
                 <div>
                   <h3 className="font-semibold text-foreground">{pickText(p.title_i18n)}</h3>
                   <div className="text-xs text-muted-foreground mt-1 flex gap-3">
-                    <span>{p.time_limit_minutes}分钟</span>
-                    <span>满分{p.total_marks}</span>
+                    <span>{t("exam.myExams.minutes", { n: p.time_limit_minutes })}</span>
+                    <span>{t("exam.myExams.fullMarks", { n: p.total_marks })}</span>
                     <span className={status.color}>{status.text}</span>
                   </div>
                   {!startable && p.attempt_status !== "submitted" && (
                     <p className="text-xs text-amber-600 mt-1">
-                      {p.opens_at && new Date() < new Date(p.opens_at) ? `要等到 ${new Date(p.opens_at).toLocaleString()} 才能开始` : "已经过了作答时间"}
+                      {p.opens_at && new Date() < new Date(p.opens_at) ? t("exam.myExams.opensAt", { time: new Date(p.opens_at).toLocaleString() }) : t("exam.myExams.closed")}
                     </p>
                   )}
                 </div>
@@ -75,7 +75,7 @@ export default function MyExamsPage() {
                     onClick={() => navigate(`/exam/attempt/${p.attempt_id}/result`)}
                     className="text-sm font-medium px-4 py-2 rounded-xl bg-muted text-foreground hover:bg-muted/70"
                   >
-                    查看成绩
+                    {t("exam.myExams.viewScore")}
                   </button>
                 ) : (
                   <button
@@ -83,7 +83,7 @@ export default function MyExamsPage() {
                     disabled={!startable}
                     className="text-sm font-medium px-4 py-2 rounded-xl bg-primary text-primary-foreground disabled:opacity-40"
                   >
-                    {p.attempt_status === "in_progress" ? "继续作答" : "开始作答"}
+                    {p.attempt_status === "in_progress" ? t("exam.myExams.continueButton") : t("exam.myExams.startButton")}
                   </button>
                 )}
               </div>

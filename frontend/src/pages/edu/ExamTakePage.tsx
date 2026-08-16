@@ -34,7 +34,7 @@ type ColoringAnswer = Record<string, string>; // regionId -> hex颜色
 export default function ExamTakePage() {
   const { paperId } = useParams<{ paperId: string }>();
   const navigate = useNavigate();
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const locale = i18n.language;
 
   const [attemptId, setAttemptId] = useState<string | null>(null);
@@ -56,7 +56,7 @@ export default function ExamTakePage() {
         setRemaining(data.remaining_seconds);
       })
       .catch((err) => {
-        toast.error(err?.response?.data?.message ?? "无法开始作答");
+        toast.error(err?.response?.data?.message ?? t("exam.take.cannotStart"));
         navigate("/my-exams");
       })
       .finally(() => setLoading(false));
@@ -68,10 +68,10 @@ export default function ExamTakePage() {
     setSubmitting(true);
     try {
       await examApi.submitAttempt(attemptId, answers);
-      toast.success("已交卷");
+      toast.success(t("exam.take.submitted"));
       navigate(`/exam/attempt/${attemptId}/result`);
     } catch (err) {
-      toast.error("交卷失败，请重试");
+      toast.error(t("exam.take.submitFailed"));
       submittedRef.current = false; // 失败的话允许重试，不锁死
       setSubmitting(false);
     }
@@ -118,7 +118,7 @@ export default function ExamTakePage() {
   const timeLow = remaining < 60;
   const minutes = Math.floor(remaining / 60), seconds = remaining % 60;
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">加载中...</div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">{t("exam.loading")}</div>;
 
   return (
     <div className="min-h-screen bg-muted/20">
@@ -129,10 +129,10 @@ export default function ExamTakePage() {
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto py-6 px-4">
+      <div className="max-w-2xl lg:max-w-4xl xl:max-w-6xl 2xl:max-w-7xl mx-auto py-6 px-4 lg:px-8">
         <div className="flex items-center justify-between mb-3 text-sm">
-          <span className="text-muted-foreground">第 {currentIndex + 1} / {questions.length} 题</span>
-          <span className="text-xs text-muted-foreground">{Object.keys(answers).length} / {questions.length} 已作答</span>
+          <span className="text-muted-foreground">{t("exam.questionOf", { current: currentIndex + 1, total: questions.length })}</span>
+          <span className="text-xs text-muted-foreground">{t("exam.answered", { count: Object.keys(answers).length, total: questions.length })}</span>
         </div>
 
         {questions[currentIndex] && (
@@ -145,23 +145,23 @@ export default function ExamTakePage() {
 
         <div className="flex items-center justify-between gap-2 mt-4">
           <div className="flex gap-1.5">
-            <button onClick={() => setCurrentIndex(0)} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">首题</button>
-            <button onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">上一题</button>
+            <button onClick={() => setCurrentIndex(0)} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.firstQuestion")}</button>
+            <button onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.prevQuestion")}</button>
           </div>
           <div className="flex gap-1.5">
-            <button onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">下一题</button>
-            <button onClick={() => setCurrentIndex(questions.length - 1)} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">末题</button>
+            <button onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.nextQuestion")}</button>
+            <button onClick={() => setCurrentIndex(questions.length - 1)} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.lastQuestion")}</button>
           </div>
         </div>
 
         <div className="pt-6 pb-10 flex flex-col items-center gap-2">
-          {!allAnswered && <p className="text-xs text-amber-600">还有题目没作答完，交卷后没作答的题目算错</p>}
+          {!allAnswered && <p className="text-xs text-amber-600">{t("exam.take.unansweredWarning")}</p>}
           <button
-            onClick={() => { if (confirm("确定要交卷吗？交卷后不能修改。")) handleSubmit(); }}
+            onClick={() => { if (confirm(t("exam.take.confirmSubmit"))) handleSubmit(); }}
             disabled={submitting}
             className="text-base font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground disabled:opacity-50"
           >
-            {submitting ? "交卷中..." : "✅ 交卷"}
+            {submitting ? t("exam.take.submitting") : t("exam.take.submitButton")}
           </button>
         </div>
       </div>
@@ -172,11 +172,12 @@ export default function ExamTakePage() {
 function QuestionCard({ index, question, value, onChange }: {
   index: number; question: TakeQuestion; value: unknown; onChange: (v: unknown) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="rounded-2xl bg-white border border-border shadow-sm p-5">
       <div className="flex items-center gap-2 mb-3">
         <span className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-xs font-semibold flex-shrink-0">{index}</span>
-        <span className="text-xs text-muted-foreground">{question.marks}分</span>
+        <span className="text-xs text-muted-foreground">{t("exam.marksUnit", { n: question.marks })}</span>
       </div>
       {question.question_type === "multiple_choice"
         ? <MultipleChoiceQuestion config={question.config} value={value as string[] | undefined} onChange={onChange} />
@@ -280,6 +281,7 @@ export function FillBlankQuestion({ config, value, onChange }: {
 export function ColoringQuestion({ config, value, onChange }: {
   config: ColoringConfig; value?: ColoringAnswer; onChange: (v: ColoringAnswer) => void;
 }) {
+  const { t } = useTranslation();
   const [activeColor, setActiveColor] = useState(config.palette?.[0] ?? "#EF4444");
   const given = value ?? {};
 
@@ -289,7 +291,7 @@ export function ColoringQuestion({ config, value, onChange }: {
 
   return (
     <>
-      <p className="text-sm text-muted-foreground mb-2">先选一个颜色，再点画布上要上色的区域</p>
+      <p className="text-sm text-muted-foreground mb-2">{t("exam.instructions.coloring")}</p>
       <div className="flex gap-1.5 mb-3">
         {(config.palette ?? []).map((c) => (
           <button
@@ -369,6 +371,7 @@ export function StickerGameQuestion({ config, value, onChange }: {
   // 贴纸游戏的画布不是存在config里的字段，是全局固定常量(见
   // frontend/src/lib/gameCanvas.ts 的 STICKER_CANVAS_SIZE，之前重构贴纸
   // 游戏时改成的正方形坐标系)，这里直接用同一个常量，不从config读。
+  const { t } = useTranslation();
   const canvasW = STICKER_CANVAS_SIZE, canvasH = STICKER_CANVAS_SIZE;
   const [pickedSticker, setPickedSticker] = useState<string | null>(null);
   const given = value ?? {};
@@ -382,7 +385,7 @@ export function StickerGameQuestion({ config, value, onChange }: {
 
   return (
     <div>
-      <p className="text-sm text-muted-foreground mb-2">先点下面要用的贴纸，再点画布上对应的位置</p>
+      <p className="text-sm text-muted-foreground mb-2">{t("exam.instructions.sticker")}</p>
       <div
         className="relative w-full rounded-xl overflow-hidden bg-white border border-border mb-3"
         style={{ aspectRatio: `${canvasW} / ${canvasH}`, backgroundImage: config.bg_image_url ? `url(${config.bg_image_url})` : undefined, backgroundSize: "100% 100%" }}
