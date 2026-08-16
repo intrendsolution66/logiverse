@@ -32,6 +32,7 @@ export default function ExamResultPage() {
   const [review, setReview] = useState<{ questions: ReviewQuestion[] } | null>(null);
   const [reviewBlockedMsg, setReviewBlockedMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [currentIndex, setCurrentIndex] = useState(0);
 
   useEffect(() => {
     if (!attemptId) return;
@@ -53,9 +54,11 @@ export default function ExamResultPage() {
   if (loading) return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">{t("exam.loading")}</div>;
   if (!basic) return null;
 
+  const questions = review?.questions ?? [];
+
   return (
     <div className="min-h-screen bg-muted/20 py-8 px-4">
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-2xl lg:max-w-4xl xl:max-w-6xl 2xl:max-w-7xl mx-auto">
         <button onClick={() => navigate("/my-exams")} className="text-sm text-muted-foreground hover:text-foreground mb-4">{t("exam.result.backToMyExams")}</button>
 
         <div className="rounded-2xl bg-white border border-border shadow-sm p-6 text-center mb-5">
@@ -68,12 +71,25 @@ export default function ExamResultPage() {
           <p className="text-sm text-amber-700 bg-amber-50 rounded-xl px-4 py-3 text-center mb-5">🔒 {reviewBlockedMsg}</p>
         )}
 
-        {review && (
-          <div className="space-y-3">
-            {review.questions.map((q, i) => (
-              <ReviewCard key={q.id} index={i + 1} question={q} />
-            ))}
-          </div>
+        {questions.length > 0 && (
+          <>
+            <div className="flex items-center justify-between mb-3 text-sm">
+              <span className="text-muted-foreground">{t("exam.questionOf", { current: currentIndex + 1, total: questions.length })}</span>
+            </div>
+
+            <ReviewCard index={currentIndex + 1} question={questions[currentIndex]} />
+
+            <div className="flex items-center justify-between gap-2 mt-4 pb-8">
+              <div className="flex gap-1.5">
+                <button onClick={() => setCurrentIndex(0)} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.firstQuestion")}</button>
+                <button onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.prevQuestion")}</button>
+              </div>
+              <div className="flex gap-1.5">
+                <button onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.nextQuestion")}</button>
+                <button onClick={() => setCurrentIndex(questions.length - 1)} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">{t("exam.lastQuestion")}</button>
+              </div>
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -117,7 +133,11 @@ function MultipleChoiceReview({ question }: { question: ReviewQuestion }) {
 
   return (
     <>
-      {illustration && <div className="mb-2"><IllustrationView illustration={illustration} /></div>}
+      {illustration && (
+        <div className="mb-2 flex justify-center">
+          <IllustrationView illustration={illustration} style={{ maxHeight: "38vh", width: "auto", maxWidth: "100%" }} />
+        </div>
+      )}
       <p className="text-xl sm:text-2xl md:text-3xl font-medium text-foreground mb-3 leading-snug">{questionText}</p>
       <div className={isShort ? "flex flex-wrap gap-1.5" : "space-y-1.5"}>
         {options.map((opt) => {
@@ -154,7 +174,11 @@ function FillBlankReview({ question }: { question: ReviewQuestion }) {
 
   return (
     <>
-      {illustration && <div className="mb-2"><IllustrationView illustration={illustration} /></div>}
+      {illustration && (
+        <div className="mb-2 flex justify-center">
+          <IllustrationView illustration={illustration} style={{ maxHeight: "38vh", width: "auto", maxWidth: "100%" }} />
+        </div>
+      )}
       <p className="text-xl sm:text-2xl md:text-3xl text-foreground leading-relaxed flex flex-wrap items-center gap-x-1.5 gap-y-2">
       {segments.map((seg, i) => (
         <span key={i} className="inline-flex items-center gap-1">
