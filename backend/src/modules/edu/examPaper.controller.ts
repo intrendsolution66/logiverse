@@ -631,6 +631,44 @@ export async function listMyExamPapers(req: AuthRequest, res: Response): Promise
   } catch (err) { serverError(res, err); }
 }
 
+// 运营/设计师"试玩预览"——跟学生正式作答是两条完全独立的路径：不检查
+// 白名单、不要求已发布(草稿也能试玩)、不检查开考/截止时间；随机槽现场
+// 抽一次题(不持久化，每次预览都可能抽到不同的，方便测试随机效果)；
+// 直接把完整config(含正确答案)吐出来——判分交给前端就地算，不写入
+// exam_attempts 这张表，天然不会污染真实的排行榜/学生重考次数统计。
+// 权限跟编辑试卷一致，本来就能看到完整答案，不需要额外的"隐藏答案"
+// 这层保护。
+export async function getExamPaperPreview(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const paper = await getPaperOr404(req.params.paperId);
+    if (!paper) { notFound(res, "试卷不存在"); return; }
+    const { rows: slots } = await query(
+      `SELECT * FROM edu.exam_paper_questions WHERE paper_id = $1 ORDER BY order_index ASC`,
+      [req.params.paperId]
+    );
+    if (slots.length === 0) { badRequest(res, "这份试卷还没有题目"); return; }
+
+    const questions: Array<{ question_type: string; marks: number; config: Record<string, unknown> }> = [];
+    for (const slot of slots) {
+      if (slot.slot_type === "random_category") {
+        const { rows: drawn } = await query(
+          `SELECT question_type, config FROM edu.exam_question_bank WHERE category = $1 ORDER BY random() LIMIT $2`,
+          [slot.random_category, slot.random_count]
+        );
+        for (const d of drawn) questions.push({ question_type: d.question_type, marks: slot.marks, config: d.config });
+      } else {
+        questions.push({ question_type: slot.question_type, marks: slot.marks, config: slot.config });
+      }
+    }
+
+    ok(res, {
+      title_i18n: paper.title_i18n, time_limit_minutes: paper.time_limit_minutes,
+      total_marks: questions.reduce((sum, q) => sum + q.marks, 0),
+      questions: questions.map((q, i) => ({ id: `preview_${i}`, order_index: i, ...q })),
+    });
+  } catch (err) { serverError(res, err); }
+}
+
 // 开始作答——检查白名单+发布状态+时间窗口+重考次数上限，创建一条
 // in_progress 的 exam_attempts记录，并把这次实际要问的题目"物化"进
 // exam_attempt_questions：固定题直接复制内容；随机槽现场从题库对应

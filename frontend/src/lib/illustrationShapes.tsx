@@ -17,14 +17,23 @@ export interface IllustrationShape {
   shape: ColoringShapeType;
   x: number; y: number; w: number; h: number; rotation: number;
   fill: string;
+  flip_x?: boolean; flip_y?: boolean;
   z_index: number;
   group_id?: string; // 立体方块三个面共用一个group_id，一起拖动/删除
 }
 
+export const ILLUSTRATION_FONTS = [
+  { value: "'PingFang SC', 'Microsoft YaHei', sans-serif", label: "默认（黑体）" },
+  { value: "'Noto Serif SC', 'SimSun', serif", label: "宋体/衬线" },
+  { value: "'ZCOOL KuaiLe', cursive", label: "可爱手写体" },
+  { value: "Georgia, serif", label: "Georgia（英文衬线）" },
+  { value: "Arial, sans-serif", label: "Arial（英文无衬线）" },
+];
+
 export interface IllustrationText {
   id: string;
   kind: "text";
-  text: string; x: number; y: number; font_size: number; color: string; rotation: number;
+  text: string; x: number; y: number; font_size: number; font_family?: string; color: string; rotation: number;
   z_index: number;
 }
 
@@ -32,6 +41,7 @@ export interface IllustrationObject {
   id: string;
   kind: "object";
   image_url: string; x: number; y: number; w: number; h: number; rotation: number;
+  flip_x?: boolean; flip_y?: boolean;
   z_index: number;
 }
 
@@ -43,12 +53,22 @@ export interface Illustration {
   elements: IllustrationElement[];
 }
 
-export function IllustrationShapeSvg({ el, onPointerDown, selected }: {
-  el: IllustrationShape; onPointerDown?: (e: React.PointerEvent) => void; selected?: boolean;
+// 翻转用scale(-1,1)/scale(1,-1)配合旋转一起算成一个transform字符串——
+// 顺序是先翻转再旋转(以元素中心点为基准)，这样翻转不会因为先转了角度
+// 而变得直觉上很奇怪。
+function flipRotateTransform(x: number, y: number, rotation: number, flipX?: boolean, flipY?: boolean): string | undefined {
+  const parts: string[] = [];
+  if (rotation) parts.push(`rotate(${rotation} ${x} ${y})`);
+  if (flipX || flipY) parts.push(`translate(${x} ${y}) scale(${flipX ? -1 : 1} ${flipY ? -1 : 1}) translate(${-x} ${-y})`);
+  return parts.length ? parts.join(" ") : undefined;
+}
+
+export function IllustrationShapeSvg({ el, onPointerDown, onDoubleClick, selected }: {
+  el: IllustrationShape; onPointerDown?: (e: React.PointerEvent) => void; onDoubleClick?: () => void; selected?: boolean;
 }) {
   const { tag, attrs } = shapePoints(el);
-  const rot = el.rotation ? `rotate(${el.rotation} ${el.x} ${el.y})` : undefined;
-  const common = { fill: el.fill, stroke: selected ? "#6366f1" : "#333", strokeWidth: selected ? 3 : 1.5, transform: rot, onPointerDown, style: { cursor: onPointerDown ? "move" : undefined } };
+  const transform = flipRotateTransform(el.x, el.y, el.rotation, el.flip_x, el.flip_y);
+  const common = { fill: el.fill, stroke: selected ? "#6366f1" : "#333", strokeWidth: selected ? 3 : 1.5, transform, onPointerDown, onDoubleClick, style: { cursor: onPointerDown ? "move" : undefined } };
   if (tag === "rect") return <rect {...(attrs as any)} {...common} />;
   if (tag === "ellipse") return <ellipse {...(attrs as any)} {...common} />;
   return <polygon {...(attrs as any)} {...common} />;
@@ -71,7 +91,7 @@ export function IllustrationView({ illustration, className, style }: {
         if (el.kind === "text") {
           return (
             <text
-              key={el.id} x={el.x} y={el.y} fontSize={el.font_size} fill={el.color} textAnchor="middle" dominantBaseline="middle"
+              key={el.id} x={el.x} y={el.y} fontSize={el.font_size} fontFamily={el.font_family} fill={el.color} textAnchor="middle" dominantBaseline="middle"
               transform={el.rotation ? `rotate(${el.rotation} ${el.x} ${el.y})` : undefined}
             >{el.text}</text>
           );
@@ -79,7 +99,7 @@ export function IllustrationView({ illustration, className, style }: {
         return (
           <image
             key={el.id} href={el.image_url} x={el.x - el.w / 2} y={el.y - el.h / 2} width={el.w} height={el.h}
-            transform={el.rotation ? `rotate(${el.rotation} ${el.x} ${el.y})` : undefined}
+            transform={flipRotateTransform(el.x, el.y, el.rotation, el.flip_x, el.flip_y)}
           />
         );
       })}

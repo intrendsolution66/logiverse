@@ -16,7 +16,7 @@ import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/index";
 import { CheckSquare, PencilLine, X, Plus, FileText, Users, Trophy, Download, Trash2 } from "lucide-react";
-import { examApi, usersApi, type ExamPaper, type ExamPaperQuestion, type ExamQuestionBankItem } from "@/api";
+import { examApi, adminUsersApi, type ExamPaper, type ExamPaperQuestion, type ExamQuestionBankItem } from "@/api";
 import ColoringQuestionEditor from "@/components/ColoringQuestionEditor";
 import IllustrationEditor from "@/components/IllustrationEditor";
 import { IllustrationView, type Illustration } from "@/lib/illustrationShapes";
@@ -171,6 +171,7 @@ function ExamPaperEditor({ paperId, onBack }: { paperId: string; onBack: () => v
           </span>
         </div>
         <div className="flex gap-2 relative">
+          <Button variant="outline" size="sm" onClick={() => window.open(`/exam-preview/${paper.id}`, "_blank")}>🧪 试玩预览</Button>
           <Button variant="outline" size="sm" onClick={() => setShowPdfLangPicker((v) => !v)}><Download size={14} className="mr-1" /> 下载PDF</Button>
           {showPdfLangPicker && (
             <div className="absolute top-full right-0 mt-1 bg-white border border-border rounded-lg shadow-lg py-1 z-20 w-40">
@@ -713,8 +714,13 @@ function ImportFromActivityForm({ onDone, onCancel }: { onDone: () => void; onCa
   const [activities, setActivities] = useState<Array<{ id: string; title_i18n: Record<string, string> }>>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [category, setCategory] = useState("");
+  const [existingCategories, setExistingCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
+
+  useEffect(() => {
+    examApi.listQuestionBankCategories().then((cats) => setExistingCategories(cats.map((c) => c.category))).catch(() => {});
+  }, []);
 
   useEffect(() => {
     setLoading(true); setSelectedId(null);
@@ -780,8 +786,11 @@ function ImportFromActivityForm({ onDone, onCancel }: { onDone: () => void; onCa
       </div>
 
       <div>
-        <Label>导入进题库的哪个分类</Label>
-        <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="比如：数独练习" />
+        <Label>导入进题库的哪个分类（可以从已有分类里选，也可以打新分类名）</Label>
+        <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="比如：数独练习" list="import-category-options" />
+        <datalist id="import-category-options">
+          {existingCategories.map((c) => <option key={c} value={c} />)}
+        </datalist>
       </div>
 
       <div className="flex gap-2 pt-2">
@@ -958,7 +967,7 @@ function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCance
 function StudentsTab({ paperId }: { paperId: string }) {
   const [students, setStudents] = useState<Array<{ student_id: string; full_name: string; attempt_status?: string; score?: number; max_score?: number }>>([]);
   const [showAdd, setShowAdd] = useState(false);
-  const [allStudents, setAllStudents] = useState<Array<{ id: string; full_name?: string }>>([]);
+  const [allStudents, setAllStudents] = useState<Array<{ id: string; full_name_zh?: string; full_name_en?: string; username: string }>>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
@@ -974,11 +983,9 @@ function StudentsTab({ paperId }: { paperId: string }) {
   async function openAddPicker() {
     setShowAdd(true);
     try {
-      // 具体怎么按角色筛出学生列表，要对照 usersApi.listUsers 的实际参数——
-      // 这里先假设支持按角色筛选，如果参数名不对，这里是唯一需要调的地方。
-      const res = await usersApi.listUsers({ role: "STUDENT", limit: 200 } as any);
-      setAllStudents((res.data?.data ?? res.data ?? []) as Array<{ id: string; full_name?: string }>);
-    } catch (err) { toast.error("加载学生列表失败——请确认 usersApi.listUsers 的筛选参数"); }
+      const { data } = await adminUsersApi.listStudents({ limit: 200 });
+      setAllStudents(data);
+    } catch (err) { toast.error("加载学生列表失败"); }
   }
 
   async function handleAddSelected() {
@@ -1013,7 +1020,7 @@ function StudentsTab({ paperId }: { paperId: string }) {
                   type="checkbox" checked={selectedIds.has(s.id)}
                   onChange={(e) => setSelectedIds((set) => { const next = new Set(set); if (e.target.checked) next.add(s.id); else next.delete(s.id); return next; })}
                 />
-                <span className="text-sm">{s.full_name ?? s.id}</span>
+                <span className="text-sm">{s.full_name_zh || s.full_name_en || s.username}</span>
               </label>
             ))}
           </div>
@@ -1081,4 +1088,3 @@ function OptionImagePicker({ option, onChange }: { option: MCOption; onChange: (
     </div>
   );
 }
-

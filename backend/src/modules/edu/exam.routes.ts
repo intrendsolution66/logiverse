@@ -14,7 +14,7 @@ import {
   listImportableActivities, importFromActivity,
   listExamPaperStudents, addExamPaperStudents, removeExamPaperStudent,
   listMyExamPapers, startExamAttempt, submitExamAttempt, getExamAttempt, getExamAttemptReview,
-  listMyAttemptsForPaper, getExamPaperLeaderboard,
+  listMyAttemptsForPaper, getExamPaperLeaderboard, getExamPaperPreview,
   generateExamPaperPdf,
 } from "./examPaper.controller.js";
 
@@ -28,6 +28,7 @@ router.patch ("/exam-papers/:paperId",    authenticate, authorize("courses.manag
 router.patch ("/exam-papers/:paperId/status", authenticate, authorize("courses.manage"), setExamPaperStatus);
 router.delete("/exam-papers/:paperId",    authenticate, authorize("courses.manage"), deleteExamPaper);
 router.get   ("/exam-papers/:paperId/pdf", authenticate, authorize("courses.manage"), generateExamPaperPdf);
+router.get   ("/exam-papers/:paperId/preview", authenticate, authorize("courses.manage"), getExamPaperPreview);
 
 // ── 试卷题目槽位 (courses.manage) ────────────────────────────────────────────
 router.post  ("/exam-papers/:paperId/questions",                authenticate, authorize("courses.manage"), addExamPaperQuestion);

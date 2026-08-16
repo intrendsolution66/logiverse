@@ -21,11 +21,11 @@ import { STICKER_CANVAS_SIZE } from "@/lib/gameCanvas";
 // 按当前界面语言取文字——取不到就退回中文，再退回英文。不是hook，
 // 因为要在好几个独立组件(不是同一个组件树内)里共用，各组件自己用
 // useTranslation()拿locale，传进来。
-function pickText(i18nObj: Record<string, string> | undefined, locale: string): string {
+export function pickText(i18nObj: Record<string, string> | undefined, locale: string): string {
   return i18nObj?.[locale] || i18nObj?.zh || i18nObj?.en || "";
 }
 
-interface TakeQuestion {
+export interface TakeQuestion {
   id: string; order_index: number; question_type: string; marks: number;
   config: Record<string, unknown>;
 }
@@ -170,7 +170,7 @@ function QuestionCard({ index, question, value, onChange }: {
   );
 }
 
-function MultipleChoiceQuestion({ config, value, onChange }: {
+export function MultipleChoiceQuestion({ config, value, onChange }: {
   config: Record<string, unknown>; value?: string[]; onChange: (v: string[]) => void;
 }) {
   const { i18n } = useTranslation();
@@ -218,7 +218,7 @@ function MultipleChoiceQuestion({ config, value, onChange }: {
   );
 }
 
-function FillBlankQuestion({ config, value, onChange }: {
+export function FillBlankQuestion({ config, value, onChange }: {
   config: Record<string, unknown>; value?: string[]; onChange: (v: string[]) => void;
 }) {
   const { i18n } = useTranslation();
@@ -256,7 +256,7 @@ function FillBlankQuestion({ config, value, onChange }: {
   );
 }
 
-function ColoringQuestion({ config, value, onChange }: {
+export function ColoringQuestion({ config, value, onChange }: {
   config: ColoringConfig; value?: ColoringAnswer; onChange: (v: ColoringAnswer) => void;
 }) {
   const [activeColor, setActiveColor] = useState(config.palette?.[0] ?? "#EF4444");
@@ -297,7 +297,7 @@ function ColoringQuestion({ config, value, onChange }: {
 // 数独——简化渲染，不复用SudokuGame.tsx(那个组件内建前端判分，跟考试
 // 系统的后端判分模式不兼容)。给定数字直接显示，留空的格子用输入框，
 // 答案key用"row-col"拼字符串。
-function SudokuQuestion({ config, value, onChange }: {
+export function SudokuQuestion({ config, value, onChange }: {
   config: Record<string, unknown>; value?: Record<string, string>; onChange: (v: Record<string, string>) => void;
 }) {
   const rows = (config.rows as number) ?? 3, cols = (config.cols as number) ?? 3;
@@ -340,7 +340,7 @@ function SudokuQuestion({ config, value, onChange }: {
 // 再点画布上要贴的槽位，就把这张贴纸分配给那个槽位。这个跟原本
 // Activity版本的拖拽手感不一样，但更适合考试场景(判分本来就是离散
 // 匹配，不是像素位置，点选式交互更贴合这个判定模型)。
-function StickerGameQuestion({ config, value, onChange }: {
+export function StickerGameQuestion({ config, value, onChange }: {
   config: Record<string, unknown>; value?: Record<string, string>; onChange: (v: Record<string, string>) => void;
 }) {
   const objects = (config.objects as Array<{ id: string; x: number; y: number; w: number; h: number; rotation: number }>) ?? [];

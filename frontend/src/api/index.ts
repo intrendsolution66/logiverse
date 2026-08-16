@@ -663,6 +663,13 @@ export const examApi = {
   // PDF 是二进制内容，axios 要指定 responseType:"blob" 才不会把它当JSON解析
   downloadPaperPdf: (paperId: string, lang: "zh" | "en" | "ms" = "zh") =>
     api.get(`/exam-papers/${paperId}/pdf`, { params: { lang }, responseType: "blob" }).then((res) => res.data as Blob),
+  // 运营/设计师"试玩预览"——绕开白名单/发布状态/时间窗口，直接返回含
+  // 正确答案的完整题目，判分在前端本地算，不写入任何作答记录。
+  getPaperPreview: (paperId: string) =>
+    api.get(`/exam-papers/${paperId}/preview`).then(d<{
+      title_i18n: Record<string, string>; time_limit_minutes: number; total_marks: number;
+      questions: Array<{ id: string; order_index: number; question_type: string; marks: number; config: Record<string, unknown> }>;
+    }>),
 
   // ── 试卷题目槽位 ──────────────────────────────────────────────────────────
   addQuestion: (paperId: string, b: {
