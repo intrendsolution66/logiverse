@@ -965,7 +965,7 @@ function AddBankQuestionForm({ onDone, onCancel }: { onDone: () => void; onCance
 // ── 学生名单 ──────────────────────────────────────────────────────────────────
 
 function StudentsTab({ paperId }: { paperId: string }) {
-  const [students, setStudents] = useState<Array<{ student_id: string; full_name: string; attempt_status?: string; score?: number; max_score?: number }>>([]);
+  const [students, setStudents] = useState<Array<{ student_id: string; full_name_zh?: string; full_name_en?: string; username: string; attempt_status?: string; score?: number; max_score?: number }>>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [allStudents, setAllStudents] = useState<Array<{ id: string; full_name_zh?: string; full_name_en?: string; username: string }>>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -1039,7 +1039,7 @@ function StudentsTab({ paperId }: { paperId: string }) {
         <div className="space-y-1.5">
           {students.map((s) => (
             <div key={s.student_id} className="flex items-center justify-between rounded-lg border border-border bg-white p-2.5">
-              <span className="text-sm">{s.full_name}</span>
+              <span className="text-sm">{s.full_name_zh || s.full_name_en || s.username}</span>
               <div className="flex items-center gap-3">
                 {s.attempt_status && (
                   <span className="text-xs text-muted-foreground">

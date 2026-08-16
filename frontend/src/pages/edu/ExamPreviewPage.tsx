@@ -10,7 +10,7 @@
 // 作答时不一样。
 
 import { useState, useEffect, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import toast from "react-hot-toast";
 import { examApi } from "@/api";
@@ -62,7 +62,6 @@ function gradeQuestionLocally(questionType: string, config: Record<string, unkno
 
 export default function ExamPreviewPage() {
   const { paperId } = useParams<{ paperId: string }>();
-  const navigate = useNavigate();
   const { i18n } = useTranslation();
   const locale = i18n.language;
 
@@ -73,10 +72,11 @@ export default function ExamPreviewPage() {
   const [finished, setFinished] = useState(false);
   const [score, setScore] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [currentIndex, setCurrentIndex] = useState(0); // 一题一页——答题阶段用；交卷后的回看阶段一次性全部显示，方便整体检查
 
   const load = useCallback(() => {
     if (!paperId) return;
-    setLoading(true); setFinished(false); setAnswers({});
+    setLoading(true); setFinished(false); setAnswers({}); setCurrentIndex(0);
     examApi.getPaperPreview(paperId)
       .then((data) => {
         setTitle(pickText(data.title_i18n, locale)); setTotalMarks(data.total_marks);
@@ -111,7 +111,7 @@ export default function ExamPreviewPage() {
           <span className="font-semibold">🧪 试玩预览模式</span>
           <span className="text-xs text-amber-700">不计入任何真实成绩，仅供测试题目内容</span>
         </div>
-        <button onClick={() => navigate(-1)} className="text-xs text-amber-700 hover:text-amber-900 underline">返回编辑器</button>
+        <button onClick={() => window.close()} className="text-xs text-amber-700 hover:text-amber-900 underline">返回编辑器（关闭本标签页）</button>
       </div>
 
       <div className="bg-white border-b border-border px-4 py-3">
@@ -127,17 +127,47 @@ export default function ExamPreviewPage() {
             <p className="text-xs text-muted-foreground mt-1">预览结果，不代表任何学生的真实成绩</p>
             <div className="flex gap-2 justify-center mt-3">
               <button onClick={load} className="text-sm font-medium px-4 py-2 rounded-xl bg-primary text-primary-foreground">🔄 重新试玩</button>
-              <button onClick={() => navigate(-1)} className="text-sm font-medium px-4 py-2 rounded-xl bg-muted text-foreground">返回编辑器</button>
+              <button onClick={() => window.close()} className="text-sm font-medium px-4 py-2 rounded-xl bg-muted text-foreground">返回编辑器（关闭本标签页）</button>
             </div>
           </div>
         )}
 
-        {questions.map((q, i) => (
-          <PreviewQuestionCard key={q.id} index={i + 1} question={q} value={answers[q.id]} onChange={(v) => setAnswer(q.id, v)} finished={finished} />
-        ))}
+        {finished ? (
+          <>
+            {questions.map((q, i) => (
+              <PreviewQuestionCard key={q.id} index={i + 1} question={q} value={answers[q.id]} onChange={(v) => setAnswer(q.id, v)} finished={finished} />
+            ))}
+          </>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-3 text-sm">
+              <span className="text-muted-foreground">第 {currentIndex + 1} / {questions.length} 题</span>
+              <span className="text-xs text-muted-foreground">{Object.keys(answers).length} / {questions.length} 已作答</span>
+            </div>
+
+            {questions[currentIndex] && (
+              <PreviewQuestionCard
+                key={questions[currentIndex].id} index={currentIndex + 1}
+                question={questions[currentIndex]} value={answers[questions[currentIndex].id]}
+                onChange={(v) => setAnswer(questions[currentIndex].id, v)} finished={false}
+              />
+            )}
+
+            <div className="flex items-center justify-between gap-2 mt-4">
+              <div className="flex gap-1.5">
+                <button onClick={() => setCurrentIndex(0)} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">首题</button>
+                <button onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">上一题</button>
+              </div>
+              <div className="flex gap-1.5">
+                <button onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">下一题</button>
+                <button onClick={() => setCurrentIndex(questions.length - 1)} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">末题</button>
+              </div>
+            </div>
+          </>
+        )}
 
         {!finished && (
-          <div className="pb-10 flex justify-center">
+          <div className="pt-6 pb-10 flex justify-center">
             <button onClick={handleSubmit} className="text-base font-semibold px-8 py-3 rounded-2xl bg-primary text-primary-foreground">✅ 提交查看结果</button>
           </div>
         )}

@@ -566,7 +566,7 @@ export async function listExamPaperStudents(req: AuthRequest, res: Response): Pr
     const paper = await getPaperOr404(req.params.paperId);
     if (!paper) { notFound(res, "试卷不存在"); return; }
     const { rows } = await query(
-      `SELECT eps.*, u.full_name, u.email,
+      `SELECT eps.*, u.full_name_zh, u.full_name_en, u.username, u.email,
               ea.status AS attempt_status, ea.score, ea.max_score, ea.submitted_at
        FROM edu.exam_paper_students eps
        JOIN auth.users u ON u.id = eps.student_id
@@ -881,12 +881,12 @@ export async function getExamPaperLeaderboard(req: AuthRequest, res: Response): 
     const paper = await getPaperOr404(req.params.paperId);
     if (!paper) { notFound(res, "试卷不存在"); return; }
     const { rows } = await query(
-      `SELECT u.id AS student_id, u.full_name, MAX(ea.score) AS best_score,
+      `SELECT u.id AS student_id, u.full_name_zh, u.full_name_en, u.username, MAX(ea.score) AS best_score,
               MIN(ea.submitted_at) FILTER (WHERE ea.score = (SELECT MAX(score) FROM edu.exam_attempts WHERE paper_id = ea.paper_id AND student_id = ea.student_id)) AS best_submitted_at
        FROM edu.exam_attempts ea
        JOIN auth.users u ON u.id = ea.student_id
        WHERE ea.paper_id = $1 AND ea.status = 'submitted'
-       GROUP BY u.id, u.full_name
+       GROUP BY u.id, u.full_name_zh, u.full_name_en, u.username
        ORDER BY best_score DESC, best_submitted_at ASC`, // 同分的话，谁先达到这个最佳成绩排前面
       [req.params.paperId]
     );

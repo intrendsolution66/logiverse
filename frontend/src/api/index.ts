@@ -712,7 +712,7 @@ export const examApi = {
   // ── 受邀学生名单 ──────────────────────────────────────────────────────────
   listPaperStudents: (paperId: string) =>
     api.get(`/exam-papers/${paperId}/students`).then(d<Array<{
-      student_id: string; full_name: string; email?: string; invited_at: string;
+      student_id: string; full_name_zh?: string; full_name_en?: string; username: string; email?: string; invited_at: string;
       attempt_status?: string; score?: number; max_score?: number; submitted_at?: string;
     }>>),
   addPaperStudents: (paperId: string, studentIds: string[]) =>
@@ -724,7 +724,7 @@ export const examApi = {
   getLeaderboard: (paperId: string) =>
     api.get(`/exam-papers/${paperId}/leaderboard`).then(d<{
       total_marks: number;
-      rankings: Array<{ student_id: string; full_name: string; best_score: number; best_submitted_at: string }>;
+      rankings: Array<{ student_id: string; full_name_zh?: string; full_name_en?: string; username: string; best_score: number; best_submitted_at: string }>;
     }>),
 
   // ── 学生端作答 ────────────────────────────────────────────────────────────

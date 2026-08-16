@@ -44,6 +44,7 @@ export default function ExamTakePage() {
   const [remaining, setRemaining] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [currentIndex, setCurrentIndex] = useState(0); // 一题一页——当前显示第几题(0-based)
   const submittedRef = useRef(false); // 防止倒计时和手动交卷同时触发两次提交
 
   useEffect(() => {
@@ -128,12 +129,32 @@ export default function ExamTakePage() {
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto py-6 px-4 space-y-5">
-        {questions.map((q, i) => (
-          <QuestionCard key={q.id} index={i + 1} question={q} value={answers[q.id]} onChange={(v) => setAnswer(q.id, v)} />
-        ))}
+      <div className="max-w-2xl mx-auto py-6 px-4">
+        <div className="flex items-center justify-between mb-3 text-sm">
+          <span className="text-muted-foreground">第 {currentIndex + 1} / {questions.length} 题</span>
+          <span className="text-xs text-muted-foreground">{Object.keys(answers).length} / {questions.length} 已作答</span>
+        </div>
 
-        <div className="pt-2 pb-10 flex flex-col items-center gap-2">
+        {questions[currentIndex] && (
+          <QuestionCard
+            key={questions[currentIndex].id} index={currentIndex + 1}
+            question={questions[currentIndex]} value={answers[questions[currentIndex].id]}
+            onChange={(v) => setAnswer(questions[currentIndex].id, v)}
+          />
+        )}
+
+        <div className="flex items-center justify-between gap-2 mt-4">
+          <div className="flex gap-1.5">
+            <button onClick={() => setCurrentIndex(0)} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">首题</button>
+            <button onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))} disabled={currentIndex === 0} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">上一题</button>
+          </div>
+          <div className="flex gap-1.5">
+            <button onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">下一题</button>
+            <button onClick={() => setCurrentIndex(questions.length - 1)} disabled={currentIndex === questions.length - 1} className="px-3 py-2 rounded-lg text-sm bg-white border border-border disabled:opacity-30">末题</button>
+          </div>
+        </div>
+
+        <div className="pt-6 pb-10 flex flex-col items-center gap-2">
           {!allAnswered && <p className="text-xs text-amber-600">还有题目没作答完，交卷后没作答的题目算错</p>}
           <button
             onClick={() => { if (confirm("确定要交卷吗？交卷后不能修改。")) handleSubmit(); }}
