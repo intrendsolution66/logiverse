@@ -45,9 +45,13 @@ export async function createWopiSession(req: AuthRequest, res: Response): Promis
     if (!rows.length) { notFound(res, "素材不存在"); return; }
     if (rows[0].category !== "ppt_interactive") { badRequest(res, "这份素材不是「PPT真实动画版」类型，没办法用这个方式打开"); return; }
 
-    const { rows: userRows } = await query(`SELECT full_name_zh, full_name_en, username FROM auth.users WHERE id = $1`, [req.user!.sub]);
+    // auth.users 表本身只有 username，没有 full_name_zh/full_name_en 这种
+    // 中英文全名字段(那是另一张独立的用户资料表才有的，这里没必要为了
+    // 一个纯展示用的名字额外联表)——UserFriendlyName 只是Collabora界面
+    // 上显示的名字，用username完全够用。
+    const { rows: userRows } = await query(`SELECT username FROM auth.users WHERE id = $1`, [req.user!.sub]);
     const u = userRows[0];
-    const userName = u?.full_name_zh ?? u?.full_name_en ?? u?.username ?? "访客";
+    const userName = u?.username ?? "访客";
 
     const token = randomBytes(24).toString("hex");
     const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
