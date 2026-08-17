@@ -29,16 +29,16 @@ export function CollaboraViewer({ assetId, title }: { assetId: string; title?: s
   }, [assetId]);
 
   if (loading) {
-    return <div className="w-full aspect-[16/10] rounded-xl bg-muted/30 flex items-center justify-center text-sm text-muted-foreground">加载中...</div>;
+    return <div className="w-full h-[80vh] rounded-xl bg-muted/30 flex items-center justify-center text-sm text-muted-foreground">加载中...</div>;
   }
   if (error) {
-    return <div className="w-full aspect-[16/10] rounded-xl bg-muted/30 flex items-center justify-center text-sm text-red-600">🔒 {error}</div>;
+    return <div className="w-full h-[80vh] rounded-xl bg-muted/30 flex items-center justify-center text-sm text-red-600">🔒 {error}</div>;
   }
 
   return (
     <div className="w-full space-y-1">
       {title && <p className="text-sm font-medium text-foreground/90">{title}</p>}
-      <div className="w-full aspect-[16/10] rounded-xl overflow-hidden border border-border shadow-lg bg-black">
+      <div className="w-full h-[80vh] rounded-xl overflow-hidden border border-border shadow-lg bg-black">
         <iframe
           src={iframeSrc ?? undefined}
           className="w-full h-full border-0"
