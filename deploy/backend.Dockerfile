@@ -24,6 +24,12 @@ ENV NODE_ENV=production
 # 运行时需要的共享库，不装的话Chrome直接启动失败。这份清单是Puppeteer
 # 官方给Debian系统列的标准依赖，外加 fonts-noto-cjk 保证PDF里的中文
 # 正常显示(不装的话中文字很可能变成方块)。
+#
+# libreoffice-impress + poppler-utils —— PPT讲义上传时转幻灯片图片用
+# (pptConverter.ts：pptx→pdf 靠 soffice，pdf→逐页png 靠 pdftoppm)。用
+# libreoffice-impress 这个子集而不是完整的 libreoffice 元包——只需要
+# Impress模块的PDF导出能力，装完整套件(Writer/Calc/Draw等全家桶)体积
+# 大很多、build也慢很多，用不到的部分不装。
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates fonts-liberation fonts-noto-cjk unzip \
     libasound2 libatk-bridge2.0-0 libatk1.0-0 libcairo2 libcups2 \
@@ -31,6 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libnspr4 libnss3 libpango-1.0-0 libx11-6 libx11-xcb1 libxcb1 \
     libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 \
     libxrandr2 libxrender1 libxss1 libxtst6 xdg-utils \
+    libreoffice-impress poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
 # 这一阶段是真正要跑PDF生成的地方，不设PUPPETEER_SKIP_CHROMIUM_DOWNLOAD，

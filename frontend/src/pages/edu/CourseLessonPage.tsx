@@ -571,7 +571,7 @@ function LessonsCard({ courseId }: { courseId: string }) {
                                   <div className="flex items-center justify-between mb-2">
                                     <span className="text-xs font-medium text-muted-foreground">步骤顺序</span>
                                     <div className="flex items-center gap-3">
-                                      <a href={`/lesson/${l.id}`} target="_blank" rel="noreferrer" className="text-primary text-xs font-medium hover:underline">试玩课时 →</a>
+                                      <a href={`/lesson/${l.id}?preview=true`} target="_blank" rel="noreferrer" className="text-primary text-xs font-medium hover:underline">🧪 试玩课时 →</a>
                                       <Button size="sm" onClick={() => setShowStepModal(true)}>+ 加步骤</Button>
                                     </div>
                                   </div>

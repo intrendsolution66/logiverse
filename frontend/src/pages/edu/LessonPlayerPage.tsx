@@ -8,8 +8,8 @@
 //            在这里重新做一个游戏播放器）
 
 import { useState, useEffect, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { selfGuidedApi, mediaProgressApi, examApi } from "@/api";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { selfGuidedApi, lessonsApi, mediaProgressApi, examApi } from "@/api";
 import { Button } from "@/components/ui/button";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { PptReader } from "@/components/PptReader";
@@ -91,41 +91,61 @@ function QuizStep({ step, onProgress }: { step: Step; onProgress: (isCorrect: bo
 export default function LessonPlayerPage() {
   const { lessonId } = useParams<{ lessonId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // 预览模式——课程设计师用"试玩课时"进来的，跳过学生端订阅校验(用
+  // courses.manage权限校验的设计师视角接口)，进度也不上报，不污染真实
+  // 学生的学习记录。跟考试系统"试玩预览不写入exam_attempts"是同一个
+  // 原则。之前"试玩课时"链接直接指向学生专用的 selfGuidedApi.getLesson，
+  // 设计师账号没有订阅记录，一进来就被后端的订阅校验拦成403——这就是
+  // 之前"视频上传成功但播不出来"报错的真正原因，根本没走到播放视频那
+  // 一步，是页面本身先被403拦住了。
+  const isPreview = searchParams.get("preview") === "true";
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
 
   useEffect(() => {
     if (!lessonId) return;
-    selfGuidedApi.getLesson(lessonId).then(setLesson);
-  }, [lessonId]);
+    const loader = isPreview ? lessonsApi.getLesson(lessonId) : selfGuidedApi.getLesson(lessonId);
+    loader.then(setLesson);
+  }, [lessonId, isPreview]);
 
   const step = lesson?.steps[stepIndex];
   const isLastStep = lesson ? stepIndex >= lesson.steps.length - 1 : true;
 
   const handleVideoProgress = useCallback((s: Step, secondsWatched: number, durationSeconds: number, completed: boolean) => {
+  if (isPreview) return; // 试玩预览不上报进度，不污染真实学生的学习记录
   mediaProgressApi.submit({
     lesson_step_id: s.id, media_type: "video",
     seconds_watched: secondsWatched, duration_seconds: durationSeconds, completed,
   }).catch(() => {});
-}, []);
+}, [isPreview]);
 
   const handlePptProgress = useCallback((s: Step, index: number, total: number, completed: boolean) => {
+  if (isPreview) return;
   mediaProgressApi.submit({
     lesson_step_id: s.id, media_type: "ppt",
     last_slide_index: index, total_slides: total, completed,
   }).catch(() => {});
-}, []);
+}, [isPreview]);
 
   const handleQuizProgress = useCallback((s: Step, isCorrect: boolean) => {
+  if (isPreview) return;
   mediaProgressApi.submit({
     lesson_step_id: s.id, media_type: "quiz",
     is_correct: isCorrect, marks_earned: isCorrect ? 1 : 0, marks_total: 1, completed: true,
   }).catch(() => {});
-}, []);
+}, [isPreview]);
 
   function goNext() {
     if (!lesson) return;
-    if (isLastStep) { navigate(`/self-guided/courses/${lesson.course_id}`); return; }
+    if (isLastStep) {
+      // 预览模式没有"回到自学课程列表"这回事(那也是学生端订阅校验的
+      // 页面)，直接关掉这个试玩标签页，跟考试系统试玩预览完事后
+      // window.close()是同一个模式。
+      if (isPreview) { window.close(); return; }
+      navigate(`/self-guided/courses/${lesson.course_id}`);
+      return;
+    }
     setStepIndex((i) => i + 1);
   }
 
@@ -139,6 +159,13 @@ export default function LessonPlayerPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 pb-16">
+      {isPreview && (
+        <div className="sticky top-0 z-10 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 flex items-center gap-2 text-sm text-amber-800">
+          <span className="font-semibold">🧪 试玩预览模式</span>
+          <span className="text-xs text-amber-700">不计入任何真实学习记录，仅供测试课时内容</span>
+        </div>
+      )}
+
       <div>
         <h1 className="text-xl font-bold tracking-tight">{lesson.title_i18n?.zh ?? lesson.title_i18n?.en}</h1>
         <p className="text-sm text-muted-foreground mt-0.5">步骤 {stepIndex + 1} / {lesson.steps.length}</p>
@@ -174,7 +201,7 @@ export default function LessonPlayerPage() {
 
       <div className="flex items-center justify-between">
         <Button variant="outline" disabled={stepIndex === 0} onClick={goPrev}>上一步</Button>
-        <Button onClick={goNext}>{isLastStep ? "完成这一课" : "下一步"}</Button>
+        <Button onClick={goNext}>{isLastStep ? (isPreview ? "完成试玩（关闭标签页）" : "完成这一课") : "下一步"}</Button>
       </div>
     </div>
   );

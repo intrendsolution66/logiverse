@@ -30,15 +30,18 @@ import { promisify } from "util";
 
 const execFileAsync = promisify(execFile);
 
-// Windows 上 "soffice" 不在 PATH 里，必须用完整路径调用，否则 execFile 会抛 ENOENT。
-// 允许用环境变量覆盖，方便以后换机器 / 部署到 Linux 服务器（Linux 上通常直接
-// 装了 libreoffice 并注册在 PATH 里，写 "soffice" 就够了）时不用改代码。
-const SOFFICE_PATH =
-  process.env.SOFFICE_PATH || "C:\\Program Files\\LibreOffice\\program\\soffice.exe";
+// 生产环境(Linux容器)装好 libreoffice/poppler-utils 之后，soffice/pdftoppm
+// 会被注册进系统PATH，写裸命令名就够了，不需要完整路径。本机Windows
+// 开发环境如果没有把这两个工具加进PATH，需要在本地 .env 文件里设
+// SOFFICE_PATH / PDFTOPPM_PATH 指向实际安装位置（比如
+// C:\Program Files\LibreOffice\program\soffice.exe）来覆盖这个默认值——
+// 之前这里反过来把Windows本机路径当默认值、生产环境的Linux路径靠环境
+// 变量覆盖，导致部署到服务器上如果忘了设环境变量，就会去找一个根本不
+// 存在的Windows路径，这正是"找不到LibreOffice"这个报错的原因。
+const SOFFICE_PATH = process.env.SOFFICE_PATH || "soffice";
 
-// 同理，Windows 上 poppler 的 pdftoppm 也不在 PATH 里，必须用完整路径。
-const PDFTOPPM_PATH =
-  process.env.PDFTOPPM_PATH || "I:\\poppler-26.02.0\\Library\\bin\\pdftoppm.exe";
+// 同理，poppler 的 pdftoppm 生产环境装好之后也在PATH里，默认用裸命令名。
+const PDFTOPPM_PATH = process.env.PDFTOPPM_PATH || "pdftoppm";
 
 export interface ConvertedSlide {
   buffer: Buffer;
@@ -60,8 +63,17 @@ export async function convertPptxToSlideImages(pptxBuffer: Buffer): Promise<Conv
     await fs.writeFile(pptxPath, pptxBuffer);
 
     // ① pptx → pdf
+    // -env:UserInstallation 让这次调用用workDir底下一个独立的配置目录，
+    // 不用LibreOffice默认的共享用户配置——headless模式下如果两次转换
+    // 前后脚并发跑(比如两位老师同时上传PPT)，共用配置会导致后一个
+    // soffice进程报"另一个实例正在运行"直接失败。workDir本来就是每次
+    // 转换独有的随机目录，正好拿来隔离配置，不用额外生成。
     try {
-      await execFileAsync(SOFFICE_PATH, ["--headless", "--convert-to", "pdf", "--outdir", workDir, pptxPath], { timeout: 60_000 });
+      await execFileAsync(
+        SOFFICE_PATH,
+        [`-env:UserInstallation=file://${path.join(workDir, "lo-profile")}`, "--headless", "--convert-to", "pdf", "--outdir", workDir, pptxPath],
+        { timeout: 60_000 }
+      );
     } catch (err) {
       const e = err as { code?: string; message?: string };
       if (e.code === "ENOENT")
