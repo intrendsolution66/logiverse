@@ -528,7 +528,7 @@ export default function AssetLibraryPage() {
         allTags={allTags}
         gradeTiers={gradeTiers}
       />
-      <Modal open={viewingInteractiveId !== null} onClose={() => setViewingInteractiveId(null)} title="PPT（真实动画版）" size="lg">
+      <Modal open={viewingInteractiveId !== null} onClose={() => setViewingInteractiveId(null)} title="PPT（真实动画版）" size="full">
         {viewingInteractiveId && <CollaboraViewer assetId={viewingInteractiveId} />}
       </Modal>
     </div>
