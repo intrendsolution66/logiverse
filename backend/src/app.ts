@@ -14,6 +14,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import examRoutes from "./modules/edu/exam.routes.js";
 import shareLinksRoutes from "./modules/edu/shareLinks.routes.js";
+import wopiRoutes from "./modules/edu/wopi.routes.js";
 import authRoutes   from "./modules/auth/auth.routes.js";
 import usersRoutes  from "./modules/users/users.routes.js";
 import systemRoutes from "./modules/system/system.routes.js";
@@ -62,6 +63,7 @@ app.use("/api/v1/upload", uploadRoutes);
 app.use("/api/v1",        eduRoutes); // /courses, /levels, /progress — Phase 1 pilot
 app.use("/api/v1", examRoutes);
 app.use("/api/v1", shareLinksRoutes); // /share-links (管理) + /share/:token (公开访问，不需要登录)
+app.use("/api/v1", wopiRoutes); // /assets/:assetId/wopi-session (管理) + /wopi/files/:fileId (WOPI标准接口，供Collabora调用，不需要登录)
 // TODO (Phase 2+): mount routes for the other 9 modules as they land
 
 // ── 404 ──────────────────────────────────────────────────────────────────────

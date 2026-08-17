@@ -37,10 +37,11 @@ const CATEGORY_LABELS: Record<string, string> = {
 // 图片以外的类别——不能用 <img> 预览、文件选择器 accept 也不一样、"编辑/
 // 制作"那个画布工具对它们没有意义（画布是画图片的，不是剪视频/编PPT/
 // 剪音频）
-const NON_IMAGE_CATEGORIES = new Set(["video", "ppt", "audio"]);
+const NON_IMAGE_CATEGORIES = new Set(["video", "ppt", "ppt_interactive", "audio"]);
 const ACCEPT_BY_CATEGORY: Record<string, string> = {
   video: "video/*",
   ppt: ".ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ppt_interactive: ".ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation",
   audio: "audio/*",
 };
 const PAGE_SIZE = 40;
@@ -96,7 +97,7 @@ function readFileAsDataURLOnly(file: File): Promise<string> {
 }
 
 export default function AssetPicker({ category, label, moduleType, onSelect, multiple = false, onSelectMultiple, seedFromUrl, onSelectAsset }: {
-  category: "background" | "object" | "icon" | "other" | "video" | "ppt" | "audio";
+  category: "background" | "object" | "icon" | "other" | "video" | "ppt" | "ppt_interactive" | "audio";
   label: string; // button text, e.g. "选背景图片"
   moduleType?: string; // pre-tags assets saved via the edit tab with this module (e.g. "maze")
   onSelect: (dataUrl: string) => void; // 单选模式用；multiple=true 时改用 onSelectMultiple
@@ -113,7 +114,7 @@ export default function AssetPicker({ category, label, moduleType, onSelect, mul
    *  单选场景下改叫 onSelectAsset 而不叫 onSelect（multiple 模式不受影响，
    *  还是走 onSelectMultiple，多选批量场景目前没有"每张都要完整对象"的
    *  用例）。 */
-  onSelectAsset?: (asset: { url: string; slideUrls?: string[]; name?: string }) => void;
+  onSelectAsset?: (asset: { id: string; url: string; slideUrls?: string[]; name?: string }) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"library" | "upload" | "edit">("library");
@@ -184,7 +185,7 @@ export default function AssetPicker({ category, label, moduleType, onSelect, mul
     if (multiple) { toggleSelect(id); return; }
     if (onSelectAsset) {
       const full = await assetsApi.getAsset(id);
-      onSelectAsset({ url: full.file_data, slideUrls: full.slide_urls ?? undefined, name: full.name });
+      onSelectAsset({ id, url: full.file_data, slideUrls: full.slide_urls ?? undefined, name: full.name });
       setOpen(false);
       return;
     }
@@ -213,7 +214,7 @@ export default function AssetPicker({ category, label, moduleType, onSelect, mul
     if (!multiple || uploadFiles.length === 1) {
       try {
         let res;
-        if (category === "video" || category === "ppt") {
+        if (category === "video" || category === "ppt" || category === "ppt_interactive") {
           // 视频/PPT都走分片上传——见 uploadFileChunked 上面的说明。上传
           // 完成后拿到的是一个真实URL（不是data:开头的base64），
           // createAsset那边PPT类别现在也能识别"已经是URL了，从磁盘读回来
@@ -240,7 +241,7 @@ export default function AssetPicker({ category, label, moduleType, onSelect, mul
           // 提醒用户等一下再重新打开选择器挑一次（不在这里做轮询，避免
           // 弹窗还开着的时候卡住等不确定时长的转换）。
           const fresh = await assetsApi.getAsset(res.data.data.id);
-          onSelectAsset({ url: finalUrl, slideUrls: fresh.slide_urls ?? undefined, name: fresh.name });
+          onSelectAsset({ id: res.data.data.id, url: finalUrl, slideUrls: fresh.slide_urls ?? undefined, name: fresh.name });
           if (category === "ppt" && !fresh.slide_urls?.length) {
             toast("PPT已上传，正在转换幻灯片——转换完之后从「从素材库选」里重新选一次这个文件就有了", { icon: "⏳" });
           }
@@ -382,7 +383,7 @@ export default function AssetPicker({ category, label, moduleType, onSelect, mul
               </div>
               <div><Label>标签（选填，最多3个，逗号分隔）</Label><Input placeholder="如：森林,冬天" value={uploadTags} onChange={(e) => setUploadTags(e.target.value)} /></div>
               <div>
-                <Label>{category === "video" ? "视频文件" : category === "ppt" ? "PPT文件" : category === "audio" ? "音频文件" : "图片文件"}{multiple ? "（可以一次多选）" : ""}</Label>
+                <Label>{category === "video" ? "视频文件" : category === "ppt" ? "PPT文件" : category === "ppt_interactive" ? "PPT文件（真实动画版）" : category === "audio" ? "音频文件" : "图片文件"}{multiple ? "（可以一次多选）" : ""}</Label>
                 <input
                   type="file" accept={ACCEPT_BY_CATEGORY[category] ?? "image/*"} multiple={multiple} className="text-sm"
                   onChange={(e) => setUploadFiles(Array.from(e.target.files ?? []))}

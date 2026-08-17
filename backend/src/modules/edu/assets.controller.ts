@@ -26,7 +26,12 @@ import { convertPptxToSlideImages } from "../../utils/pptConverter.js";
 // (必须跟 assetChunkUpload.controller.ts 的 FINAL_DIR 完全一致)。
 const CHUNK_UPLOAD_DIR = path.join(process.cwd(), "uploads", "assets");
 
-const CATEGORIES = ["background", "object", "icon", "video", "ppt", "other"];
+// ppt_interactive——PPT真实动画版，跟普通ppt(转成静态图片，页内动画会
+// 丢失)是并存的两种独立类型。这种不走转换，原始pptx文件原样保留在
+// 磁盘上，靠Collabora Online(wopi.controller.ts)在浏览器里真实渲染出
+// 来，包括点击展开这类页内动画都能保留——代价是没有"秒开"这个优点，
+// 要连一个真的LibreOffice内核。
+const CATEGORIES = ["background", "object", "icon", "video", "ppt", "ppt_interactive", "other"];
 
 // 素材的"使用场景"——跟 category（图片/视频/PPT这种素材类型）是完全独立
 // 的两个维度。多选：同一部影片可能实体课、公开课都在用。

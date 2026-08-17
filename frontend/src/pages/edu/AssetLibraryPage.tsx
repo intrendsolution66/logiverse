@@ -8,6 +8,7 @@
 import { useState, useEffect } from "react";
 import { assetsApi, eduApi } from "@/api/index";
 import { useChunkedUpload } from "@/hooks/useChunkedUpload";
+import { CollaboraViewer } from "@/components/CollaboraViewer";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Card, CardContent, CardHeader, CardTitle, Badge, EmptyState } from "@/components/ui/index";
 import { Modal } from "@/components/ui/modal";
@@ -21,11 +22,12 @@ interface Asset {
 
 interface GradeTier { id: string; code: string; name_i18n?: { zh?: string; en?: string } }
 
-const CATEGORY_LABELS: Record<string, string> = { background: "🖼️ 背景图", object: "🧸 物件图案", icon: "⭐ 图标", video: "🎬 视频", ppt: "📊 PPT", other: "📁 其他" };
+const CATEGORY_LABELS: Record<string, string> = { background: "🖼️ 背景图", object: "🧸 物件图案", icon: "⭐ 图标", video: "🎬 视频", ppt: "📊 PPT", ppt_interactive: "🎞️ PPT（真实动画版）", other: "📁 其他" };
 const IMAGE_CATEGORIES = new Set(["background", "object", "icon", "other"]);
 const ACCEPT_BY_CATEGORY: Record<string, string> = {
   video: "video/mp4,video/webm",
   ppt: ".ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ppt_interactive: ".ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation",
 };
 
 type SortKey = "name" | "category" | "created_at";
@@ -99,9 +101,17 @@ function UploadAssetModal({ open, onClose, onSaved, allTags }: { open: boolean; 
 
   async function uploadOne(file: File, nameOverride?: string) {
     const finalName = nameOverride ?? (name || undefined);
-    if (category === "video") {
+    if (category === "video" || category === "ppt" || category === "ppt_interactive") {
+      // 视频/PPT(不管普通版还是真实动画版)都走分片上传——之前这里只有
+      // video走了chunked upload，ppt走的是readFileAsDataURL整个转base64
+      // 塞一个请求，跟"课时/Activity那边PPT传不上去"是完全一样的体量
+      // 限制问题，只是这里是素材库自己独立的一套上传逻辑，之前修的时候
+      // 没覆盖到这条路径，这次一起修掉。ppt_interactive不需要后端做
+      // 幻灯片转换(保留原始文件给Collabora真实渲染用)，跟普通ppt共用
+      // 同一条上传路径完全没问题，区别只在后端createAsset怎么处理这个
+      // category，前端上传这一步是一样的。
       const result = await uploadFile(file);
-      if (!result) throw new Error(chunkError || "视频上传失败");
+      if (!result) throw new Error(chunkError || "上传失败");
       await assetsApi.createAsset({ category, name: finalName, file_data: result.url, tags: tags.filter(Boolean) });
     } else if (isImageCategory) {
       const { dataUrl, width, height } = await readAsDataURL(file);
@@ -113,7 +123,7 @@ function UploadAssetModal({ open, onClose, onSaved, allTags }: { open: boolean; 
   }
 
   async function handleSave() {
-    if (files.length === 0) { toast.error(category === "ppt" ? "请选一个PPT文件" : category === "video" ? "请选一个视频文件" : "请选至少一张图片"); return; }
+    if (files.length === 0) { toast.error(category === "ppt" || category === "ppt_interactive" ? "请选一个PPT文件" : category === "video" ? "请选一个视频文件" : "请选至少一张图片"); return; }
 
     // 单文件（或者非图片分类）——跟原本的行为完全一样
     if (!isImageCategory || files.length === 1) {
@@ -170,7 +180,7 @@ function UploadAssetModal({ open, onClose, onSaved, allTags }: { open: boolean; 
           <Input placeholder="如：森林背景" value={name} onChange={(e) => setName(e.target.value)} disabled={busy || (isImageCategory && files.length > 1)} />
         </div>
         <div>
-          <Label>{category === "ppt" ? "PPT文件" : category === "video" ? "视频文件" : "图片文件（可以一次多选）"}</Label>
+          <Label>{category === "ppt" ? "PPT文件" : category === "ppt_interactive" ? "PPT文件（会保留原始动画）" : category === "video" ? "视频文件" : "图片文件（可以一次多选）"}</Label>
           <input
             type="file"
             multiple={isImageCategory}
@@ -179,7 +189,7 @@ function UploadAssetModal({ open, onClose, onSaved, allTags }: { open: boolean; 
             onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
             disabled={busy}
           />
-          {category === "video" && <p className="text-xs text-muted-foreground mt-1">视频文件采用分片上传，支持较大文件</p>}
+          {(category === "video" || category === "ppt" || category === "ppt_interactive") && <p className="text-xs text-muted-foreground mt-1">采用分片上传，支持较大文件</p>}
 
           {files.length > 0 && (
             <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
@@ -348,6 +358,7 @@ export default function AssetLibraryPage() {
   const [order, setOrder] = useState<"asc" | "desc">("desc");
   const [showUpload, setShowUpload] = useState(false);
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
+  const [viewingInteractiveId, setViewingInteractiveId] = useState<string | null>(null); // ppt_interactive"查看"点开的是本页面内弹窗，不是新页面
   const [gradeTiers, setGradeTiers] = useState<GradeTier[]>([]);
   const [previews, setPreviews] = useState<Record<string, string>>({});
 
@@ -364,7 +375,7 @@ export default function AssetLibraryPage() {
   useEffect(() => {
     assets.forEach((a) => {
       if (previews[a.id]) return;
-      if (a.category === "ppt") return; // PPT没有靠得住的缩略图数据，表格里不用抓
+      if (a.category === "ppt" || a.category === "ppt_interactive") return; // PPT没有靠得住的缩略图数据，表格里不用抓
       assetsApi.getAsset(a.id).then((r) => setPreviews((p) => ({ ...p, [a.id]: r.file_data })));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -435,6 +446,8 @@ export default function AssetLibraryPage() {
                     <div className="w-full aspect-square rounded-xl bg-muted overflow-hidden relative">
                       {a.category === "ppt" ? (
                         <div className="w-full h-full flex items-center justify-center text-4xl">📊</div>
+                      ) : a.category === "ppt_interactive" ? (
+                        <div className="w-full h-full flex items-center justify-center text-4xl">🎞️</div>
                       ) : a.category === "video" ? (
                         previews[a.id]
                           ? <video src={previews[a.id]} className="w-full h-full object-contain" muted />
@@ -465,6 +478,14 @@ export default function AssetLibraryPage() {
                           >
                             <Eye size={15} />
                           </a>
+                        )}
+                        {a.category === "ppt_interactive" && (
+                          <button
+                            onClick={() => setViewingInteractiveId(a.id)} title="查看（真实动画）"
+                            className="w-8 h-8 rounded-full bg-white/90 text-foreground flex items-center justify-center hover:bg-white"
+                          >
+                            <Eye size={15} />
+                          </button>
                         )}
                         <button onClick={() => setEditingAssetId(a.id)} title="编辑" className="w-8 h-8 rounded-full bg-white/90 text-foreground flex items-center justify-center hover:bg-white">
                           <Pencil size={15} />
@@ -507,6 +528,9 @@ export default function AssetLibraryPage() {
         allTags={allTags}
         gradeTiers={gradeTiers}
       />
+      <Modal open={viewingInteractiveId !== null} onClose={() => setViewingInteractiveId(null)} title="PPT（真实动画版）" size="lg">
+        {viewingInteractiveId && <CollaboraViewer assetId={viewingInteractiveId} />}
+      </Modal>
     </div>
   );
 }

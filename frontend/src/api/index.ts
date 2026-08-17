@@ -162,6 +162,13 @@ export const assetsApi = {
 };
 
 // ── Asset chunk upload (大文件分片上传，目前用于视频素材) ──────────────────────
+// PPT真实动画版——生成一个短期WOPI会话，拿到之后前端拼出Collabora
+// iframe网址（wopiSrc + accessToken + officeUrl三样拼起来）
+export const wopiApi = {
+  createSession: (assetId: string) =>
+    api.post(`/assets/${assetId}/wopi-session`).then(d<{ wopiSrc: string; accessToken: string; officeUrl: string }>),
+};
+
 export const assetChunkUploadApi = {
   init: (b: { fileName: string; fileSize: number; totalChunks: number; mimeType: string }) =>
     api.post("/assets/chunk-upload/init", b).then(d<{ uploadId: string }>),
