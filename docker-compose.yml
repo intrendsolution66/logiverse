@@ -47,6 +47,37 @@ services:
     depends_on:
       - backend
 
+  # Collabora Online — 在浏览器里真实渲染PPT/Word/Excel，不是转成静态
+  # 图片那套(pptConverter.ts那套PDF转PNG的方式，页内动画/过渡效果这些
+  # 会全部丢失，因为PNG是纯静态图片，这是那套方案的根本限制，不是bug)。
+  # Collabora内核就是LibreOffice本身，在服务器端真的把这份PPT"播放"出
+  # 来，通过iframe嵌进前端，页内动画等交互内容能够保留。
+  #
+  # domain 那行是WOPI来源白名单——用正则限制只有你自己的前端域名能请求
+  # 这个服务，反斜杠转义点号是Collabora要求的写法。username/password是
+  # Collabora自带的管理后台登录密码，务必换成你自己的强密码，不要用
+  # 示例里的占位符。
+  #
+  # extra_params 那两个ssl参数——因为SSL终止在Nginx Proxy Manager那一层
+  # 做(它对外是https)，Collabora容器自己不需要再处理一次SSL，
+  # ssl.enable=false 关掉容器自己的SSL、ssl.termination=true 告诉它
+  # "外面有一层反向代理帮你终止了SSL，你只管收明文http就行"，两个要配
+  # 合着设，不能只设一个。
+  collabora:
+    image: collabora/code:latest
+    environment:
+      - domain=logiverse\\.mybriw\\.com
+      - username=admin
+      - password=请换成你自己的强密码
+      - extra_params=--o:ssl.enable=false --o:ssl.termination=true
+    ports:
+      - "9980:9980"
+    restart: unless-stopped
+    networks:
+      - default   # 跟backend共用这个网络——以后backend要给Collabora提供
+                  # WOPI接口(文件在哪/文件内容是什么)，靠这个网络内部
+                  # 直接用容器名"backend"互通，不用绕外网
+
 networks:
   postgres_default:
     external: true  # 不是这份compose自己建的，是postgres那个项目已经建好的，标成external让compose去"接上"而不是"新建一个同名的"
