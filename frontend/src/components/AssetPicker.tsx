@@ -60,19 +60,19 @@ function readAsDataURL(file: File): Promise<{ dataUrl: string; width: number; he
   });
 }
 
-// 视频走分片上传——之前这里跟图片/PPT一样，整个文件读成base64塞进一个
-// HTTP请求发给createAsset，视频稍微大一点（比如173MB）转成base64会
-// 膨胀到230MB+，这么大的请求体在到达Node后端之前就会被Nginx/Cloudflare
-// Tunnel这层反向代理拒绝（代理默认的请求体大小限制通常远小于这个），
-// 浏览器只会看到笼统的"CORS blocked / net::ERR_FAILED"，看不出真正
-// 原因是文件太大——后端其实早就有分片上传的接口(assetChunkUploadApi)，
-// 只是之前没有从这里接上，纯粹是"接线没接"的问题，不是没做过。
+// 视频/PPT 都走分片上传——之前这里整个文件读成base64塞进一个HTTP请求
+// 发给createAsset，稍微大一点的文件（比如173MB视频、或者带很多图片的
+// PPT）转成base64会膨胀30%+，这么大的请求体在到达Node后端之前就会被
+// Nginx/Cloudflare Tunnel这层反向代理拒绝，浏览器只会看到笼统的"CORS
+// blocked / net::ERR_FAILED"或者请求直接卡死，看不出真正原因是文件
+// 太大——后端早就有分片上传的接口(assetChunkUploadApi)，一开始只给
+// 视频接上了，这次PPT也接上，两种类型共用同一个上传函数。
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB一片，后端单片上限是8MB，留一点余量
 
-async function uploadVideoChunked(file: File, onProgress: (pct: number) => void): Promise<string> {
+async function uploadFileChunked(file: File, onProgress: (pct: number) => void): Promise<string> {
   const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
   const { uploadId } = await assetChunkUploadApi.init({
-    fileName: file.name, fileSize: file.size, totalChunks, mimeType: file.type || "video/mp4",
+    fileName: file.name, fileSize: file.size, totalChunks, mimeType: file.type || "application/octet-stream",
   });
   for (let i = 0; i < totalChunks; i++) {
     const start = i * CHUNK_SIZE;
@@ -213,12 +213,14 @@ export default function AssetPicker({ category, label, moduleType, onSelect, mul
     if (!multiple || uploadFiles.length === 1) {
       try {
         let res;
-        if (category === "video") {
-          // 视频走分片上传——见 uploadVideoChunked 上面的说明。上传完成后
-          // 拿到的是一个真实URL（不是data:开头的base64），createAsset那边
-          // 已经能识别"已经是URL了，原样存，不重复处理"这种情况。
+        if (category === "video" || category === "ppt") {
+          // 视频/PPT都走分片上传——见 uploadFileChunked 上面的说明。上传
+          // 完成后拿到的是一个真实URL（不是data:开头的base64），
+          // createAsset那边PPT类别现在也能识别"已经是URL了，从磁盘读回来
+          // 转幻灯片"这种情况（之前只有video类别识别得了这种情况，PPT走
+          // 的还是旧的base64路径，这就是之前"PPT体量大了传不上去"的根因）。
           setUploadProgress(0);
-          const url = await uploadVideoChunked(uploadFiles[0], setUploadProgress);
+          const url = await uploadFileChunked(uploadFiles[0], setUploadProgress);
           res = await assetsApi.createAsset({ category, name: uploadName || undefined, file_data: url, width: 0, height: 0, module_type: moduleType, tags });
           setUploadProgress(null);
         } else if (isNonImage) {
@@ -401,7 +403,7 @@ export default function AssetPicker({ category, label, moduleType, onSelect, mul
                   <div className="h-2 rounded-full bg-muted overflow-hidden">
                     <div className="h-full bg-primary transition-all" style={{ width: `${uploadProgress}%` }} />
                   </div>
-                  <p className="text-xs text-muted-foreground text-center">上传中… {uploadProgress}%（视频较大，请耐心等待，不要关闭这个窗口）</p>
+                  <p className="text-xs text-muted-foreground text-center">上传中… {uploadProgress}%（文件较大时请耐心等待，不要关闭这个窗口）</p>
                 </div>
               )}
               <Button className="w-full" onClick={handleUploadAndUse} disabled={uploadProgress !== null}>

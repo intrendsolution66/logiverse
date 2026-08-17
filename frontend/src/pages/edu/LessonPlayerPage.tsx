@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { selfGuidedApi, lessonsApi, mediaProgressApi, examApi } from "@/api";
+import { selfGuidedApi, lessonsApi, sharePublicApi, mediaProgressApi, examApi } from "@/api";
 import { Button } from "@/components/ui/button";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { PptReader } from "@/components/PptReader";
@@ -34,7 +34,18 @@ interface Lesson {
 // media_progress，media_type改成"quiz")。判分只返回对不对，不返回
 // 正确答案本身——这里没有"查看正确答案"这个功能，跟考试系统学生端
 // 一样，答案永远在服务器手上。
-function QuizStep({ step, onProgress }: { step: Step; onProgress: (isCorrect: boolean) => void }) {
+//
+// fetchQuestion/checkAnswer 参数化——不写死调 examApi，因为分享模式下
+// 访客没有登录态，examApi那两个接口(虽然只要求authenticate，不要求
+// courses.manage)对匿名访客来说还是会401，得走 sharePublicApi 那套
+// 靠token鉴权、不需要登录的平行接口。同一个组件三种模式(自学/预览/
+// 分享)通吃，由父组件决定传哪一套函数进来，不用为分享模式单独复制
+// 一份QuizStep。
+function QuizStep({ step, onProgress, fetchQuestion, checkAnswer }: {
+  step: Step; onProgress: (isCorrect: boolean) => void;
+  fetchQuestion: (bankQuestionId: string) => Promise<{ id: string; category: string; question_type: string; config: Record<string, unknown> }>;
+  checkAnswer: (bankQuestionId: string, answer: unknown) => Promise<{ is_correct: boolean }>;
+}) {
   const [question, setQuestion] = useState<{ id: string; category: string; question_type: string; config: Record<string, unknown> } | null>(null);
   const [answer, setAnswer] = useState<unknown>(undefined);
   const [checking, setChecking] = useState(false);
@@ -44,14 +55,14 @@ function QuizStep({ step, onProgress }: { step: Step; onProgress: (isCorrect: bo
   useEffect(() => {
     if (!step.bank_question_id) return;
     setLoading(true); setQuestion(null); setAnswer(undefined); setResult(null);
-    examApi.playBankQuestion(step.bank_question_id).then(setQuestion).finally(() => setLoading(false));
+    fetchQuestion(step.bank_question_id).then(setQuestion).finally(() => setLoading(false));
   }, [step.bank_question_id]);
 
   async function handleCheck() {
     if (!step.bank_question_id || checking) return;
     setChecking(true);
     try {
-      const r = await examApi.checkBankQuestion(step.bank_question_id, answer);
+      const r = await checkAnswer(step.bank_question_id, answer);
       setResult(r.is_correct);
       onProgress(r.is_correct);
     } finally {
@@ -89,56 +100,70 @@ function QuizStep({ step, onProgress }: { step: Step; onProgress: (isCorrect: bo
 }
 
 export default function LessonPlayerPage() {
-  const { lessonId } = useParams<{ lessonId: string }>();
+  const { lessonId, token } = useParams<{ lessonId?: string; token?: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  // 预览模式——课程设计师用"试玩课时"进来的，跳过学生端订阅校验(用
-  // courses.manage权限校验的设计师视角接口)，进度也不上报，不污染真实
-  // 学生的学习记录。跟考试系统"试玩预览不写入exam_attempts"是同一个
-  // 原则。之前"试玩课时"链接直接指向学生专用的 selfGuidedApi.getLesson，
-  // 设计师账号没有订阅记录，一进来就被后端的订阅校验拦成403——这就是
-  // 之前"视频上传成功但播不出来"报错的真正原因，根本没走到播放视频那
-  // 一步，是页面本身先被403拦住了。
-  const isPreview = searchParams.get("preview") === "true";
+  // 三种模式：
+  //  - share：通过 /share/:token 这条公开路由进来的，完全没有登录态，
+  //    靠token鉴权。这是这次新加的——分享给系统外的人用。
+  //  - preview：课程设计师用"试玩课时"进来的(/lesson/:id?preview=true)，
+  //    跳过学生端订阅校验(用courses.manage权限校验的设计师视角接口)。
+  //  - 默认(self-guided)：真实学生走订阅校验的自学模式播放。
+  // preview/share 两种模式进度都不上报，不污染真实学生的学习记录——
+  // 跟考试系统"试玩预览不写入exam_attempts"是同一个原则。
+  const isShare = !!token;
+  const isPreview = !isShare && searchParams.get("preview") === "true";
+  const skipProgress = isPreview || isShare;
   const [lesson, setLesson] = useState<Lesson | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
 
   useEffect(() => {
+    if (isShare) {
+      if (!token) return;
+      sharePublicApi.getLesson(token)
+        .then(setLesson)
+        .catch((err) => setLoadError(err?.response?.data?.message ?? "这个分享链接打不开——可能已经失效了"));
+      return;
+    }
     if (!lessonId) return;
     const loader = isPreview ? lessonsApi.getLesson(lessonId) : selfGuidedApi.getLesson(lessonId);
     loader.then(setLesson);
-  }, [lessonId, isPreview]);
+  }, [lessonId, token, isPreview, isShare]);
 
   const step = lesson?.steps[stepIndex];
   const isLastStep = lesson ? stepIndex >= lesson.steps.length - 1 : true;
 
   const handleVideoProgress = useCallback((s: Step, secondsWatched: number, durationSeconds: number, completed: boolean) => {
-  if (isPreview) return; // 试玩预览不上报进度，不污染真实学生的学习记录
+  if (skipProgress) return;
   mediaProgressApi.submit({
     lesson_step_id: s.id, media_type: "video",
     seconds_watched: secondsWatched, duration_seconds: durationSeconds, completed,
   }).catch(() => {});
-}, [isPreview]);
+}, [skipProgress]);
 
   const handlePptProgress = useCallback((s: Step, index: number, total: number, completed: boolean) => {
-  if (isPreview) return;
+  if (skipProgress) return;
   mediaProgressApi.submit({
     lesson_step_id: s.id, media_type: "ppt",
     last_slide_index: index, total_slides: total, completed,
   }).catch(() => {});
-}, [isPreview]);
+}, [skipProgress]);
 
   const handleQuizProgress = useCallback((s: Step, isCorrect: boolean) => {
-  if (isPreview) return;
+  if (skipProgress) return;
   mediaProgressApi.submit({
     lesson_step_id: s.id, media_type: "quiz",
     is_correct: isCorrect, marks_earned: isCorrect ? 1 : 0, marks_total: 1, completed: true,
   }).catch(() => {});
-}, [isPreview]);
+}, [skipProgress]);
+
+  const [shareFinished, setShareFinished] = useState(false); // 分享模式走到最后一步——没有"回自学课程列表"这种目的地，也不该贸然关掉标签页(访客可能不是开新标签页进来的)，就地显示"学完啦"
 
   function goNext() {
     if (!lesson) return;
     if (isLastStep) {
+      if (isShare) { setShareFinished(true); return; }
       // 预览模式没有"回到自学课程列表"这回事(那也是学生端订阅校验的
       // 页面)，直接关掉这个试玩标签页，跟考试系统试玩预览完事后
       // window.close()是同一个模式。
@@ -153,8 +178,22 @@ export default function LessonPlayerPage() {
     setStepIndex((i) => Math.max(0, i - 1));
   }
 
+  if (loadError) {
+    return <div className="max-w-3xl mx-auto py-12 text-center text-muted-foreground">🔒 {loadError}</div>;
+  }
+
   if (!lesson || !step) {
     return <div className="max-w-3xl mx-auto py-12 text-center text-muted-foreground">加载中...</div>;
+  }
+
+  if (shareFinished) {
+    return (
+      <div className="max-w-3xl mx-auto py-16 text-center space-y-3">
+        <div className="text-5xl">🎉</div>
+        <h1 className="text-xl font-bold text-foreground">学完啦！</h1>
+        <p className="text-sm text-muted-foreground">这堂课的内容都看完了，感谢观看。</p>
+      </div>
+    );
   }
 
   return (
@@ -163,6 +202,12 @@ export default function LessonPlayerPage() {
         <div className="sticky top-0 z-10 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 flex items-center gap-2 text-sm text-amber-800">
           <span className="font-semibold">🧪 试玩预览模式</span>
           <span className="text-xs text-amber-700">不计入任何真实学习记录，仅供测试课时内容</span>
+        </div>
+      )}
+      {isShare && (
+        <div className="sticky top-0 z-10 bg-primary/10 border border-primary/30 rounded-xl px-4 py-2 flex items-center gap-2 text-sm text-primary">
+          <span className="font-semibold">📚 分享内容</span>
+          <span className="text-xs opacity-80">这是别人分享给你的课程内容，不需要账号即可观看/作答</span>
         </div>
       )}
 
@@ -189,19 +234,29 @@ export default function LessonPlayerPage() {
         {step.step_type === "level" && step.course_level_id && (
           <div className="text-center space-y-4 py-12">
             <p className="text-lg font-medium">🎮 {step.level_title_i18n?.zh ?? step.level_title_i18n?.en ?? "游戏练习"}</p>
-            <Button onClick={() => navigate(`/levels/${step.course_level_id}/play`)}>开始游戏</Button>
-            <p className="text-xs text-muted-foreground">完成游戏后返回这里，点"下一步"继续这一课</p>
+            {isShare ? (
+              <p className="text-xs text-amber-600">游戏类步骤暂时还不支持在分享模式下游玩，敬请期待</p>
+            ) : (
+              <>
+                <Button onClick={() => navigate(`/levels/${step.course_level_id}/play`)}>开始游戏</Button>
+                <p className="text-xs text-muted-foreground">完成游戏后返回这里，点"下一步"继续这一课</p>
+              </>
+            )}
           </div>
         )}
 
         {step.step_type === "quiz" && (
-          <QuizStep key={step.id} step={step} onProgress={(isCorrect) => handleQuizProgress(step, isCorrect)} />
+          <QuizStep
+            key={step.id} step={step} onProgress={(isCorrect) => handleQuizProgress(step, isCorrect)}
+            fetchQuestion={isShare && token ? (id) => sharePublicApi.playBankQuestion(token, id) : (id) => examApi.playBankQuestion(id)}
+            checkAnswer={isShare && token ? (id, ans) => sharePublicApi.checkBankQuestion(token, id, ans) : (id, ans) => examApi.checkBankQuestion(id, ans)}
+          />
         )}
       </div>
 
       <div className="flex items-center justify-between">
         <Button variant="outline" disabled={stepIndex === 0} onClick={goPrev}>上一步</Button>
-        <Button onClick={goNext}>{isLastStep ? (isPreview ? "完成试玩（关闭标签页）" : "完成这一课") : "下一步"}</Button>
+        <Button onClick={goNext}>{isLastStep ? (isPreview ? "完成试玩（关闭标签页）" : isShare ? "完成" : "完成这一课") : "下一步"}</Button>
       </div>
     </div>
   );

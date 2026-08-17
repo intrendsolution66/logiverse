@@ -68,18 +68,28 @@ export async function convertPptxToSlideImages(pptxBuffer: Buffer): Promise<Conv
     // 前后脚并发跑(比如两位老师同时上传PPT)，共用配置会导致后一个
     // soffice进程报"另一个实例正在运行"直接失败。workDir本来就是每次
     // 转换独有的随机目录，正好拿来隔离配置，不用额外生成。
+    //
+    // 超时从60秒调到180秒——自建服务器硬件配置未必强，页数多/嵌了不少
+    // 图片视频的PPT，LibreOffice转PDF这一步经常超过60秒，之前那个限制
+    // 导致"有些PPT能传、有些不能"，体积/复杂度大的那批全部卡在超时上，
+    // 但execFile超时被杀掉的进程报错信息比较模糊，不容易一眼看出是超时
+    // 还是别的原因，这次额外加一行console.error，方便以后要是还有问题
+    // 能直接从日志看出具体是哪一步、等了多久超时的，不用再靠反复试来猜。
     try {
       await execFileAsync(
         SOFFICE_PATH,
         [`-env:UserInstallation=file://${path.join(workDir, "lo-profile")}`, "--headless", "--convert-to", "pdf", "--outdir", workDir, pptxPath],
-        { timeout: 60_000 }
+        { timeout: 180_000 }
       );
     } catch (err) {
-      const e = err as { code?: string; message?: string };
+      const e = err as { code?: string; message?: string; killed?: boolean; signal?: string };
+      console.error("[pptConverter] soffice 转 PDF 失败:", { code: e.code, killed: e.killed, signal: e.signal, message: e.message });
       if (e.code === "ENOENT")
         throw new Error(
           `找不到 LibreOffice（soffice），尝试的路径是：${SOFFICE_PATH}——请确认已安装 LibreOffice，或通过环境变量 SOFFICE_PATH 指定正确路径`
         );
+      if (e.killed && e.signal === "SIGTERM")
+        throw new Error("PPT 转 PDF 超过3分钟还没完成，已经放弃——这份PPT可能页数太多、嵌了太多高清图片/视频，建议精简一下内容或者拆成几份小的分开上传");
       throw new Error(`PPT 转 PDF 失败：${e.message ?? "未知错误"}`);
     }
     const pdfPath = path.join(workDir, "input.pdf");
@@ -89,13 +99,16 @@ export async function convertPptxToSlideImages(pptxBuffer: Buffer): Promise<Conv
     // ② pdf → one png per page
     const pngPrefix = path.join(workDir, "slide");
     try {
-      await execFileAsync(PDFTOPPM_PATH, ["-png", "-r", "120", pdfPath, pngPrefix], { timeout: 60_000 });
+      await execFileAsync(PDFTOPPM_PATH, ["-png", "-r", "120", pdfPath, pngPrefix], { timeout: 180_000 });
     } catch (err) {
-      const e = err as { code?: string; message?: string };
+      const e = err as { code?: string; message?: string; killed?: boolean; signal?: string };
+      console.error("[pptConverter] pdftoppm 转图片失败:", { code: e.code, killed: e.killed, signal: e.signal, message: e.message });
       if (e.code === "ENOENT")
         throw new Error(
           `找不到 poppler（pdftoppm），尝试的路径是：${PDFTOPPM_PATH}——请确认已安装 poppler，或通过环境变量 PDFTOPPM_PATH 指定正确路径`
         );
+      if (e.killed && e.signal === "SIGTERM")
+        throw new Error("幻灯片转图片超过3分钟还没完成，已经放弃——这份PPT页数可能太多，建议拆成几份小的分开上传");
       throw new Error(`幻灯片转图片失败：${e.message ?? "未知错误"}`);
     }
 

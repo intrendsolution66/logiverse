@@ -15,6 +15,7 @@ import { Input, Label, Card, CardContent, CardHeader, CardTitle, Badge, EmptySta
 import { Modal } from "@/components/ui/modal";
 import { Eye, PencilLine, Trash2, ChevronRight, BookOpen, GraduationCap } from "lucide-react";
 import AssetPicker from "@/components/AssetPicker";
+import { shareLinksApi, type ShareLink } from "@/api";
 import toast from "react-hot-toast";
 
 interface GradeTier { id: string; code: string; name_i18n: Record<string,string>; age_min?: number; age_max?: number }
@@ -463,6 +464,7 @@ function LessonsCard({ courseId }: { courseId: string }) {
   const [lessonDetail, setLessonDetail] = useState<Awaited<ReturnType<typeof lessonsApi.getLesson>> | null>(null);
   const [showLessonModal, setShowLessonModal] = useState(false);
   const [showStepModal, setShowStepModal] = useState(false);
+  const [sharingLessonId, setSharingLessonId] = useState<string | null>(null);
   const [editingLesson, setEditingLesson] = useState<{ id: string; title_i18n: Record<string,string> } | null>(null);
 
   const [search, setSearch] = useState("");
@@ -572,6 +574,7 @@ function LessonsCard({ courseId }: { courseId: string }) {
                                     <span className="text-xs font-medium text-muted-foreground">步骤顺序</span>
                                     <div className="flex items-center gap-3">
                                       <a href={`/lesson/${l.id}?preview=true`} target="_blank" rel="noreferrer" className="text-primary text-xs font-medium hover:underline">🧪 试玩课时 →</a>
+                                      <button onClick={() => setSharingLessonId(l.id)} className="text-primary text-xs font-medium hover:underline">🔗 分享</button>
                                       <Button size="sm" onClick={() => setShowStepModal(true)}>+ 加步骤</Button>
                                     </div>
                                   </div>
@@ -624,7 +627,110 @@ function LessonsCard({ courseId }: { courseId: string }) {
         open={showStepModal} onClose={() => setShowStepModal(false)} lessonId={selectedLessonId}
         onSaved={() => selectedLessonId && refreshDetail(selectedLessonId)}
       />
+      <ShareLinkModal lessonId={sharingLessonId} onClose={() => setSharingLessonId(null)} />
     </>
+  );
+}
+
+// 分享链接管理——生成新链接(带过期天数选项)、列出这堂课已经有的分享
+// 链接、可以撤销。公开访问地址是当前站点的 /share/:token，不需要账号
+// 即可打开(见 LessonPlayerPage.tsx 的 share 模式)。
+function ShareLinkModal({ lessonId, onClose }: { lessonId: string | null; onClose: () => void }) {
+  const [links, setLinks] = useState<ShareLink[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [expiresInDays, setExpiresInDays] = useState<string>("7");
+
+  useEffect(() => {
+    if (!lessonId) return;
+    setLoading(true);
+    shareLinksApi.list({ resource_type: "lesson", resource_id: lessonId }).then(setLinks).finally(() => setLoading(false));
+  }, [lessonId]);
+
+  async function handleCreate() {
+    if (!lessonId) return;
+    try {
+      const days = expiresInDays === "never" ? undefined : Number(expiresInDays);
+      await shareLinksApi.create({ resource_type: "lesson", resource_id: lessonId, expires_in_days: days });
+      toast.success("分享链接已生成");
+      const fresh = await shareLinksApi.list({ resource_type: "lesson", resource_id: lessonId });
+      setLinks(fresh);
+    } catch { toast.error("生成失败"); }
+  }
+
+  async function handleRevoke(id: string) {
+    if (!lessonId) return;
+    try {
+      await shareLinksApi.revoke(id);
+      toast.success("已撤销");
+      const fresh = await shareLinksApi.list({ resource_type: "lesson", resource_id: lessonId });
+      setLinks(fresh);
+    } catch { toast.error("撤销失败"); }
+  }
+
+  function copyLink(token: string) {
+    const url = `${window.location.origin}/share/${token}`;
+    navigator.clipboard.writeText(url).then(() => toast.success("链接已复制")).catch(() => toast.error("复制失败，请手动选取链接"));
+  }
+
+  function linkStatus(link: ShareLink): { label: string; className: string } {
+    if (link.revoked_at) return { label: "已撤销", className: "bg-muted text-muted-foreground" };
+    if (link.expires_at && new Date(link.expires_at) < new Date()) return { label: "已过期", className: "bg-muted text-muted-foreground" };
+    return { label: "有效", className: "bg-emerald-100 text-emerald-700" };
+  }
+
+  return (
+    <Modal open={!!lessonId} onClose={onClose} title="分享这堂课" size="lg">
+      <div className="space-y-4">
+        <p className="text-xs text-muted-foreground">生成一个公开链接——不需要账号，任何拿到链接的人都能直接看视频/PPT、做quiz题（不计入学习进度）。游戏类步骤暂时还不支持分享播放。</p>
+
+        <div className="flex items-end gap-2">
+          <div className="flex-1">
+            <Label>有效期</Label>
+            <select className="w-full border rounded-md p-2 text-sm" value={expiresInDays} onChange={(e) => setExpiresInDays(e.target.value)}>
+              <option value="1">1天</option>
+              <option value="7">7天</option>
+              <option value="30">30天</option>
+              <option value="never">永久（可随时手动撤销）</option>
+            </select>
+          </div>
+          <Button onClick={handleCreate}>+ 生成新链接</Button>
+        </div>
+
+        <div className="space-y-2">
+          {loading ? (
+            <p className="text-sm text-muted-foreground text-center py-4">加载中...</p>
+          ) : links.length === 0 ? (
+            <p className="text-sm text-muted-foreground/60 text-center py-4">还没有生成过分享链接</p>
+          ) : (
+            links.map((link) => {
+              const status = linkStatus(link);
+              return (
+                <div key={link.id} className="rounded-lg border border-border bg-white p-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${status.className}`}>{status.label}</span>
+                      <span className="text-xs text-muted-foreground">已查看 {link.view_count} 次</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate font-mono">{window.location.origin}/share/{link.token}</p>
+                    <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                      {link.expires_at ? `${new Date(link.expires_at).toLocaleDateString()} 过期` : "永久有效"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {!link.revoked_at && (
+                      <>
+                        <Button size="sm" variant="outline" onClick={() => copyLink(link.token)}>复制</Button>
+                        <Button size="sm" variant="outline" onClick={() => handleRevoke(link.id)}>撤销</Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 }
 

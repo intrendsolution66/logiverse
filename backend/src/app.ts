@@ -13,6 +13,7 @@ import helmet from "helmet";
 import path from "path";
 import { fileURLToPath } from "url";
 import examRoutes from "./modules/edu/exam.routes.js";
+import shareLinksRoutes from "./modules/edu/shareLinks.routes.js";
 import authRoutes   from "./modules/auth/auth.routes.js";
 import usersRoutes  from "./modules/users/users.routes.js";
 import systemRoutes from "./modules/system/system.routes.js";
@@ -60,6 +61,7 @@ app.use("/api/v1/orgs",   orgRoutes);
 app.use("/api/v1/upload", uploadRoutes);
 app.use("/api/v1",        eduRoutes); // /courses, /levels, /progress — Phase 1 pilot
 app.use("/api/v1", examRoutes);
+app.use("/api/v1", shareLinksRoutes); // /share-links (管理) + /share/:token (公开访问，不需要登录)
 // TODO (Phase 2+): mount routes for the other 9 modules as they land
 
 // ── 404 ──────────────────────────────────────────────────────────────────────

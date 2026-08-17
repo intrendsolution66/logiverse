@@ -12,11 +12,19 @@
 
 import type { Response } from "express";
 import type { AuthRequest } from "../../middlewares/authenticate.js";
+import path from "path";
+import { promises as fs } from "fs";
 import { query } from "../../config/db.js";
 import { ok, created, badRequest, notFound, forbidden, serverError } from "../../utils/response.js";
 import { parsePagination } from "../../utils/pagination.js";
 import { saveAssetFile, deleteAssetFile } from "../../utils/assetStorage.js";
 import { convertPptxToSlideImages } from "../../utils/pptConverter.js";
+
+// 分片上传(assetChunkUpload.controller.ts)合并出来的原始文件都落在这个
+// 目录——PPT分片上传完之后拿到的是指向这里某个文件的URL(不是base64)，
+// 要转幻灯片图片得先把这份原始文件从磁盘读回来，这里是它的本地路径
+// (必须跟 assetChunkUpload.controller.ts 的 FINAL_DIR 完全一致)。
+const CHUNK_UPLOAD_DIR = path.join(process.cwd(), "uploads", "assets");
 
 const CATEGORIES = ["background", "object", "icon", "video", "ppt", "other"];
 
@@ -158,6 +166,36 @@ export async function createAsset(req: AuthRequest, res: Response): Promise<void
       const pptxBuffer = Buffer.from(match[2], "base64");
 
       const slides = await convertPptxToSlideImages(pptxBuffer);
+      if (!slides.length) { badRequest(res, "PPT转换后没有产生任何幻灯片，文件可能已损坏"); return; }
+
+      slideUrls = [];
+      for (const slide of slides) {
+        const dataUrl = `data:${slide.mimeType};base64,${slide.buffer.toString("base64")}`;
+        const { url } = await saveAssetFile(dataUrl);
+        slideUrls.push(url);
+      }
+      fileUrl = slideUrls[0];
+    } else if (cat === "ppt" && !isDataUrl) {
+      // PPT走分片上传(体积可能较大，转base64容易撞反向代理的请求体大小
+      // 限制，跟视频一样先原样落盘)——这时 file_data 是分片合并完成后
+      // 拿到的URL，指向磁盘上一份还没转换的原始pptx文件，这里要先读回来
+      // 才能转成幻灯片图片，逻辑跟上面base64那支完全一样，只是输入源从
+      // "请求体里的base64"换成"磁盘上已经写好的文件"。
+      const rawFileName = file_data.split("/").pop();
+      if (!rawFileName) { badRequest(res, "无法识别上传的文件"); return; }
+      const rawFilePath = path.join(CHUNK_UPLOAD_DIR, rawFileName);
+      let pptxBuffer: Buffer;
+      try {
+        pptxBuffer = await fs.readFile(rawFilePath);
+      } catch {
+        badRequest(res, "找不到刚才上传的文件，可能上传还没完成或者已经过期，请重新上传"); return;
+      }
+
+      const slides = await convertPptxToSlideImages(pptxBuffer);
+      // 不管转换成功与否，原始pptx文件都不用再留着——只保留转换出来的
+      // 幻灯片图片，跟base64那条路径的最终产物是一致的，不会在磁盘上
+      // 多出一份没人引用的原始文件占空间。
+      await fs.rm(rawFilePath, { force: true }).catch(() => {});
       if (!slides.length) { badRequest(res, "PPT转换后没有产生任何幻灯片，文件可能已损坏"); return; }
 
       slideUrls = [];

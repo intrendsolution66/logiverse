@@ -1362,69 +1362,12 @@ export async function deleteLevel(req: AuthRequest, res: Response): Promise<void
 // level player to render. The shape of `config` depends entirely on
 // module_type — the frontend switches on that field to know which engine
 // component to mount and what props to pass it.
-export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
-  try {
-    const { levelId } = req.params;
-    const { rows } = await query(
-      `SELECT cl.id, cl.course_id, cl.order_index, cl.module_type, cl.module_config_id,
-              cl.title_i18n, cl.video_url_i18n, cl.ppt_url_i18n, cl.illustration_url, cl.points_reward,
-              cl.explanation_text, cl.explanation_image_url, cl.explanation_video_url, cl.exercise_number,
-              cl.hint_text, cl.audio_url,
-              cl.activity_type, cl.teaching_modes, cl.difficulty, cl.age_group_min, cl.age_group_max,
-              cl.duration_minutes, cl.learning_outcomes, cl.skills_developed, cl.language, cl.tags, cl.parent_preview_enabled, cl.usage_contexts, cl.self_guided_programme_ids, cl.cover_image_url,
-              c.grade_tier_id AS course_grade_tier_id
-       FROM edu.course_levels cl
-       LEFT JOIN edu.courses c ON c.id = cl.course_id
-       WHERE cl.id = $1`,
-      [levelId]
-    );
-    if (!rows.length) { notFound(res, "Level not found"); return; }
-    const level = rows[0];
-
-    // ── NEW: grade-tier access control ────────────────────────────────────────
-    // A STUDENT can only play levels whose course is tagged with the grade
-    // tier they're actually subscribed to (see family.controller.ts#addChild
-    // — subscriptions bind to ONE tier, not "everything"). Every other role
-    // (course designer previewing their own work, teacher checking an
-    // assignment, operator) skips this check entirely.
-    const { rows: roleRows } = await query(
-      `SELECT r.code FROM rbac.user_roles ur
-       JOIN rbac.roles r ON r.id = ur.role_id AND r.is_deleted = false
-       WHERE ur.user_id = $1 AND ur.is_active = true`,
-      [req.user!.sub]
-    );
-    const isStudent = (roleRows as { code: string }[]).some((r) => r.code === "STUDENT");
-    const isParent = (roleRows as { code: string }[]).some((r) => r.code === "PARENT");
-
-    // ── 家长"试玩"门控 ──────────────────────────────────────────────────────
-    // 家长不是学生，不走订阅/年级那一套检查——但也不能因此就能玩任何一关。
-    // 只有 operator 明确标记 parent_preview_enabled=true 的关卡，家长才能
-    // 打开。这里直接 return，不落入下面 isStudent 的分支（家长本来就不是
-    // 学生，isStudent 恒为 false，不会重复判断）。
-    if (isParent && !level.parent_preview_enabled) {
-      forbidden(res, "这一关还没开放给家长试玩"); return;
-    }
-
-    if (isStudent) {
-      const { rows: subRows } = await query(
-        `SELECT status, trial_ends_at, grace_period_ends_at, grade_tier_id
-         FROM edu.subscriptions WHERE student_id = $1 ORDER BY created_at DESC LIMIT 1`,
-        [req.user!.sub]
-      );
-      const sub = subRows[0] as { status: string; trial_ends_at: Date; grace_period_ends_at: Date | null; grade_tier_id: string | null } | undefined;
-      const now = new Date();
-      const hasActiveSub = sub && (
-        (sub.status === "trial" && new Date(sub.trial_ends_at) > now) ||
-        sub.status === "active" ||
-        (sub.status === "past_due" && sub.grace_period_ends_at && new Date(sub.grace_period_ends_at) > now)
-      );
-      if (!hasActiveSub) { forbidden(res, "没有有效的订阅"); return; }
-      if (!level.course_grade_tier_id || sub!.grade_tier_id !== level.course_grade_tier_id) {
-        forbidden(res, "这门课不在你订阅的等级里"); return;
-      }
-    }
-    // ── end NEW ──────────────────────────────────────────────────────────────
-
+// 把"根据 module_type 查对应配置表、拼出完整播放内容"这部分从 getLevel
+// 里抽出来——分享模式(shareLinks.controller.ts#getSharedActivity)要复用
+// 一模一样的逻辑，但不走上面那套订阅/年级/家长试玩权限检查(公开分享
+// token本身就是授权凭证)，抽成独立函数两边共用，不然这275行的
+// module_type大分支就要维护两份、改一处忘了改另一处。
+export async function buildLevelPayload(level: Record<string, unknown>): Promise<Record<string, unknown>> {
     let config = null;
     if (level.module_type === "counting") {
       const { rows: cfgRows } = await query(
@@ -1709,7 +1652,74 @@ export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
     }
 
     const { course_grade_tier_id, ...levelForResponse } = level;
-    ok(res, { ...levelForResponse, config });
+    return { ...levelForResponse, config };
+}
+
+export async function getLevel(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { levelId } = req.params;
+    const { rows } = await query(
+      `SELECT cl.id, cl.course_id, cl.order_index, cl.module_type, cl.module_config_id,
+              cl.title_i18n, cl.video_url_i18n, cl.ppt_url_i18n, cl.illustration_url, cl.points_reward,
+              cl.explanation_text, cl.explanation_image_url, cl.explanation_video_url, cl.exercise_number,
+              cl.hint_text, cl.audio_url,
+              cl.activity_type, cl.teaching_modes, cl.difficulty, cl.age_group_min, cl.age_group_max,
+              cl.duration_minutes, cl.learning_outcomes, cl.skills_developed, cl.language, cl.tags, cl.parent_preview_enabled, cl.usage_contexts, cl.self_guided_programme_ids, cl.cover_image_url,
+              c.grade_tier_id AS course_grade_tier_id
+       FROM edu.course_levels cl
+       LEFT JOIN edu.courses c ON c.id = cl.course_id
+       WHERE cl.id = $1`,
+      [levelId]
+    );
+    if (!rows.length) { notFound(res, "Level not found"); return; }
+    const level = rows[0];
+
+    // ── NEW: grade-tier access control ────────────────────────────────────────
+    // A STUDENT can only play levels whose course is tagged with the grade
+    // tier they're actually subscribed to (see family.controller.ts#addChild
+    // — subscriptions bind to ONE tier, not "everything"). Every other role
+    // (course designer previewing their own work, teacher checking an
+    // assignment, operator) skips this check entirely.
+    const { rows: roleRows } = await query(
+      `SELECT r.code FROM rbac.user_roles ur
+       JOIN rbac.roles r ON r.id = ur.role_id AND r.is_deleted = false
+       WHERE ur.user_id = $1 AND ur.is_active = true`,
+      [req.user!.sub]
+    );
+    const isStudent = (roleRows as { code: string }[]).some((r) => r.code === "STUDENT");
+    const isParent = (roleRows as { code: string }[]).some((r) => r.code === "PARENT");
+
+    // ── 家长"试玩"门控 ──────────────────────────────────────────────────────
+    // 家长不是学生，不走订阅/年级那一套检查——但也不能因此就能玩任何一关。
+    // 只有 operator 明确标记 parent_preview_enabled=true 的关卡，家长才能
+    // 打开。这里直接 return，不落入下面 isStudent 的分支（家长本来就不是
+    // 学生，isStudent 恒为 false，不会重复判断）。
+    if (isParent && !level.parent_preview_enabled) {
+      forbidden(res, "这一关还没开放给家长试玩"); return;
+    }
+
+    if (isStudent) {
+      const { rows: subRows } = await query(
+        `SELECT status, trial_ends_at, grace_period_ends_at, grade_tier_id
+         FROM edu.subscriptions WHERE student_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [req.user!.sub]
+      );
+      const sub = subRows[0] as { status: string; trial_ends_at: Date; grace_period_ends_at: Date | null; grade_tier_id: string | null } | undefined;
+      const now = new Date();
+      const hasActiveSub = sub && (
+        (sub.status === "trial" && new Date(sub.trial_ends_at) > now) ||
+        sub.status === "active" ||
+        (sub.status === "past_due" && sub.grace_period_ends_at && new Date(sub.grace_period_ends_at) > now)
+      );
+      if (!hasActiveSub) { forbidden(res, "没有有效的订阅"); return; }
+      if (!level.course_grade_tier_id || sub!.grade_tier_id !== level.course_grade_tier_id) {
+        forbidden(res, "这门课不在你订阅的等级里"); return;
+      }
+    }
+    // ── end NEW ──────────────────────────────────────────────────────────────
+
+    const payload = await buildLevelPayload(level);
+    ok(res, payload);
   } catch (err) { serverError(res, err); }
 }
 

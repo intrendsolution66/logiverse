@@ -140,11 +140,17 @@ export const assetsApi = {
     module_type?: string; grade_tier_id?: string; language?: string; tags: string[];
     usage_contexts?: string[]; parent_preview_enabled?: boolean; parent_preview_seconds?: number;
   }>),
+  // PPT类别单独设置更长的超时(3分钟)——PPT上传后端要同步跑完LibreOffice
+  // 转PDF+poppler转图片整套流程才返回，页数多/图片多的PPT经常超过全局
+  // 默认的15秒超时，之前"小PPT能传、大PPT传不了"的规律就是这个——不是
+  // 后端真的失败了，是前端自己先等不及放弃了。图片/视频这些走别的路径
+  // (视频分片上传本身走另一套进度上报，不受这个超时影响)不受影响，只
+  // 有真正触发PPT转换的这条请求需要放宽。
   createAsset: (b: {
     category: string; name?: string; file_data: string; width?: number; height?: number;
     module_type?: string; grade_tier_id?: string; language?: string; tags?: string[];
     usage_contexts?: string[]; parent_preview_enabled?: boolean; parent_preview_seconds?: number;
-  }) => api.post<{ data: { id: string; file_data: string } }>("/assets", b),
+  }) => api.post<{ data: { id: string; file_data: string } }>("/assets", b, b.category === "ppt" ? { timeout: 200_000 } : undefined),
   // 编辑已上传素材的元数据——不改文件本身，只改名称/标签/等级/使用场景/
   // 家长预览这几个"标注类"栏位。parent_preview_seconds 传 null 表示"清空
   // 秒数限制"，不传（undefined）表示"不动这个栏位"。
@@ -771,4 +777,52 @@ export const examApi = {
     api.get(`/exam-question-bank/${questionId}/play`).then(d<{ id: string; category: string; question_type: string; config: Record<string, unknown> }>),
   checkBankQuestion: (questionId: string, answer: unknown) =>
     api.post(`/exam-question-bank/${questionId}/check`, { answer }).then(d<{ is_correct: boolean }>),
+};
+
+// ── 分享链接 ──────────────────────────────────────────────────────────────────
+export interface ShareLink {
+  id: string; token: string; resource_type: "lesson" | "exam_paper" | "activity"; resource_id: string;
+  title?: string; created_by: string; expires_at?: string; revoked_at?: string; view_count: number; created_at: string;
+}
+
+// 设计师管理——需要登录 + courses.manage 权限，跟平常的内容管理接口一样
+export const shareLinksApi = {
+  create: (b: { resource_type: "lesson" | "exam_paper" | "activity"; resource_id: string; expires_in_days?: number }) =>
+    api.post("/share-links", b).then(d<ShareLink>),
+  list: (params?: { resource_type?: string; resource_id?: string }) =>
+    api.get("/share-links", { params }).then(d<ShareLink[]>),
+  revoke: (id: string) => api.post(`/share-links/${id}/revoke`),
+};
+
+// 公开访问——不需要登录，token本身就是凭证。用的还是同一个 api 实例，
+// 没有token的匿名访客调用这些接口时，request拦截器只是不会附加
+// Authorization头，请求照样正常发出去，这些接口本来就没挂authenticate。
+export const sharePublicApi = {
+  resolve: (token: string) => api.get(`/share/${token}`).then(d<{ resource_type: string; resource_id: string; title?: string }>),
+  getLesson: (token: string) => api.get(`/share/${token}/lesson`).then(d<{
+    id: string; course_id: string; title_i18n: Record<string,string>; order_index: number;
+    steps: Array<{
+      id: string; order_index: number; step_type: "video" | "ppt" | "level" | "quiz";
+      media_url?: string; media_title?: string; slide_urls?: string[];
+      course_level_id?: string; level_title_i18n?: Record<string,string>; module_type?: string;
+      bank_question_id?: string; bank_category?: string; bank_question_type?: string; bank_question_preview?: string;
+    }>;
+  }>),
+  playBankQuestion: (token: string, questionId: string) =>
+    api.get(`/share/${token}/questions/${questionId}/play`).then(d<{ id: string; category: string; question_type: string; config: Record<string, unknown> }>),
+  checkBankQuestion: (token: string, questionId: string, answer: unknown) =>
+    api.post(`/share/${token}/questions/${questionId}/check`, { answer }).then(d<{ is_correct: boolean }>),
+
+  // Activity——config 的具体形状因 module_type 而异(跟 eduApi.getLevel 一样，
+  // 前端游戏组件自己按 module_type 去解读 config，这里就不细分类型了)
+  getActivity: (token: string) => api.get(`/share/${token}/activity`).then(d<{
+    id: string; course_id: string; order_index: number; module_type: string;
+    title_i18n: Record<string, string>; config: Record<string, unknown> | null;
+  }>),
+  checkSudoku: (token: string, levelId: string, values: (number | null)[]) =>
+    api.post(`/share/${token}/activity/${levelId}/sudoku-check`, { values }).then(d<{ correct: boolean[]; allCorrect: boolean; solution: number[] }>),
+  checkColoring: (token: string, levelId: string, fills: Record<string, string>) =>
+    api.post(`/share/${token}/activity/${levelId}/coloring-check`, { fills }).then(d<{ results: Array<{ marker_color: string; correct: boolean }>; allCorrect: boolean; totalRegions: number }>),
+  checkWordProblem: (token: string, levelId: string, value: number) =>
+    api.post(`/share/${token}/activity/${levelId}/word-problem-check`, { value }).then(d<{ correct: boolean; answer: number }>),
 };

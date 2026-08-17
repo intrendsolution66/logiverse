@@ -29,9 +29,12 @@ const TEMP_DIR = path.join(process.cwd(), "tmp", "chunk-uploads");
 mkdirSync(FINAL_DIR, { recursive: true });
 mkdirSync(TEMP_DIR, { recursive: true });
 
-// 目前只开放视频走分片上传（图片走原本的 base64 一次性上传就够了）；
-// 以后如果 PPT 之类的也要支持大文件分片，在这里加后缀即可
-const ALLOWED_EXTENSIONS = new Set(["mp4", "webm"]);
+// 目前开放视频和PPT走分片上传——PPT可能因为嵌了图片体积也不小，转base64
+// 之后膨胀33%容易撞上反向代理的请求体大小限制，PPT走这套跟视频一样先
+// 存原始文件到磁盘，转幻灯片图片那步在complete之后另外触发(见
+// assets.controller.ts#createAsset 新增的"URL指向本地已上传pptx文件"
+// 分支)。图片走原本的base64一次性上传就够了，图片体积通常不大。
+const ALLOWED_EXTENSIONS = new Set(["mp4", "webm", "ppt", "pptx"]);
 
 // 单个分片的大小上限，需 >= 前端切片大小（5MB），留一点余量
 const chunkUpload = multer({
