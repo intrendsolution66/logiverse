@@ -63,13 +63,18 @@ services:
   # ssl.enable=false 关掉容器自己的SSL、ssl.termination=true 告诉它
   # "外面有一层反向代理帮你终止了SSL，你只管收明文http就行"，两个要配
   # 合着设，不能只设一个。
+  #
+  # net.frame_ancestors——Collabora默认会拒绝被任何网站用iframe嵌入(防止
+  # 被恶意网站盗用它做钓鱼)，这里显式放行只允许logiverse.mybriw.com
+  # 这一个域名把它嵌进iframe，不设这个的话浏览器会报"xxx refused to
+  # connect"，不是网络不通，是Collabora自己主动拒绝了这次嵌入请求。
   collabora:
     image: collabora/code:latest
     environment:
       - domain=logiverse\\.mybriw\\.com
       - username=admin
       - password=请换成你自己的强密码
-      - extra_params=--o:ssl.enable=false --o:ssl.termination=true
+      - extra_params=--o:ssl.enable=false --o:ssl.termination=true --o:net.frame_ancestors=logiverse.mybriw.com
     ports:
       - "9980:9980"
     restart: unless-stopped
