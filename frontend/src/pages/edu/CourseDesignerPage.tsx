@@ -5463,12 +5463,14 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
 
         {moduleType === "sticker_game" && activeTab === "content" && (
           <div className="flex-1 min-h-0 flex flex-col">
-            <div className="flex-shrink-0 flex items-center gap-2 text-sm font-semibold text-foreground mb-1">
-              <Sticker size={16} className="text-primary" /> 贴纸游戏 · 内容设置
+            <div className="flex-shrink-0 flex items-center gap-2 flex-wrap mb-1.5">
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground shrink-0">
+                <Sticker size={16} className="text-primary" /> 贴纸游戏 · 内容设置
+              </span>
+              <span className="text-[11px] leading-snug text-muted-foreground/80 truncate">
+                选背景图、加贴纸物件，拖到"正确位置"摆好即为答案；学生玩时贴纸会被打乱，要拖回原位。
+              </span>
             </div>
-            <p className="flex-shrink-0 text-[11px] leading-snug text-muted-foreground/80 bg-muted/40 rounded-lg px-2.5 py-1.5 mb-1.5">
-              选背景图、加贴纸物件（素材库选或直接上传），拖到"正确的位置"摆好——这个位置就是答案。学生玩的时候，这些贴纸会被打乱塞进旁边的贴纸盘，要一个个拖回你摆的这个位置上。
-            </p>
             <div className="flex-1 min-h-0">
               <SceneEditor
                 structuredMode presetModuleType="sticker_game"
@@ -5483,15 +5485,17 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
 
         {moduleType === "drag_drop" && activeTab === "content" && (
           <div className="flex-1 min-h-0 flex flex-col">
-            <div className="flex-shrink-0 flex items-center gap-2 text-sm font-semibold text-foreground mb-1">
-              <Move size={16} className="text-primary" /> 拖拽游戏（位置版）· 内容设置
+            <div className="flex-shrink-0 flex items-center gap-2 flex-wrap mb-1.5">
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground shrink-0">
+                <Move size={16} className="text-primary" /> 拖拽游戏（位置版）· 内容设置
+              </span>
+              <span
+                className="text-[11px] leading-snug text-muted-foreground/80 truncate"
+                title={`统一拖拽引擎的第一种玩法——选背景图、加物件，拖到"正确的位置"摆好，这个位置就是答案。学生玩的时候，物件会被打乱塞进旁边的物件盘，要一个个拖回你摆的这个位置上。\n💡 跟"贴纸游戏"用的是同一套引擎（画布坐标系统也共用，别改presetModuleType）——以后这里会陆续加入拖拽排序、拖到分类框、拖词块填空这几种新玩法。`}
+              >
+                选背景图、加物件，拖到"正确位置"摆好即为答案；学生玩时物件会被打乱，要拖回原位。
+              </span>
             </div>
-            <p
-              className="flex-shrink-0 text-[11px] leading-snug text-muted-foreground/80 truncate mb-1.5"
-              title={`统一拖拽引擎的第一种玩法——选背景图、加物件，拖到"正确的位置"摆好，这个位置就是答案。学生玩的时候，物件会被打乱塞进旁边的物件盘，要一个个拖回你摆的这个位置上。\n💡 跟"贴纸游戏"用的是同一套引擎（画布坐标系统也共用，别改presetModuleType）——以后这里会陆续加入拖拽排序、拖到分类框、拖词块填空这几种新玩法。`}
-            >
-              选背景图、加物件，拖到"正确位置"摆好即为答案；学生玩时物件会被打乱，要拖回原位。
-            </p>
             <div className="flex-1 min-h-0">
               <SceneEditor
                 structuredMode presetModuleType="sticker_game"
