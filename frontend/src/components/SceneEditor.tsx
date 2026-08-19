@@ -1076,17 +1076,18 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
       active ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground hover:border-primary/50"
     }`;
 
-  // 用固定高度(70vh)、正常文档流排布——不用 absolute/fixed 定位，不需要
-  // 调用方额外套"position:relative"容器。SceneEditor 在这个项目里一共
-  // 被用在12个不同的地方(不同module_type各自的"内容设置"标签页)，如果
-  // 靠每个调用点自己套容器才能撑满，等于要去改12处、还容易漏改；固定
-  // 高度的普通区块就不需要这个前提——不管放在DOM树哪里，都会按正常
-  // 文档流排在那个位置，自然而然就出现在外层"加Activity"弹窗标签导航
-  // 的下面(因为标签导航本来就在它前面)，不会盖住导航，同时又有足够大
-  // 的可视区域(70%视口高度)，不是回到最早那种"内容多高editor就多高、
-  // 经常小得要命"的旧样子。
+  // min-h-[70vh] 兜底 + flex-1 可伸展的混合写法——SceneEditor 在这个项目
+  // 里一共被用在12个不同的地方(不同module_type各自的"内容设置"面板)，
+  // 这次只把"贴纸游戏"和"拖拽游戏（位置版）"这两个面板改造成了flex容器
+  // (标题/说明文字保持原本大小，SceneEditor撑满剩余空间，参照
+  // CourseDesignerPage.tsx那两处面板的flex flex-col设置)，其余10种还是
+  // 原来的block/space-y布局——flex-1 只有在父容器是flex的时候才会生效
+  // (那两个改造过的面板里，会真正撑满标签导航下面的全部剩余空间)，
+  // min-h-[70vh] 在非flex的父容器里(其余10种)则是一个正常的block级
+  // min-height，不管在哪种情况下都不会缩水到很小。min-h-0是flex子元素
+  // 的标准技巧，允许它在flex容器分配空间不够时正常收缩，不会撑破布局。
   return (
-    <div className="w-full h-[70vh] bg-background border border-border rounded-xl overflow-hidden flex flex-col">
+    <div className="w-full min-h-[70vh] flex-1 bg-background border border-border rounded-xl overflow-hidden flex flex-col">
       {/* ── 顶部条：标题 + 主操作按钮 ── */}
       <div className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-border bg-card">
         <span className="text-sm font-semibold text-foreground">🎨 场景编辑器</span>

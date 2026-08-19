@@ -4103,9 +4103,9 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={editingLevelId ? "编辑 Activity" : "加 Activity"} size="full">
-      <div className="space-y-5">
-        <div className="flex gap-1.5 bg-muted/50 p-1 rounded-xl">
+    <Modal open={open} onClose={onClose} title={editingLevelId ? "编辑 Activity" : "加 Activity"} size="screen">
+      <div className="h-full flex flex-col space-y-5">
+        <div className="flex-shrink-0 flex gap-1.5 bg-muted/50 p-1 rounded-xl">
           {([
             ["basic", Info, "基本信息"],
             ["classification", Tags, "分类"],
@@ -4235,7 +4235,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         </div>
         </div>
 
-        <div className={activeTab === "content" ? "block space-y-4" : "hidden"}>
+        <div className={activeTab === "content" ? "flex-1 min-h-0 flex flex-col space-y-4 overflow-y-auto" : "hidden"}>
         {moduleType === "counting" && (
           <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
             <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -5457,39 +5457,43 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         )}
 
         {moduleType === "sticker_game" && activeTab === "content" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-3 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <div className="flex-1 min-h-0 flex flex-col">
+            <div className="flex-shrink-0 flex items-center gap-2 text-sm font-semibold text-foreground mb-1.5">
               <Sticker size={16} className="text-primary" /> 贴纸游戏 · 内容设置
             </div>
-            <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+            <p className="flex-shrink-0 text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5 mb-2">
               选背景图、加贴纸物件（素材库选或直接上传），拖到"正确的位置"摆好——这个位置就是答案。学生玩的时候，这些贴纸会被打乱塞进旁边的贴纸盘，要一个个拖回你摆的这个位置上。
             </p>
-            <SceneEditor
-              structuredMode presetModuleType="sticker_game"
-              onSaveStructured={(data) => { setStickerScene(data); setActiveTab("basic"); }} initial={stickerScene ?? undefined}
-            />
+            <div className="flex-1 min-h-0">
+              <SceneEditor
+                structuredMode presetModuleType="sticker_game"
+                onSaveStructured={(data) => { setStickerScene(data); setActiveTab("basic"); }} initial={stickerScene ?? undefined}
+              />
+            </div>
             {stickerScene && (
-              <p className="text-xs text-emerald-600 dark:text-emerald-400">✓ 已摆 {stickerScene.objects.length} 个贴纸，可以点上面"完成"重新调整</p>
+              <p className="flex-shrink-0 text-xs text-emerald-600 dark:text-emerald-400 mt-1.5">✓ 已摆 {stickerScene.objects.length} 个贴纸，可以点上面"完成"重新调整</p>
             )}
           </div>
         )}
 
         {moduleType === "drag_drop" && activeTab === "content" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-3 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <div className="flex-1 min-h-0 flex flex-col">
+            <div className="flex-shrink-0 flex items-center gap-2 text-sm font-semibold text-foreground mb-1.5">
               <Move size={16} className="text-primary" /> 拖拽游戏（位置版）· 内容设置
             </div>
-            <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+            <p className="flex-shrink-0 text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5 mb-2">
               统一拖拽引擎的第一种玩法——选背景图、加物件，拖到"正确的位置"摆好，这个位置就是答案。学生玩的时候，物件会被打乱塞进旁边的物件盘，要一个个拖回你摆的这个位置上。
               <br />
               <span className="text-primary/70">💡 跟"贴纸游戏"用的是同一套引擎（画布坐标系统也共用，别改presetModuleType）——以后这里会陆续加入拖拽排序、拖到分类框、拖词块填空这几种新玩法。</span>
             </p>
-            <SceneEditor
-              structuredMode presetModuleType="sticker_game"
-              onSaveStructured={(data) => { setStickerScene(data); setActiveTab("basic"); }} initial={stickerScene ?? undefined}
-            />
+            <div className="flex-1 min-h-0">
+              <SceneEditor
+                structuredMode presetModuleType="sticker_game"
+                onSaveStructured={(data) => { setStickerScene(data); setActiveTab("basic"); }} initial={stickerScene ?? undefined}
+              />
+            </div>
             {stickerScene && (
-              <p className="text-xs text-emerald-600 dark:text-emerald-400">✓ 已摆 {stickerScene.objects.length} 个物件，可以点上面"完成"重新调整</p>
+              <p className="flex-shrink-0 text-xs text-emerald-600 dark:text-emerald-400 mt-1.5">✓ 已摆 {stickerScene.objects.length} 个物件，可以点上面"完成"重新调整</p>
             )}
           </div>
         )}
