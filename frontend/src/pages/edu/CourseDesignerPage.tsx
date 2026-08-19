@@ -4104,7 +4104,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
 
   return (
     <Modal open={open} onClose={onClose} title={editingLevelId ? "编辑 Activity" : "加 Activity"} size="screen">
-      <div className="h-full flex flex-col space-y-3">
+      <div className="h-full flex flex-col space-y-2">
         <div className="flex-shrink-0 flex gap-1.5 bg-muted/50 p-1 rounded-xl">
           {([
             ["basic", Info, "基本信息"],
@@ -4115,7 +4115,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           ] as [TabKey, LucideIcon, string][]).map(([key, Icon, label]) => (
             <button
               key={key} type="button" onClick={() => setActiveTab(key)}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-all ${
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-all ${
                 activeTab === key ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
               style={activeTab === key ? { boxShadow: "0 1px 3px rgba(0,0,0,0.08)" } : undefined}
@@ -4237,21 +4237,23 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
 
         <div className={activeTab === "content" ? "flex-1 min-h-0 flex flex-col space-y-4 overflow-y-auto" : "hidden"}>
         {moduleType === "counting" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Hash size={16} className="text-primary" /> 点点数数 · 内容设置
-            </div>
-            <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
-              {(["random", "custom_scene"] as const).map((m) => (
-                <button
-                  key={m} type="button" onClick={() => setCountingMode(m)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                    countingMode === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {m === "random" ? "🎲 随机生成" : "🖼️ 自定义画面"}
-                </button>
-              ))}
+          <div className="rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <Hash size={16} className="text-primary" /> 点点数数 · 内容设置
+              </div>
+              <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
+                {(["random", "custom_scene"] as const).map((m) => (
+                  <button
+                    key={m} type="button" onClick={() => setCountingMode(m)}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                      countingMode === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {m === "random" ? "🎲 随机生成" : "🖼️ 自定义画面"}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {countingMode === "random" ? (
@@ -4282,8 +4284,11 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               </div>
             ) : (
               <>
-                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
-                  选背景图、加物件（可以从素材库选，也可以直接上传——每次加的物件图片可以都不一样，数量不限），拖到想要的位置，还能旋转、缩放。加了几个物件，答案就是几个；文字是装饰用的，不算进答案里。
+                <p
+                  className="text-[11px] leading-snug text-muted-foreground/80 truncate"
+                  title="选背景图、加物件（可以从素材库选，也可以直接上传——每次加的物件图片可以都不一样，数量不限），拖到想要的位置，还能旋转、缩放。加了几个物件，答案就是几个；文字是装饰用的，不算进答案里。"
+                >
+                  选背景图、加物件，拖到想要的位置，还能旋转、缩放。加了几个物件答案就是几个；文字是装饰用的，不算进答案。
                 </p>
                 <SceneEditor
                   structuredMode presetModuleType="counting"
