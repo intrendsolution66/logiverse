@@ -250,11 +250,17 @@ export interface StructuredSceneOutput {
   }>;
 }
 
-export default function SceneEditor({ presetCategory, presetModuleType, onSaved, structuredMode, onSaveStructured, initial }: {
+export default function SceneEditor({ presetCategory, presetModuleType, onSaved, structuredMode, onSaveStructured, initial, fillHeight }: {
   presetCategory?: string; presetModuleType?: string; onSaved?: (dataUrl: string) => void;
   structuredMode?: boolean;
   onSaveStructured?: (data: StructuredSceneOutput) => void;
   initial?: StructuredSceneOutput;
+  // 外层父容器已经改造成 flex flex-col、能给这个组件分配一个确定的
+  // 剩余高度时才传 true——这时用 min-h-0 把高度完全交给外层flex决定，
+  // 画布会通过内部 maxHeight:100% 正确收缩，不会撑破外层紧凑布局逼出
+  // scroll条。父容器还是普通 block/space-y 布局(没有确定高度可分配)
+  // 的老用法就不要传，保持默认 false，走 min-h-[70vh] 兜底，行为不变。
+  fillHeight?: boolean;
 }) {
   // 贴纸游戏用独立的正方形坐标系统，不跟其他模块共用长方形的 GAME_CANVAS_W/H——
   // 上传的背景图很少天生是1100:700这种比例，硬套共享画布会导致背景被拉伸变形，
@@ -1077,25 +1083,27 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     }`;
 
   // min-h-[70vh] 兜底 + flex-1 可伸展的混合写法——SceneEditor 在这个项目
-  // 里一共被用在12个不同的地方(不同module_type各自的"内容设置"面板)，
-  // 这次只把"贴纸游戏"和"拖拽游戏（位置版）"这两个面板改造成了flex容器
-  // (标题/说明文字保持原本大小，SceneEditor撑满剩余空间，参照
-  // CourseDesignerPage.tsx那两处面板的flex flex-col设置)，其余10种还是
-  // 原来的block/space-y布局——flex-1 只有在父容器是flex的时候才会生效
-  // (那两个改造过的面板里，会真正撑满标签导航下面的全部剩余空间)，
-  // min-h-[70vh] 在非flex的父容器里(其余10种)则是一个正常的block级
-  // min-height，不管在哪种情况下都不会缩水到很小。min-h-0是flex子元素
-  // 的标准技巧，允许它在flex容器分配空间不够时正常收缩，不会撑破布局。
+  // 里一共被用在12个不同的地方(不同module_type各自的"内容设置"面板)。
+  // 之前 min-h-[70vh] 对全部12处都无条件生效，这就导致就算外层
+  // (CourseDesignerPage.tsx那几处已经改成flex flex-col的面板)已经把
+  // 标题/说明文字都压缩到极致腾出了空间，SceneEditor自己仍然会强行
+  // 撑到70%视口高度——外层实际能分配的空间一旦小于70vh就会撑破布局，
+  // 逼出一层滚动条，"scroll down 才能看完整个画布"的体验问题根源就在
+  // 这。现在用新增的 fillHeight prop 显式控制：外层父容器已经改造成
+  // flex flex-col、能给这个组件分配确定剩余高度的面板才传 fillHeight，
+  // 这时用 min-h-0 完全交给外层flex决定实际高度；其余还没改造成flex
+  // 布局的老面板不传，维持 min-h-[70vh] 兜底，行为完全不变，不会因为
+  // 换prop名字就意外影响到还没来得及改造的那些面板。
   return (
-    <div className="w-full min-h-[70vh] flex-1 bg-background border border-border rounded-xl overflow-hidden flex flex-col">
+    <div className={`w-full flex-1 bg-background border border-border rounded-xl overflow-hidden flex flex-col ${fillHeight ? "min-h-0" : "min-h-[70vh]"}`}>
       {/* ── 顶部条：标题 + 主操作按钮 ── */}
-      <div className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-border bg-card">
-        <span className="text-sm font-semibold text-foreground">🎨 场景编辑器</span>
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={undo} disabled={history.length === 0} title="撤销">↩️ 撤销</Button>
+      <div className="flex-shrink-0 flex items-center justify-between px-3 py-1.5 border-b border-border bg-card">
+        <span className="text-xs font-semibold text-foreground">🎨 场景编辑器</span>
+        <div className="flex items-center gap-1.5">
+          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={undo} disabled={history.length === 0} title="撤销">↩️ 撤销</Button>
           {structuredMode
-            ? <Button size="sm" onClick={handleSaveStructured}>✅ 完成</Button>
-            : <Button size="sm" onClick={() => setShowSave(true)}>💾 存到素材库</Button>}
+            ? <Button size="sm" className="h-7 px-2 text-xs" onClick={handleSaveStructured}>✅ 完成</Button>
+            : <Button size="sm" className="h-7 px-2 text-xs" onClick={() => setShowSave(true)}>💾 存到素材库</Button>}
         </div>
       </div>
 

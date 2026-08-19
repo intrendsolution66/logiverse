@@ -63,7 +63,7 @@ export function Modal({ open, onClose, title, description, children, className, 
           )}
         >
           {(title || description) && (
-            <div className={cn("flex items-start justify-between px-5 border-b", (size === "fullscreen" || size === "screen") ? "flex-shrink-0 py-2.5" : "py-4 px-6")}>
+            <div className={cn("flex items-start justify-between px-5 border-b", (size === "fullscreen" || size === "screen") ? "flex-shrink-0 py-2" : "py-4 px-6")}>
               <div>
                 {title && <Dialog.Title className="text-base font-semibold">{title}</Dialog.Title>}
                 {description && <Dialog.Description className="text-sm text-muted-foreground mt-1">{description}</Dialog.Description>}
@@ -81,7 +81,7 @@ export function Modal({ open, onClose, title, description, children, className, 
               CourseDesignerPage.tsx 那边的 flex-1 元素(最终传到
               SceneEditor)。其他size维持原来的简单padding包裹，不影响
               其他所有用 size="sm"/"md" 等等的现有弹窗。 */}
-          <div className={(size === "fullscreen" || size === "screen") ? "flex-1 min-h-0 overflow-y-auto px-3 py-2 flex flex-col" : "px-6 py-5"}>{children}</div>
+          <div className={(size === "fullscreen" || size === "screen") ? "flex-1 min-h-0 overflow-y-auto px-3 py-1.5 flex flex-col" : "px-6 py-5"}>{children}</div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
