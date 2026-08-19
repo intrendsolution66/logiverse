@@ -171,7 +171,11 @@
     },
     "instructions": {
       "coloring": "先选一个颜色，再点画布上要上色的区域",
-      "sticker": "先点下面要用的贴纸，再点画布上对应的位置"
+      "sticker": "先点下面要用的贴纸，再点画布上对应的位置",
+      "dragDrop": "先点下面要用的物件，再点画布上你认为对的位置——没有任何提示，自己判断"
+    },
+    "dragDrop": {
+      "allPlaced": "都摆完啦～"
     },
     "cover": {
       "totalMarksLabel": "总分 {{n}} 分",
@@ -287,6 +291,7 @@
       "typeMC": "☑️ 选择题",
       "typeFB": "📝 填充题",
       "typeColoring": "🎨 填色题",
+      "typeDragDrop": "🧩 拖拽题（位置版）",
       "marksLabel": "分值",
       "illustrationToggle": "🖼️ 题目配图（选填，纯装饰性插图，不影响判分）",
       "explanationToggle": "📚 附加解答（选填，视频/PPT链接，学生答错后能看到）",

@@ -114,6 +114,8 @@ export function ReviewCard({ index, question }: { index: number; question: Revie
         ? <ColoringReview question={question} />
         : question.question_type === "sudoku"
         ? <SudokuReview question={question} />
+        : question.question_type === "drag_drop"
+        ? <DragDropReview question={question} />
         : <StickerGameReview question={question} />}
       {!question.is_correct && !!(question.config?.explanation_video_url || question.config?.explanation_ppt_url) && (
         <div className="mt-3 pt-3 border-t border-border/60 space-y-1.5">
@@ -307,6 +309,51 @@ function StickerGameReview({ question }: { question: ReviewQuestion }) {
             {placed ? <img src={placed} alt="" className="w-full h-full object-contain" /> : null}
             {!isRight && (
               <img src={o.image_url} alt="" className="absolute bottom-0 right-0 w-1/2 h-1/2 object-contain opacity-60 border-t border-l border-emerald-400 bg-white/80" />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// 拖拽游戏(位置版)——考试版本作答时完全没有目标框提示，回顾页面反过来
+// 要把答案说清楚：学生实际摆的位置(对错用颜色区分)，答错的话额外用
+// 绿色虚线框标出正确应该摆在哪。跟StickerGameReview的"槽位固定、比对
+// 贴纸是否正确"不一样，这里槽位本身(位置)才是答案，物件贴图永远都是
+// 同一张，不存在"贴错了别的图案"这回事。
+function DragDropReview({ question }: { question: ReviewQuestion }) {
+  const config = question.config;
+  const objects = (config.objects as Array<{ image_url: string; x: number; y: number; w: number; h: number }>) ?? [];
+  const studentAnswers = (question.student_answer ?? {}) as Record<number, { x: number; y: number }>;
+  const canvasW = STICKER_CANVAS_SIZE, canvasH = STICKER_CANVAS_SIZE;
+
+  return (
+    <div
+      className="relative w-full rounded-xl overflow-hidden bg-white border border-border"
+      style={{ aspectRatio: `${canvasW} / ${canvasH}`, maxWidth: 320, backgroundImage: config.bg_image_url ? `url(${config.bg_image_url})` : undefined, backgroundSize: "100% 100%" }}
+    >
+      {objects.map((o, i) => {
+        const placed = studentAnswers[i];
+        const tolX = o.w * 0.5, tolY = o.h * 0.5;
+        const isRight = !!placed && Math.abs(placed.x - o.x) < tolX && Math.abs(placed.y - o.y) < tolY;
+        return (
+          <div key={i}>
+            {/* 正确位置的虚线提示——只在答错的时候才显示，答对了就不用再指出来了 */}
+            {!isRight && (
+              <div
+                className="absolute -translate-x-1/2 -translate-y-1/2 border-2 border-dashed border-emerald-400 rounded-lg pointer-events-none"
+                style={{ left: `${(o.x / canvasW) * 100}%`, top: `${(o.y / canvasH) * 100}%`, width: `${(o.w / canvasW) * 100}%`, height: `${(o.h / canvasH) * 100}%` }}
+              />
+            )}
+            {/* 学生实际摆的位置——没作答的题(理论上不该发生，前端会强制答完才能交卷)也兜底显示不出东西，不报错 */}
+            {placed && (
+              <div
+                className={`absolute -translate-x-1/2 -translate-y-1/2 border-2 rounded-lg overflow-hidden ${isRight ? "border-emerald-400" : "border-red-400"}`}
+                style={{ left: `${(placed.x / canvasW) * 100}%`, top: `${(placed.y / canvasH) * 100}%`, width: `${(o.w / canvasW) * 100}%`, height: `${(o.h / canvasH) * 100}%` }}
+              >
+                <img src={o.image_url} alt="" className="w-full h-full object-contain" />
+              </div>
             )}
           </div>
         );

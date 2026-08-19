@@ -1,3 +1,6 @@
+// frontend/src/pages/edu/ExamPreviewPage.tsx
+//
+// 运营/设计师"试玩预览"页面——测试自己设计的考卷实际玩起来是什么样，
 // 不受白名单/发布状态/开考截止时间限制(草稿也能试玩)，交卷后立刻在
 // 本地算分显示结果，完全不写入 exam_attempts 这张表——不会污染真实的
 // 排行榜、不会占用任何学生的重考次数。
@@ -12,7 +15,7 @@ import { useTranslation } from "react-i18next";
 import toast from "react-hot-toast";
 import { examApi } from "@/api";
 import {
-  pickText, MultipleChoiceQuestion, FillBlankQuestion, ColoringQuestion, SudokuQuestion, StickerGameQuestion,
+  pickText, MultipleChoiceQuestion, FillBlankQuestion, ColoringQuestion, SudokuQuestion, StickerGameQuestion, DragDropQuestion,
   type TakeQuestion,
 } from "./ExamTakePage";
 import { ReviewCard, type ReviewQuestion } from "./ExamResultPage";
@@ -54,6 +57,21 @@ function gradeQuestionLocally(questionType: string, config: Record<string, unkno
     const submitted = (studentAnswer && typeof studentAnswer === "object" ? studentAnswer : {}) as Record<string, string>;
     if (objects.length === 0) return false;
     return objects.every((o) => submitted[o.id] === o.image_url);
+  }
+  if (questionType === "drag_drop") {
+    // 逻辑跟服务器端 examPaper.controller.ts#gradeQuestion 的drag_drop
+    // 分支完全一致——预览模式这边config是没有去答案的原始版本(设计师
+    // 预览自己的题，本来就该看得到完整内容)，所以x/y这里是真的正确
+    // 位置，容差公式照抄。
+    const objects = (config.objects as Array<{ x: number; y: number; w: number; h: number }>) ?? [];
+    const submitted = (studentAnswer && typeof studentAnswer === "object" ? studentAnswer : {}) as Record<string, { x: number; y: number }>;
+    if (objects.length === 0) return false;
+    return objects.every((o, i) => {
+      const placed = submitted[i];
+      if (!placed || typeof placed.x !== "number" || typeof placed.y !== "number") return false;
+      const tolX = o.w * 0.5, tolY = o.h * 0.5;
+      return Math.abs(placed.x - o.x) < tolX && Math.abs(placed.y - o.y) < tolY;
+    });
   }
   return false;
 }
@@ -193,6 +211,8 @@ function PreviewQuestionCard({ index, question, value, onChange }: {
         ? <ColoringQuestion config={question.config as unknown as ColoringConfig} value={value as Record<string, string> | undefined} onChange={onChange} />
         : question.question_type === "sudoku"
         ? <SudokuQuestion config={question.config} value={value as Record<string, string> | undefined} onChange={onChange} />
+        : question.question_type === "drag_drop"
+        ? <DragDropQuestion config={question.config} value={value as Record<number, { x: number; y: number }> | undefined} onChange={onChange} />
         : <StickerGameQuestion config={question.config} value={value as Record<string, string> | undefined} onChange={onChange} />}
     </div>
   );

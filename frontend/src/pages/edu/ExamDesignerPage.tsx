@@ -19,6 +19,7 @@ import { Input, Label } from "@/components/ui/index";
 import { CheckSquare, PencilLine, X, Plus, FileText, Users, Trophy, Download, Trash2 } from "lucide-react";
 import { examApi, adminUsersApi, type ExamPaper, type ExamPaperQuestion, type ExamQuestionBankItem } from "@/api";
 import ColoringQuestionEditor from "@/components/ColoringQuestionEditor";
+import SceneEditor, { type StructuredSceneOutput } from "@/components/SceneEditor";
 import IllustrationEditor from "@/components/IllustrationEditor";
 import MultiLangInput from "@/components/MultiLangInput";
 import { IllustrationView, type Illustration } from "@/lib/illustrationShapes";
@@ -507,7 +508,7 @@ function AddFixedQuestionForm({ paperId, editing, onDone, onCancel }: { paperId:
   const isEditing = !!editing;
   const editConfig = (editing?.config ?? {}) as Record<string, unknown>;
 
-  const [qType, setQType] = useState<"multiple_choice" | "fill_blank" | "coloring">((editing?.question_type as any) ?? "multiple_choice");
+  const [qType, setQType] = useState<"multiple_choice" | "fill_blank" | "coloring" | "drag_drop">((editing?.question_type as any) ?? "multiple_choice");
   const [marks, setMarks] = useState(editing?.marks ?? 1);
 
   // 选择题字段
@@ -551,6 +552,26 @@ function AddFixedQuestionForm({ paperId, editing, onDone, onCancel }: { paperId:
     editing?.question_type === "coloring" ? (editConfig as unknown as ColoringConfig) : null
   );
 
+  // 拖拽游戏(位置版)字段——跟Activities那边的drag_drop共用SceneEditor
+  // 摆放界面，presetModuleType传"sticker_game"是刻意的，SceneEditor内部
+  // 靠这个字符串决定画布用STICKER_CANVAS_SIZE坐标系，不是GAME_CANVAS_
+  // W/H，播放端(DragDropQuestion)也是用同一个常量换算，两边坐标系必须
+  // 对齐，别改这个字符串。
+  const [dragDropScene, setDragDropScene] = useState<StructuredSceneOutput | null>(() => {
+    if (editing?.question_type === "drag_drop") {
+      const objects = (editConfig.objects as Array<{ image_url: string; x: number; y: number; w: number; h: number; rotation: number; type?: string; flip_x?: boolean; flip_y?: boolean }>) ?? [];
+      return {
+        bgUrl: (editConfig.bg_image_url as string) ?? null,
+        objects: objects.map((o) => ({
+          imageUrl: o.image_url, x: o.x, y: o.y, w: o.w, h: o.h, rotation: o.rotation,
+          objectType: o.type ?? "", flipX: o.flip_x ?? false, flipY: o.flip_y ?? false,
+        })),
+        texts: [],
+      };
+    }
+    return null;
+  });
+
   // 题目配图字段(选择题/填充题都能用，纯装饰性插图，不影响判分)
   const editIllustration = (editConfig.illustration as Illustration | undefined) ?? undefined;
   const [showIllustration, setShowIllustration] = useState(!!editIllustration);
@@ -593,6 +614,16 @@ function AddFixedQuestionForm({ paperId, editing, onDone, onCancel }: { paperId:
           sentence_i18n: { zh: fbSentenceZh.trim(), en: fbSentenceEn.trim() || undefined, ms: fbSentenceMs.trim() || undefined },
           blanks: blanks.map((accepted) => ({ accepted_answers: accepted })), illustration: illustration ?? undefined,
         };
+      } else if (qType === "drag_drop") {
+        if (!dragDropScene?.bgUrl) { toast.error("请先选背景图片"); return; }
+        if (dragDropScene.objects.length < 1) { toast.error("请至少放1个物件"); return; }
+        config = {
+          bg_image_url: dragDropScene.bgUrl,
+          objects: dragDropScene.objects.map((o) => ({
+            image_url: o.imageUrl, x: o.x, y: o.y, w: o.w, h: o.h, rotation: o.rotation,
+            type: o.objectType || undefined, flip_x: o.flipX || undefined, flip_y: o.flipY || undefined,
+          })),
+        };
       } else {
         if (!coloringConfig) { toast.error(t("examDesigner.form.needShape")); return; }
         const colorable = coloringConfig.regions.filter((r) => r.colorable);
@@ -618,12 +649,12 @@ function AddFixedQuestionForm({ paperId, editing, onDone, onCancel }: { paperId:
   return (
     <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4">
       <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
-        {(["multiple_choice", "fill_blank", "coloring"] as const).map((qt) => (
+        {(["multiple_choice", "fill_blank", "coloring", "drag_drop"] as const).map((qt) => (
           <button
             key={qt} onClick={() => setQType(qt)}
             className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${qType === qt ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
           >
-            {qt === "multiple_choice" ? t("examDesigner.form.typeMC") : qt === "fill_blank" ? t("examDesigner.form.typeFB") : t("examDesigner.form.typeColoring")}
+            {qt === "multiple_choice" ? t("examDesigner.form.typeMC") : qt === "fill_blank" ? t("examDesigner.form.typeFB") : qt === "coloring" ? t("examDesigner.form.typeColoring") : t("examDesigner.form.typeDragDrop")}
           </button>
         ))}
         <div className="flex items-center gap-1.5 pl-3">
@@ -633,6 +664,20 @@ function AddFixedQuestionForm({ paperId, editing, onDone, onCancel }: { paperId:
       </div>
 
       {qType === "coloring" && <ColoringQuestionEditor initial={coloringConfig ?? undefined} onChange={setColoringConfig} />}
+      {qType === "drag_drop" && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+            选背景图、加物件，拖到"正确的位置"摆好。考试作答时学生看不到任何提示框，要自己判断该放哪，全部摆完才能交卷——这是有意的设计，不是漏了提示。
+          </p>
+          <SceneEditor
+            structuredMode presetModuleType="sticker_game"
+            onSaveStructured={setDragDropScene} initial={dragDropScene ?? undefined}
+          />
+          {dragDropScene && (
+            <p className="text-xs text-emerald-600">✓ 已摆 {dragDropScene.objects.length} 个物件，可以点上面"完成"重新调整</p>
+          )}
+        </div>
+      )}
 
       {(qType === "multiple_choice" || qType === "fill_blank") && (
         <div className="rounded-lg border border-border bg-muted/20 p-3">
@@ -1002,7 +1047,7 @@ function AddBankQuestionForm({ editing, onDone, onCancel }: { editing?: ExamQues
   const editConfig = (editing?.config ?? {}) as Record<string, unknown>;
 
   const [category, setCategory] = useState(editing?.category ?? "");
-  const [qType, setQType] = useState<"multiple_choice" | "fill_blank" | "coloring">((editing?.question_type as any) ?? "multiple_choice");
+  const [qType, setQType] = useState<"multiple_choice" | "fill_blank" | "coloring" | "drag_drop">((editing?.question_type as any) ?? "multiple_choice");
   const [mcAnswerMode, setMcAnswerMode] = useState<"single" | "multi">((editConfig.answer_mode as "single" | "multi") ?? "single");
   const [mcOptions, setMcOptions] = useState<MCOption[]>(() => {
     if (editing?.question_type === "multiple_choice") {
@@ -1038,6 +1083,20 @@ function AddBankQuestionForm({ editing, onDone, onCancel }: { editing?: ExamQues
   const [coloringConfig, setColoringConfig] = useState<ColoringConfig | null>(
     editing?.question_type === "coloring" ? (editConfig as unknown as ColoringConfig) : null
   );
+  const [dragDropScene, setDragDropScene] = useState<StructuredSceneOutput | null>(() => {
+    if (editing?.question_type === "drag_drop") {
+      const objects = (editConfig.objects as Array<{ image_url: string; x: number; y: number; w: number; h: number; rotation: number; type?: string; flip_x?: boolean; flip_y?: boolean }>) ?? [];
+      return {
+        bgUrl: (editConfig.bg_image_url as string) ?? null,
+        objects: objects.map((o) => ({
+          imageUrl: o.image_url, x: o.x, y: o.y, w: o.w, h: o.h, rotation: o.rotation,
+          objectType: o.type ?? "", flipX: o.flip_x ?? false, flipY: o.flip_y ?? false,
+        })),
+        texts: [],
+      };
+    }
+    return null;
+  });
   const editIllustration = (editConfig.illustration as Illustration | undefined) ?? undefined;
   const [showIllustration, setShowIllustration] = useState(!!editIllustration);
   const [illustration, setIllustration] = useState<Illustration | null>(editIllustration ?? null);
@@ -1075,6 +1134,16 @@ function AddBankQuestionForm({ editing, onDone, onCancel }: { editing?: ExamQues
           sentence_i18n: { zh: fbSentenceZh.trim(), en: fbSentenceEn.trim() || undefined, ms: fbSentenceMs.trim() || undefined },
           blanks: blanks.map((accepted) => ({ accepted_answers: accepted })), illustration: illustration ?? undefined,
         };
+      } else if (qType === "drag_drop") {
+        if (!dragDropScene?.bgUrl) { toast.error("请先选背景图片"); return; }
+        if (dragDropScene.objects.length < 1) { toast.error("请至少放1个物件"); return; }
+        config = {
+          bg_image_url: dragDropScene.bgUrl,
+          objects: dragDropScene.objects.map((o) => ({
+            image_url: o.imageUrl, x: o.x, y: o.y, w: o.w, h: o.h, rotation: o.rotation,
+            type: o.objectType || undefined, flip_x: o.flipX || undefined, flip_y: o.flipY || undefined,
+          })),
+        };
       } else {
         if (!coloringConfig) { toast.error(t("examDesigner.form.needShape")); return; }
         const colorable = coloringConfig.regions.filter((r) => r.colorable);
@@ -1104,13 +1173,27 @@ function AddBankQuestionForm({ editing, onDone, onCancel }: { editing?: ExamQues
         <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder={t("examDesigner.bank.categoryPlaceholder")} />
       </div>
       <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
-        {(["multiple_choice", "fill_blank", "coloring"] as const).map((qt) => (
+        {(["multiple_choice", "fill_blank", "coloring", "drag_drop"] as const).map((qt) => (
           <button key={qt} onClick={() => setQType(qt)} className={`px-3 py-1.5 rounded-md text-xs font-medium ${qType === qt ? "bg-white shadow-sm" : "text-muted-foreground"}`}>
-            {qt === "multiple_choice" ? t("examDesigner.form.typeMC") : qt === "fill_blank" ? t("examDesigner.form.typeFB") : t("examDesigner.form.typeColoring")}
+            {qt === "multiple_choice" ? t("examDesigner.form.typeMC") : qt === "fill_blank" ? t("examDesigner.form.typeFB") : qt === "coloring" ? t("examDesigner.form.typeColoring") : t("examDesigner.form.typeDragDrop")}
           </button>
         ))}
       </div>
       {qType === "coloring" && <ColoringQuestionEditor initial={coloringConfig ?? undefined} onChange={setColoringConfig} />}
+      {qType === "drag_drop" && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+            选背景图、加物件，拖到"正确的位置"摆好。考试作答时学生看不到任何提示框，要自己判断该放哪，全部摆完才能交卷。
+          </p>
+          <SceneEditor
+            structuredMode presetModuleType="sticker_game"
+            onSaveStructured={setDragDropScene} initial={dragDropScene ?? undefined}
+          />
+          {dragDropScene && (
+            <p className="text-xs text-emerald-600">✓ 已摆 {dragDropScene.objects.length} 个物件，可以点上面"完成"重新调整</p>
+          )}
+        </div>
+      )}
       {(qType === "multiple_choice" || qType === "fill_blank") && (
         <div className="rounded-lg border border-border bg-muted/20 p-3">
           <button type="button" onClick={() => setShowIllustration((v) => !v)} className="text-xs font-medium text-foreground flex items-center gap-1.5">

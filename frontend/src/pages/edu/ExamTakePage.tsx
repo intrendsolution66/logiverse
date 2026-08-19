@@ -161,6 +161,11 @@ export default function ExamTakePage() {
       const given = (a ?? {}) as Record<string, string>;
       return objects.every((o) => given[o.id]);
     }
+    if (q.question_type === "drag_drop") {
+      const objects = (q.config.objects as Array<unknown>) ?? [];
+      const given = (a ?? {}) as Record<number, unknown>;
+      return objects.length > 0 && Object.keys(given).length === objects.length;
+    }
     return false;
   });
 
@@ -302,6 +307,8 @@ function QuestionCard({ index, question, value, onChange }: {
         ? <ColoringQuestion config={question.config as unknown as ColoringConfig} value={value as ColoringAnswer | undefined} onChange={onChange} />
         : question.question_type === "sudoku"
         ? <SudokuQuestion config={question.config} value={value as Record<string, string> | undefined} onChange={onChange} />
+        : question.question_type === "drag_drop"
+        ? <DragDropQuestion config={question.config} value={value as Record<number, { x: number; y: number }> | undefined} onChange={onChange} />
         : <StickerGameQuestion config={question.config} value={value as Record<string, string> | undefined} onChange={onChange} />}
     </div>
   );
@@ -541,6 +548,84 @@ export function StickerGameQuestion({ config, value, onChange }: {
               }`}
             >
               <img src={url} alt="" className="w-full h-full object-contain" />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// 拖拽游戏(位置版)——考试版本没有任何目标框提示(这是有意为之，不是
+// 简化：留了目标框的位置/大小，等于把答案的大致范围泄露给学生)，学生
+// 要在一张"干净"的背景图上自己判断该把物件放哪。交互沿用
+// StickerGameQuestion同一个"点选+点选"模式(不是拖拽)——考试场景要在
+// 任何设备上都稳定好用，触屏拖拽兼容性一直是个坑，点选完全没有这个
+// 问题。点画布上任意位置(不是固定槽位)完成摆放；点已经摆好的物件可以
+// 收回重摆。
+export function DragDropQuestion({ config, value, onChange }: {
+  config: Record<string, unknown>; value?: Record<number, { x: number; y: number }>; onChange: (v: Record<number, { x: number; y: number }>) => void;
+}) {
+  const objects = (config.objects as Array<{ image_url: string; w: number; h: number }>) ?? [];
+  const { t } = useTranslation();
+  const canvasW = STICKER_CANVAS_SIZE, canvasH = STICKER_CANVAS_SIZE;
+  const [pickedIndex, setPickedIndex] = useState<number | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const given = value ?? {};
+  const placedIndices = new Set(Object.keys(given).map(Number));
+  const trayIndices = objects.map((_, i) => i).filter((i) => !placedIndices.has(i));
+
+  function handleCanvasClick(e: React.MouseEvent<HTMLDivElement>) {
+    if (pickedIndex === null || !stageRef.current) return;
+    const rect = stageRef.current.getBoundingClientRect();
+    const scaleX = canvasW / rect.width, scaleY = canvasH / rect.height;
+    const x = (e.clientX - rect.left) * scaleX, y = (e.clientY - rect.top) * scaleY;
+    onChange({ ...given, [pickedIndex]: { x, y } });
+    setPickedIndex(null);
+  }
+
+  function pickUpPlaced(index: number, e: React.MouseEvent) {
+    e.stopPropagation(); // 别冒泡到画布本身的onClick，不然会立刻在同一个位置又摆回去
+    const { [index]: _removed, ...rest } = given;
+    onChange(rest);
+    setPickedIndex(index);
+  }
+
+  return (
+    <div>
+      <p className="text-sm text-muted-foreground mb-2">{t("exam.instructions.dragDrop")}</p>
+      <div
+        ref={stageRef} onClick={handleCanvasClick}
+        className={`relative w-full rounded-xl overflow-hidden bg-white border-2 mb-3 ${pickedIndex !== null ? "border-primary cursor-crosshair" : "border-border"}`}
+        style={{ aspectRatio: `${canvasW} / ${canvasH}`, backgroundImage: config.bg_image_url ? `url(${config.bg_image_url})` : undefined, backgroundSize: "100% 100%" }}
+      >
+        {Object.entries(given).map(([idxStr, pos]) => {
+          const i = Number(idxStr);
+          const o = objects[i];
+          if (!o) return null;
+          return (
+            <button
+              key={i} type="button" onClick={(e) => pickUpPlaced(i, e)}
+              className="absolute -translate-x-1/2 -translate-y-1/2 rounded-lg overflow-hidden ring-2 ring-primary/60 bg-white/80"
+              style={{ left: `${(pos.x / canvasW) * 100}%`, top: `${(pos.y / canvasH) * 100}%`, width: `${(o.w / canvasW) * 100}%`, height: `${(o.h / canvasH) * 100}%` }}
+            >
+              <img src={o.image_url} alt="" className="w-full h-full object-contain pointer-events-none" />
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap gap-2 justify-center">
+        {trayIndices.length === 0 && Object.keys(given).length > 0 && (
+          <p className="text-xs text-muted-foreground/60 self-center">{t("exam.dragDrop.allPlaced")}</p>
+        )}
+        {trayIndices.map((i) => {
+          const o = objects[i];
+          return (
+            <button
+              key={i} type="button" onClick={() => setPickedIndex(i)}
+              className={`w-14 h-14 rounded-lg border-2 bg-white p-1 ${pickedIndex === i ? "border-primary ring-2 ring-primary/30" : "border-border"}`}
+            >
+              <img src={o.image_url} alt="" className="w-full h-full object-contain" />
             </button>
           );
         })}

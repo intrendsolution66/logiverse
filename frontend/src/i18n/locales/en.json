@@ -171,7 +171,11 @@
     },
     "instructions": {
       "coloring": "Pick a color, then tap the areas on the canvas to color them",
-      "sticker": "Tap a sticker below, then tap its spot on the canvas"
+      "sticker": "Tap a sticker below, then tap its spot on the canvas",
+      "dragDrop": "Tap an item below, then tap where you think it goes — no hints given, use your own judgment"
+    },
+    "dragDrop": {
+      "allPlaced": "All placed!"
     },
     "cover": {
       "totalMarksLabel": "Total {{n}} marks",
@@ -287,6 +291,7 @@
       "typeMC": "☑️ Multiple Choice",
       "typeFB": "📝 Fill in the Blank",
       "typeColoring": "🎨 Coloring",
+      "typeDragDrop": "🧩 Drag & Drop",
       "marksLabel": "Marks",
       "illustrationToggle": "🖼️ Illustration (optional, purely decorative, doesn't affect grading)",
       "explanationToggle": "📚 Attach Solution (optional, video/PPT link, shown to students after they get it wrong)",

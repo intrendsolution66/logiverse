@@ -171,7 +171,11 @@
     },
     "instructions": {
       "coloring": "Pilih warna dahulu, kemudian ketik kawasan pada kanvas untuk mewarnakannya",
-      "sticker": "Ketik pelekat di bawah dahulu, kemudian ketik lokasinya pada kanvas"
+      "sticker": "Ketik pelekat di bawah dahulu, kemudian ketik lokasinya pada kanvas",
+      "dragDrop": "Ketik item di bawah dahulu, kemudian ketik lokasi yang anda rasa betul — tiada petunjuk diberikan, gunakan pertimbangan sendiri"
+    },
+    "dragDrop": {
+      "allPlaced": "Semua telah diletakkan!"
     },
     "cover": {
       "totalMarksLabel": "Jumlah {{n}} markah",
@@ -287,6 +291,7 @@
       "typeMC": "☑️ Aneka Pilihan",
       "typeFB": "📝 Isi Tempat Kosong",
       "typeColoring": "🎨 Mewarna",
+      "typeDragDrop": "🧩 Seret & Lepas",
       "marksLabel": "Markah",
       "illustrationToggle": "🖼️ Ilustrasi Soalan (pilihan, hiasan sahaja, tidak menjejaskan pemarkahan)",
       "explanationToggle": "📚 Lampirkan Penyelesaian (pilihan, pautan video/PPT, dipaparkan kepada pelajar selepas mereka tersalah jawab)",

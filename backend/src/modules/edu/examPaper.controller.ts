@@ -95,6 +95,23 @@ export function gradeQuestion(questionType: string, config: Record<string, unkno
     if (objects.length === 0) return false;
     return objects.every((o) => submitted[o.id] === o.image_url);
   }
+  if (questionType === "drag_drop") {
+    // 跟sticker_game那种"藏对应关系、留目标框"的离散判定不一样——这个
+    // 题型压根不给任何目标框提示，学生自由把物件摆到背景图上他认为对
+    // 的位置，判分靠坐标容差(公式照抄Activity端StickerGame.tsx的
+    // withinTolerance——物件越大，容错范围也跟着放大)。学生提交格式是
+    // 以物件在objects数组里的下标(index)为key，因为这里没有更稳定的
+    // id字段可用，数组顺序在同一道题内是固定的，index足够当唯一标识。
+    const objects = (config.objects as Array<{ x: number; y: number; w: number; h: number }>) ?? [];
+    const submitted = (studentAnswer && typeof studentAnswer === "object" ? studentAnswer : {}) as Record<string, { x: number; y: number }>;
+    if (objects.length === 0) return false;
+    return objects.every((o, i) => {
+      const placed = submitted[i];
+      if (!placed || typeof placed.x !== "number" || typeof placed.y !== "number") return false;
+      const tolX = o.w * 0.5, tolY = o.h * 0.5;
+      return Math.abs(placed.x - o.x) < tolX && Math.abs(placed.y - o.y) < tolY;
+    });
+  }
   return false; // 未知题型——保守起见判不对，不是判满分
 }
 
@@ -127,6 +144,14 @@ export function stripAnswers(questionType: string, config: Record<string, unknow
     // 生成一份"贴纸盘"(tray)供学生拖动，貌似跟槽位无关联。
     const tray = shuffleArray(objects.map((o) => o.image_url as string));
     return { ...config, objects: objects.map((o) => { const { image_url, ...rest } = o; return rest; }), tray };
+  }
+  if (questionType === "drag_drop") {
+    // 跟sticker_game完全相反的隐藏策略——这里连目标框的位置/形状都不
+    // 留，x/y/rotation全部去掉，只留image_url/w/h(物件盘要知道每个
+    // 物件长什么样、多大，但完全不提示该放在背景图的哪个位置)。学生是
+    // 在一张"干净"的背景图上自由摆放，没有任何视觉提示可以依赖。
+    const objects = (config.objects as Array<Record<string, unknown>>) ?? [];
+    return { ...config, objects: objects.map((o) => { const { x, y, rotation, ...rest } = o; return rest; }) };
   }
   return config;
 }
@@ -295,6 +320,12 @@ function validateQuestionConfig(questionType: string, config: Record<string, unk
     if (!objects || objects.length === 0) throw new Error("贴纸游戏至少要有1个贴纸槽位");
     if (objects.some((o) => !o.id)) throw new Error("贴纸槽位缺少id——从Activity库导入时应该自动补上，请重新导入");
     if (objects.some((o) => !o.image_url)) throw new Error("每个贴纸槽位都要有对应的贴纸图片");
+  } else if (questionType === "drag_drop") {
+    const objects = config.objects as Array<{ image_url?: string; x?: number; y?: number; w?: number; h?: number }> | undefined;
+    if (!config.bg_image_url) throw new Error("拖拽游戏（位置版）要先选背景图片");
+    if (!objects || objects.length === 0) throw new Error("拖拽游戏（位置版）至少要放1个物件");
+    if (objects.some((o) => !o.image_url)) throw new Error("每个物件都要有对应的图片");
+    if (objects.some((o) => typeof o.x !== "number" || typeof o.y !== "number")) throw new Error("每个物件都要有正确的摆放位置——请用编辑器拖放摆好");
   } else {
     throw new Error(`不支持的题型: ${questionType}`);
   }
@@ -444,7 +475,7 @@ export async function reorderExamPaperQuestions(req: AuthRequest, res: Response)
 export async function listImportableActivities(req: AuthRequest, res: Response): Promise<void> {
   try {
     const moduleType = req.query.module_type as string | undefined;
-    const SUPPORTED = ["multiple_choice", "fill_blank", "sudoku", "sticker_game"];
+    const SUPPORTED = ["multiple_choice", "fill_blank", "sudoku", "sticker_game", "drag_drop"];
     if (!moduleType || !SUPPORTED.includes(moduleType)) { badRequest(res, `module_type 必须是 ${SUPPORTED.join("/")}`); return; }
     const { page, limit, offset } = parsePagination(req, 30);
     const { rows: countRows } = await query(`SELECT COUNT(*)::int AS total FROM edu.course_levels WHERE module_type = $1`, [moduleType]);
@@ -469,7 +500,7 @@ export async function importFromActivity(req: AuthRequest, res: Response): Promi
     const { rows } = await query(`SELECT module_type, config FROM edu.course_levels WHERE id = $1`, [activity_id]);
     const activity = rows[0];
     if (!activity) { notFound(res, "找不到这个Activity"); return; }
-    const SUPPORTED = ["multiple_choice", "fill_blank", "sudoku", "sticker_game"];
+    const SUPPORTED = ["multiple_choice", "fill_blank", "sudoku", "sticker_game", "drag_drop"];
     if (!SUPPORTED.includes(activity.module_type)) { badRequest(res, `暂不支持导入 ${activity.module_type} 这个类型`); return; }
 
     let config = activity.config as Record<string, unknown>;
@@ -477,6 +508,9 @@ export async function importFromActivity(req: AuthRequest, res: Response): Promi
       const objects = (config.objects as Array<Record<string, unknown>>) ?? [];
       config = { ...config, objects: objects.map((o, i) => ({ id: o.id ?? `slot_${i}`, ...o })) };
     }
+    // drag_drop 不需要像sticker_game那样补id——Activities版跟考试版的
+    // config结构完全一致(都是objects[]带x/y/w/h)，判分用数组下标当
+    // 标识就够了，原样复制即可，不用额外转换。
 
     validateQuestionConfig(activity.module_type, config);
     const { rows: created2 } = await query(

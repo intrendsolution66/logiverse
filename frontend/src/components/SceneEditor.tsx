@@ -293,6 +293,9 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [tool, setTool] = useState<Tool>("select");
   const [drawSubTool, setDrawSubTool] = useState<DrawSubTool>("pencil");
+  // 左侧图标栏点了哪个分类——不是立刻执行动作，是展开对应的选项面板到
+  // 图标栏右侧(跟Canva一样)。null=收起，没有面板展开，图标栏保持窄条。
+  const [activePanel, setActivePanel] = useState<"background" | "elements" | "text" | "shapes" | "draw" | null>(null);
   const [drawColor, setDrawColor] = useState("#e8a33d");
   const [drawWidth, setDrawWidth] = useState(6);
   const [drawOpacity, setDrawOpacity] = useState(100); // 只有"毛笔"用得到，铅笔固定100%不透明
@@ -1040,119 +1043,173 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     }`;
 
   return (
-    <div className="flex flex-col md:flex-row gap-3 items-start">
-      {/* ── 左侧工具栏：跟 Photoshop 一样，垂直一排图标 ── */}
-      <div className="w-full md:w-14 shrink-0 flex md:flex-col flex-row flex-wrap items-center gap-1.5 rounded-lg border border-border bg-muted/40 p-2 md:max-h-[600px] md:overflow-y-auto">
-        <button type="button" title="选择/移动" onClick={() => setTool("select")} className={toolBtnClass(tool === "select")}>🖱️</button>
-        <button type="button" title="画笔" onClick={() => { setTool("draw"); setSelectedId(null); }} className={toolBtnClass(tool === "draw")}>🖌️</button>
-        <div className="hidden md:block w-full h-px bg-border my-0.5" />
-
-        <div title="背景（素材库）"><AssetPicker category="background" label="🖼️" onSelect={setBackgroundFromAsset} /></div>
-        <input
-          ref={bgFileInputRef} type="file" accept="image/*" className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBackgroundUpload(f); e.target.value = ""; }}
-        />
-        <Button
-          size="sm" variant="outline" className="w-10 h-10 p-0 text-base"
-          onClick={() => bgFileInputRef.current?.click()} title="从电脑上传背景图"
-        >
-          📁
-        </Button>
-        <div title="加物件（可多选）"><AssetPicker category="object" label="🧸" onSelect={addObjectFromAsset} multiple onSelectMultiple={addObjectsFromAssets} /></div>
-        <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-base" onClick={addText} title="加文字">🔤</Button>
-
-        <div className="hidden md:block w-full h-px bg-border my-0.5" />
-        <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-base" onClick={() => addShape("square")} title="加方形">⬜</Button>
-        <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-base" onClick={() => addShape("rect")} title="加长方形">▭</Button>
-        <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-base" onClick={() => addShape("circle")} title="加圆形">⚫</Button>
-        <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-base" onClick={() => addShape("ellipse")} title="加椭圆形">⬭</Button>
-        <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-base" onClick={() => addShape("triangle")} title="加三角形">🔺</Button>
-        <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-base" onClick={() => addShape("line")} title="加直线">／</Button>
-        <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-base" onClick={addGrid} title="加网格（数独这种自己画格子用）">▦</Button>
-
-        <div className="hidden md:block w-full h-px bg-border my-0.5" />
-        <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-base" onClick={undo} disabled={history.length === 0} title="撤销">↩️</Button>
-        {selectedLayer && <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-base" onClick={duplicateSelected} title="复制（Ctrl/Cmd+D）">📋</Button>}
-        {selectedLayer && <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-base" onClick={() => rotateBy(-90)} title="逆时针转90°">↺</Button>}
-        {selectedLayer && <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-base" onClick={() => rotateBy(90)} title="顺时针转90°">↻</Button>}
-        {selectedLayer && <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-xs" onClick={resetRotation} title="角度归零">0°</Button>}
-        {selectedLayer && <Button size="sm" variant="outline" className="w-10 h-10 p-0 text-base text-destructive" onClick={deleteSelected} title="删除（Delete）">🗑️</Button>}
-      </div>
-
-      {/* ── 中间：画布 ── */}
-      <div className="flex-1 min-w-0 space-y-2">
-        <div className="flex items-center justify-between gap-3 min-h-[2.25rem]">
-          {tool === "draw" ? (
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className="flex gap-1">
-                <button type="button" title="铅笔（固定不透明，适合精细线条）" onClick={() => setDrawSubTool("pencil")} className={toolBtnClass(drawSubTool === "pencil")} style={{ width: 36, height: 36 }}>✏️</button>
-                <button type="button" title="毛笔（可调不透明度，适合大面积上色）" onClick={() => setDrawSubTool("brush")} className={toolBtnClass(drawSubTool === "brush")} style={{ width: 36, height: 36 }}>🖌️</button>
-                <button type="button" title="橡皮擦（擦掉背景图/已经画的笔画）" onClick={() => setDrawSubTool("eraser")} className={toolBtnClass(drawSubTool === "eraser")} style={{ width: 36, height: 36 }}>🧽</button>
-                <button type="button" title="填色桶（点击背景图里的区域灌颜色）" onClick={() => setDrawSubTool("bucket")} className={toolBtnClass(drawSubTool === "bucket")} style={{ width: 36, height: 36 }}>🪣</button>
-              </div>
-
-              {drawSubTool !== "eraser" && (
-                <div className="flex items-center gap-1.5">
-                  {COLORS.map((c) => (
-                    <button key={c} type="button" onClick={() => setDrawColor(c)} className={`w-6 h-6 rounded-full border-2 ${drawColor === c ? "border-primary" : "border-border"}`} style={{ background: c }} />
-                  ))}
-                  <input type="color" value={drawColor} onChange={(e) => setDrawColor(e.target.value)} title="自定义颜色" className="w-7 h-7 rounded-md border border-border cursor-pointer p-0.5" />
-                </div>
-              )}
-
-              {drawSubTool !== "bucket" && (
-                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  {drawSubTool === "eraser" ? "橡皮大小" : "粗细"}
-                  <input type="range" min={2} max={40} value={drawWidth} onChange={(e) => setDrawWidth(+e.target.value)} className="w-20" />
-                </label>
-              )}
-
-              {drawSubTool === "brush" && (
-                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  不透明度
-                  <input type="range" min={10} max={100} value={drawOpacity} onChange={(e) => setDrawOpacity(+e.target.value)} className="w-20" />
-                  <span className="tabular-nums w-8">{drawOpacity}%</span>
-                </label>
-              )}
-
-              <div className="h-5 w-px bg-border" />
-              <div className="flex gap-1">
-                <Button size="sm" variant="outline" onClick={() => flipCanvas("x")} title="整张画布左右翻转（背景+笔画一起翻，不影响物件/文字/形状）">↔️ 左右翻转</Button>
-                <Button size="sm" variant="outline" onClick={() => flipCanvas("y")} title="整张画布上下翻转（背景+笔画一起翻，不影响物件/文字/形状）">↕️ 上下翻转</Button>
-              </div>
-            </div>
-          ) : <div />}
-
+    <div className="fixed inset-0 z-50 bg-background flex flex-col">
+      {/* ── 顶部条：标题 + 主操作按钮，全屏模式下始终固定在最上面 ── */}
+      <div className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-border bg-card">
+        <span className="text-sm font-semibold text-foreground">🎨 场景编辑器</span>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={undo} disabled={history.length === 0} title="撤销">↩️ 撤销</Button>
           {structuredMode
             ? <Button size="sm" onClick={handleSaveStructured}>✅ 完成</Button>
             : <Button size="sm" onClick={() => setShowSave(true)}>💾 存到素材库</Button>}
         </div>
-
-        {backgroundSelected && (
-          <p className="text-xs text-muted-foreground bg-muted/40 rounded-lg p-3">
-            🖼️ 背景已选中——拖动可以移动位置，拖右下角的蓝点可以缩放大小（背景不用"删除"，选新背景会直接换掉，背景本身不能旋转）
-          </p>
-        )}
-
-        <canvas
-          ref={canvasRef} width={W} height={H}
-          onPointerDown={handlePointerDown} onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
-          style={{
-            touchAction: "none",
-            aspectRatio: `${W} / ${H}`, // W,H已经在组件顶部按模块类型算好了（贴纸游戏是正方形STICKER_CANVAS_SIZE，其他模块是长方形GAME_CANVAS_W/H），这里不用再额外判断
-            width: "auto",
-            height: "auto",
-            maxWidth: "100%", // 容器宽度不够就按宽度撑到最大
-            maxHeight: "calc(100vh - 220px)", // 视口高度不够（比如笔电屏幕）就按高度撑到最大
-          }}
-          className="mx-auto block rounded-2xl border border-border bg-card cursor-crosshair shadow-lg ring-1 ring-black/5"
-        />
-        <p className="text-xs text-muted-foreground text-center">选择模式下：点背景、物件、或文字都可以选中，拖动移动；蓝点缩放（斜拖可以宽高分开调整）；绿点拖着转圈可以旋转</p>
       </div>
 
+      <div className="flex-1 min-h-0 flex flex-row">
+        {/* ── 左侧图标栏：窄条，点一下展开对应分类的选项面板到右边（跟Canva一样，
+             不是点了立刻执行动作）── */}
+        <div className="w-16 shrink-0 flex flex-col items-center gap-1.5 border-r border-border bg-muted/40 p-2 overflow-y-auto">
+          <button
+            type="button" title="选择/移动"
+            onClick={() => { setTool("select"); setActivePanel(null); }}
+            className={toolBtnClass(tool === "select" && activePanel === null)}
+          >
+            🖱️
+          </button>
+          <button
+            type="button" title="画笔"
+            onClick={() => { setTool("draw"); setSelectedId(null); setActivePanel("draw"); }}
+            className={toolBtnClass(activePanel === "draw")}
+          >
+            🖌️
+          </button>
+          <div className="w-full h-px bg-border my-0.5" />
+          <button type="button" title="背景" onClick={() => setActivePanel(activePanel === "background" ? null : "background")} className={toolBtnClass(activePanel === "background")}>🖼️</button>
+          <button type="button" title="物件" onClick={() => setActivePanel(activePanel === "elements" ? null : "elements")} className={toolBtnClass(activePanel === "elements")}>🧸</button>
+          <button type="button" title="文字" onClick={() => setActivePanel(activePanel === "text" ? null : "text")} className={toolBtnClass(activePanel === "text")}>🔤</button>
+          <button type="button" title="形状/网格" onClick={() => setActivePanel(activePanel === "shapes" ? null : "shapes")} className={toolBtnClass(activePanel === "shapes")}>⬜</button>
+        </div>
+
+        {/* ── 展开的分类面板：只有左侧图标栏选中了某个分类才会出现，点同一个图标再收起 ── */}
+        {activePanel && (
+          <div className="w-64 shrink-0 border-r border-border bg-card p-3 space-y-3 overflow-y-auto">
+            {activePanel === "background" && (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">背景</p>
+                <div title="背景（素材库）"><AssetPicker category="background" label="🗂️ 从素材库选" onSelect={setBackgroundFromAsset} /></div>
+                <input
+                  ref={bgFileInputRef} type="file" accept="image/*" className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBackgroundUpload(f); e.target.value = ""; }}
+                />
+                <Button size="sm" variant="outline" className="w-full" onClick={() => bgFileInputRef.current?.click()}>📁 从电脑上传</Button>
+              </div>
+            )}
+
+            {activePanel === "elements" && (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">物件</p>
+                <div title="加物件（可多选）"><AssetPicker category="object" label="🧸 从素材库选（可多选）" onSelect={addObjectFromAsset} multiple onSelectMultiple={addObjectsFromAssets} /></div>
+              </div>
+            )}
+
+            {activePanel === "text" && (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">文字</p>
+                <Button size="sm" className="w-full" onClick={addText}>🔤 加一段文字</Button>
+              </div>
+            )}
+
+            {activePanel === "shapes" && (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">形状 / 网格</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <Button size="sm" variant="outline" className="h-12 text-base" onClick={() => addShape("square")} title="方形">⬜</Button>
+                  <Button size="sm" variant="outline" className="h-12 text-base" onClick={() => addShape("rect")} title="长方形">▭</Button>
+                  <Button size="sm" variant="outline" className="h-12 text-base" onClick={() => addShape("circle")} title="圆形">⚫</Button>
+                  <Button size="sm" variant="outline" className="h-12 text-base" onClick={() => addShape("ellipse")} title="椭圆形">⬭</Button>
+                  <Button size="sm" variant="outline" className="h-12 text-base" onClick={() => addShape("triangle")} title="三角形">🔺</Button>
+                  <Button size="sm" variant="outline" className="h-12 text-base" onClick={() => addShape("line")} title="直线">／</Button>
+                </div>
+                <Button size="sm" variant="outline" className="w-full" onClick={addGrid}>▦ 加网格（数独这种自己画格子用）</Button>
+              </div>
+            )}
+
+            {activePanel === "draw" && (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">画笔</p>
+                <div className="grid grid-cols-4 gap-1.5">
+                  <button type="button" title="铅笔（固定不透明，适合精细线条）" onClick={() => setDrawSubTool("pencil")} className={toolBtnClass(drawSubTool === "pencil")} style={{ width: "100%", height: 36 }}>✏️</button>
+                  <button type="button" title="毛笔（可调不透明度，适合大面积上色）" onClick={() => setDrawSubTool("brush")} className={toolBtnClass(drawSubTool === "brush")} style={{ width: "100%", height: 36 }}>🖌️</button>
+                  <button type="button" title="橡皮擦（擦掉背景图/已经画的笔画）" onClick={() => setDrawSubTool("eraser")} className={toolBtnClass(drawSubTool === "eraser")} style={{ width: "100%", height: 36 }}>🧽</button>
+                  <button type="button" title="填色桶（点击背景图里的区域灌颜色）" onClick={() => setDrawSubTool("bucket")} className={toolBtnClass(drawSubTool === "bucket")} style={{ width: "100%", height: 36 }}>🪣</button>
+                </div>
+
+                {drawSubTool !== "eraser" && (
+                  <div>
+                    <Label>颜色</Label>
+                    <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                      {COLORS.map((c) => (
+                        <button key={c} type="button" onClick={() => setDrawColor(c)} className={`w-6 h-6 rounded-full border-2 ${drawColor === c ? "border-primary" : "border-border"}`} style={{ background: c }} />
+                      ))}
+                      <input type="color" value={drawColor} onChange={(e) => setDrawColor(e.target.value)} title="自定义颜色" className="w-7 h-7 rounded-md border border-border cursor-pointer p-0.5" />
+                    </div>
+                  </div>
+                )}
+
+                {drawSubTool !== "bucket" && (
+                  <div>
+                    <Label>{drawSubTool === "eraser" ? "橡皮大小" : "粗细"}</Label>
+                    <input type="range" min={2} max={40} value={drawWidth} onChange={(e) => setDrawWidth(+e.target.value)} className="w-full" />
+                  </div>
+                )}
+
+                {drawSubTool === "brush" && (
+                  <div>
+                    <Label>不透明度 {drawOpacity}%</Label>
+                    <input type="range" min={10} max={100} value={drawOpacity} onChange={(e) => setDrawOpacity(+e.target.value)} className="w-full" />
+                  </div>
+                )}
+
+                <div className="h-px bg-border" />
+                <Button size="sm" variant="outline" className="w-full" onClick={() => flipCanvas("x")} title="整张画布左右翻转（背景+笔画一起翻，不影响物件/文字/形状）">↔️ 整张画布左右翻转</Button>
+                <Button size="sm" variant="outline" className="w-full" onClick={() => flipCanvas("y")} title="整张画布上下翻转（背景+笔画一起翻，不影响物件/文字/形状）">↕️ 整张画布上下翻转</Button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── 中间：画布 ── */}
+        <div className="flex-1 min-w-0 flex flex-col p-3 overflow-auto">
+          {/* 选中某个物件/文字/形状时的小工具条——复制/旋转/删除这些是针对
+              "当前选中的东西"，不是"加什么新内容"，跟左侧图标栏的分类
+              性质不一样，浮在画布上方更贴近Canva选中元素后的操作习惯 */}
+          {selectedLayer && (
+            <div className="flex items-center gap-1.5 mb-2">
+              <Button size="sm" variant="outline" onClick={duplicateSelected} title="复制（Ctrl/Cmd+D）">📋 复制</Button>
+              <Button size="sm" variant="outline" onClick={() => rotateBy(-90)} title="逆时针转90°">↺</Button>
+              <Button size="sm" variant="outline" onClick={() => rotateBy(90)} title="顺时针转90°">↻</Button>
+              <Button size="sm" variant="outline" onClick={resetRotation} title="角度归零">0°</Button>
+              <Button size="sm" variant="outline" className="text-destructive" onClick={deleteSelected} title="删除（Delete）">🗑️ 删除</Button>
+            </div>
+          )}
+
+          {backgroundSelected && (
+            <p className="text-xs text-muted-foreground bg-muted/40 rounded-lg p-3 mb-2">
+              🖼️ 背景已选中——拖动可以移动位置，拖右下角的蓝点可以缩放大小（背景不用"删除"，选新背景会直接换掉，背景本身不能旋转）
+            </p>
+          )}
+
+          <div className="flex-1 flex items-center justify-center min-h-0">
+            <canvas
+              ref={canvasRef} width={W} height={H}
+              onPointerDown={handlePointerDown} onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
+              style={{
+                touchAction: "none",
+                aspectRatio: `${W} / ${H}`, // W,H已经在组件顶部按模块类型算好了（贴纸游戏是正方形STICKER_CANVAS_SIZE，其他模块是长方形GAME_CANVAS_W/H），这里不用再额外判断
+                width: "auto",
+                height: "auto",
+                maxWidth: "100%",
+                maxHeight: "100%", // 全屏模式下，画布高度上限就是这个中间区域实际能给多少，不用再手动算calc(100vh - 220px)这种魔术数字
+              }}
+              className="rounded-2xl border border-border bg-card cursor-crosshair shadow-lg ring-1 ring-black/5"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground text-center flex-shrink-0 mt-2">选择模式下：点背景、物件、或文字都可以选中，拖动移动；蓝点缩放（斜拖可以宽高分开调整）；绿点拖着转圈可以旋转</p>
+        </div>
+
       {/* ── 右侧：属性面板 + 图层面板 ── */}
-      <div className="w-full md:w-72 shrink-0 space-y-3">
+      <div className="w-80 shrink-0 border-l border-border bg-card p-3 space-y-3 overflow-y-auto">
         <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">属性</p>
 
@@ -1525,6 +1582,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
             ))
           )}
         </div>
+      </div>
       </div>
 
       <SaveModal open={showSave} onClose={() => setShowSave(false)} presetCategory={presetCategory} presetModuleType={presetModuleType} onSave={handleSave} />
