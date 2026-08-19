@@ -8,7 +8,7 @@
 // existing scale instead of ad-hoc inline styles.
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Boxes, Rows3, Eye, RotateCw, Hammer, Frame, Square, Clock, Grid2x2, PenLine, X, CheckSquare, PencilLine, Search, ListOrdered, TreePine, Scale, Plus, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
+import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Move, Boxes, Rows3, Eye, RotateCw, Hammer, Frame, Square, Clock, Grid2x2, PenLine, X, CheckSquare, PencilLine, Search, ListOrdered, TreePine, Scale, Plus, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { eduApi, lessonsApi, exerciseClassificationApi, taxonomyApi } from "@/api";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
@@ -56,6 +56,7 @@ const MODULE_LABELS: Record<string, { emoji: string; label: string }> = {
   video_lecture:{ emoji: "🎬", label: "视频讲义" },
   play_along:   { emoji: "🎼", label: "跟弹练习" },
   sticker_game: { emoji: "🏷️", label: "贴纸游戏" },
+  drag_drop:    { emoji: "🧩", label: "拖拽游戏（位置版）" },
   cube_stack:   { emoji: "🧊", label: "立体方块计数" },
   cube_layer_count: { emoji: "🧱", label: "立体方块-逐层计数" },
   cube_find_hidden: { emoji: "🕵️", label: "立体方块-找隐藏方块" },
@@ -94,6 +95,7 @@ const MODULE_COLORS: Record<string, { bg: string; text: string; ring: string }> 
   video_lecture: { bg: "#FEE2E2", text: "#B91C1C", ring: "#EF4444" },
   play_along:    { bg: "#FDF4FF", text: "#A21CAF", ring: "#D946EF" },
   sticker_game:  { bg: "#FEF9C3", text: "#854D0E", ring: "#EAB308" },
+  drag_drop:     { bg: "#E9D5FF", text: "#6B21A8", ring: "#A855F7" },
   cube_stack:    { bg: "#E7E5E4", text: "#44403C", ring: "#78716C" },
   cube_layer_count: { bg: "#FFEDD5", text: "#9A3412", ring: "#FB923C" },
   cube_find_hidden: { bg: "#E0E7FF", text: "#3730A3", ring: "#818CF8" },
@@ -121,7 +123,7 @@ const MODULE_ICONS: Record<string, LucideIcon> = {
   counting: Hash, spot_diff: ScanSearch, focus_tap: Target, memory: Layers,
   pattern: Puzzle, word_problem: FileText, maze: Route, number_maze: GitBranch, sudoku: Grid3x3,
   line_match: Link2, coloring: Palette, ppt_lecture: Presentation, video_lecture: Film,
-  play_along: Music2, sticker_game: Sticker, cube_stack: Boxes,
+  play_along: Music2, sticker_game: Sticker, drag_drop: Move, cube_stack: Boxes,
   cube_layer_count: Rows3, cube_find_hidden: Eye, cube_free_rotate: RotateCw,
   cube_build: Hammer, cube_three_view: Frame, shape_count: Square, clock: Clock, latin_square: Grid2x2,
   number_find: Search, number_sequence: ListOrdered, number_bond: TreePine, number_compare: Scale, number_addition: Plus,
@@ -2167,7 +2169,7 @@ function PlayAlongMarkerEditor({ pages, audioUrl, markers, setMarkers, currentPa
 // 里用 typeof moduleType 反过来引用它自己（TS 处理不了这种循环引用，
 // 会报 "implicitly has type any"）。这两个地方（下面 useState 的初始值、
 // presetModuleType 转型）都要用这个命名类型，不要图省事写 typeof。
-type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game" | "cube_stack" | "cube_layer_count" | "cube_find_hidden" | "cube_free_rotate" | "cube_build" | "cube_three_view" | "shape_count" | "clock" | "latin_square" | "number_find" | "number_sequence" | "number_bond" | "number_compare" | "number_addition" | "chinese_stroke" | "multiple_choice" | "fill_blank";
+type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game" | "drag_drop" | "cube_stack" | "cube_layer_count" | "cube_find_hidden" | "cube_free_rotate" | "cube_build" | "cube_three_view" | "shape_count" | "clock" | "latin_square" | "number_find" | "number_sequence" | "number_bond" | "number_compare" | "number_addition" | "chinese_stroke" | "multiple_choice" | "fill_blank";
 
 function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleType }: {
   open: boolean; onClose: () => void; editingLevelId?: string | null; onSaved: () => void;
@@ -3149,7 +3151,9 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           setNmEnd((cfg.end as { x: number; y: number }) ?? null);
           setNmDecisionPoints((cfg.decision_points as NumberMazeDecisionPoint[]) ?? []);
         }
-      } else if (level.module_type === "sticker_game") {
+      } else if (level.module_type === "sticker_game" || level.module_type === "drag_drop") {
+        // drag_drop(position_target模式)的config形状跟sticker_game完全
+        // 一致，复用同一个 stickerScene state，不用另开一份重复的state。
         const objects = (cfg.objects as Array<{ image_url: string; x: number; y: number; w: number; h: number; rotation: number; type?: string; flip_x?: boolean; flip_y?: boolean }>) ?? [];
         setStickerScene({
           bgUrl: (cfg.bg_image_url as string) ?? null,
@@ -4053,6 +4057,35 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             bg_image_url: stickerScene.bgUrl,
             objects: stickerScene.objects.map((o) => ({
               image_url: o.imageUrl, x: o.x, y: o.y, // 保持原始画布像素坐标，别在这里提前除以GAME_CANVAS_W/H——播放端(StickerGame.tsx)本来就会统一做这个换算，w/h也是原样传的，x/y提前除了一次会跟w/h单位对不上，播放时位置全乱、贴纸也永远判定不了"贴对"
+              w: o.w, h: o.h, rotation: o.rotation, type: o.objectType || undefined,
+              flip_x: o.flipX || undefined, flip_y: o.flipY || undefined,
+            })),
+            timer_mode: "stopwatch",
+            question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+          },
+        });
+      } else if (moduleType === "drag_drop") {
+        // 统一拖拽引擎阶段1——只有position_target这一种玩法，config形状
+        // 跟sticker_game一模一样，多存一个mode字段。以后sequence等玩法
+        // 加进来时，这里要按mode分支收集不同的编辑器state，不是继续
+        // 复用stickerScene(那是position_target专属的编辑器state)。
+        if (!stickerScene?.bgUrl) { toast.error("请先选背景图片"); return; }
+        if (stickerScene.objects.length < 1) { toast.error("请至少放1个物件"); return; }
+        await saveLevel({
+          module_type: "drag_drop",
+          title_i18n: { zh: levelTitle || "拖拽游戏", en: levelTitle || "Drag & Drop" },
+          explanation_text: explanationText || undefined,
+          explanation_image_url: explanationImageUrl || undefined,
+          explanation_video_url: explanationVideoUrl || undefined,
+
+          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: {
+            mode: "position_target",
+            bg_image_url: stickerScene.bgUrl,
+            objects: stickerScene.objects.map((o) => ({
+              image_url: o.imageUrl, x: o.x, y: o.y,
               w: o.w, h: o.h, rotation: o.rotation, type: o.objectType || undefined,
               flip_x: o.flipX || undefined, flip_y: o.flipY || undefined,
             })),
@@ -5437,6 +5470,26 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             />
             {stickerScene && (
               <p className="text-xs text-emerald-600 dark:text-emerald-400">✓ 已摆 {stickerScene.objects.length} 个贴纸，可以点上面"完成"重新调整</p>
+            )}
+          </div>
+        )}
+
+        {moduleType === "drag_drop" && (
+          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-3 text-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Move size={16} className="text-primary" /> 拖拽游戏（位置版）· 内容设置
+            </div>
+            <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+              统一拖拽引擎的第一种玩法——选背景图、加物件，拖到"正确的位置"摆好，这个位置就是答案。学生玩的时候，物件会被打乱塞进旁边的物件盘，要一个个拖回你摆的这个位置上。
+              <br />
+              <span className="text-primary/70">💡 跟"贴纸游戏"用的是同一套引擎（画布坐标系统也共用，别改presetModuleType）——以后这里会陆续加入拖拽排序、拖到分类框、拖词块填空这几种新玩法。</span>
+            </p>
+            <SceneEditor
+              structuredMode presetModuleType="sticker_game"
+              onSaveStructured={setStickerScene} initial={stickerScene ?? undefined}
+            />
+            {stickerScene && (
+              <p className="text-xs text-emerald-600 dark:text-emerald-400">✓ 已摆 {stickerScene.objects.length} 个物件，可以点上面"完成"重新调整</p>
             )}
           </div>
         )}

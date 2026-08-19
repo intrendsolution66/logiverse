@@ -330,7 +330,7 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
     const categoryIds = Array.from(new Set((category_ids && category_ids.length ? category_ids : (category_id ? [category_id] : [])).filter(Boolean)));
     const primaryCategoryId = categoryIds[0] ?? null; // 旧栏位/编号生成还是要挑一个"主"分类，用第一个
 
-    const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "ppt_lecture", "video_lecture", "play_along", "sticker_game", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count", "clock", "latin_square", "number_find", "number_sequence", "number_bond", "number_compare", "number_addition", "chinese_stroke", "multiple_choice", "fill_blank"];
+    const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "ppt_lecture", "video_lecture", "play_along", "sticker_game", "drag_drop", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count", "clock", "latin_square", "number_find", "number_sequence", "number_bond", "number_compare", "number_addition", "chinese_stroke", "multiple_choice", "fill_blank"];
     if (!SUPPORTED.includes(module_type)) {
       badRequest(res, `Unsupported module_type: ${module_type} (supported: ${SUPPORTED.join(", ")})`);
       return;
@@ -588,6 +588,23 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
            VALUES ($1,$2,$3,$4,$5)
            RETURNING id`,
           [cfg.bg_image_url, JSON.stringify(objects), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "drag_drop") {
+        // 统一拖拽引擎——阶段1只做了 position_target 这一种mode，跟
+        // sticker_game 是同一个"摆的位置就是答案，client端直接核对"的
+        // 安全模型，写入逻辑几乎照抄sticker_game，只是多存一个mode字段，
+        // 给以后的sequence/sort_bins/fill_blank_tiles留好扩展位。
+        const mode = (cfg.mode as string) || "position_target";
+        if (mode !== "position_target") throw new Error(`drag_drop 的 "${mode}" 玩法还在开发中，目前只支持 position_target`);
+        const objects = cfg.objects as unknown[] | undefined;
+        if (!cfg.bg_image_url) throw new Error("请先选背景图片");
+        if (!objects?.length) throw new Error("请至少放1个物件");
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.drag_drop_configs (mode, bg_image_url, objects, timer_mode, time_limit, question_i18n)
+           VALUES ($1,$2,$3,$4,$5,$6)
+           RETURNING id`,
+          [mode, cfg.bg_image_url, JSON.stringify(objects), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
         );
         configId = cfgRows[0].id;
       } else if (module_type === "cube_layer_count") { // Stage2 逐层计数
@@ -1117,6 +1134,16 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
             `UPDATE edu.sticker_game_configs SET bg_image_url=$2, objects=$3, timer_mode=$4, time_limit=$5, question_i18n=$6 WHERE id=$1`,
             [module_config_id, cfg.bg_image_url, JSON.stringify(objects), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
           );
+        } else if (module_type === "drag_drop") {
+          const mode = (cfg.mode as string) || "position_target";
+          if (mode !== "position_target") throw new Error(`drag_drop 的 "${mode}" 玩法还在开发中，目前只支持 position_target`);
+          const objects = cfg.objects as unknown[] | undefined;
+          if (!cfg.bg_image_url) throw new Error("请先选背景图片");
+          if (!objects?.length) throw new Error("请至少放1个物件");
+          await client.query(
+            `UPDATE edu.drag_drop_configs SET mode=$2, bg_image_url=$3, objects=$4, timer_mode=$5, time_limit=$6, question_i18n=$7 WHERE id=$1`,
+            [module_config_id, mode, cfg.bg_image_url, JSON.stringify(objects), cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+          );
         } else if (module_type === "cube_layer_count") {
           const startingLevel = Math.min(10, Math.max(1, (cfg.starting_level as number) ?? 1));
           await client.query(
@@ -1490,6 +1517,15 @@ export async function buildLevelPayload(level: Record<string, unknown>): Promise
       // 贴纸摆放位置直接发给前端——同上，client端直接核对
       const { rows: cfgRows } = await query(
         `SELECT bg_image_url, objects, timer_mode, time_limit, question_i18n FROM edu.sticker_game_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "drag_drop") {
+      // 统一拖拽引擎——阶段1只有position_target这一种mode，安全模型跟
+      // sticker_game完全一致(位置直接发给前端，client端判定)，config
+      // 里带上mode字段，前端DragDropGame.tsx靠这个字段决定用哪套UI渲染。
+      const { rows: cfgRows } = await query(
+        `SELECT mode, bg_image_url, objects, timer_mode, time_limit, question_i18n FROM edu.drag_drop_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
@@ -2066,6 +2102,12 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
     } else if (level.module_type === "sticker_game") {
       const { rows: cfgRows } = await query(
         `SELECT bg_image_url, objects, timer_mode, time_limit, question_i18n FROM edu.sticker_game_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "drag_drop") {
+      const { rows: cfgRows } = await query(
+        `SELECT mode, bg_image_url, objects, timer_mode, time_limit, question_i18n FROM edu.drag_drop_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
