@@ -5456,7 +5456,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           </div>
         )}
 
-        {moduleType === "sticker_game" && (
+        {moduleType === "sticker_game" && activeTab === "content" && (
           <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-3 text-sm">
             <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <Sticker size={16} className="text-primary" /> 贴纸游戏 · 内容设置
@@ -5474,7 +5474,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           </div>
         )}
 
-        {moduleType === "drag_drop" && (
+        {moduleType === "drag_drop" && activeTab === "content" && (
           <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-3 text-sm">
             <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <Move size={16} className="text-primary" /> 拖拽游戏（位置版）· 内容设置
