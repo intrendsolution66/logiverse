@@ -16,6 +16,7 @@ import AssetPicker from "@/components/AssetPicker";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/index";
 import { Modal } from "@/components/ui/modal";
+import { markSceneEditorOpen, markSceneEditorClosed } from "@/lib/sceneEditorOpenState";
 import toast from "react-hot-toast";
 import { GAME_CANVAS_W, GAME_CANVAS_H, STICKER_CANVAS_SIZE } from "@/lib/gameCanvas";
 
@@ -257,6 +258,13 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   onSaveStructured?: (data: StructuredSceneOutput) => void;
   initial?: StructuredSceneOutput;
 }) {
+  // 挂载/卸载时标记——配合 lib/sceneEditorOpenState.ts 给外层Modal用，
+  // 让它知道"现在有没有任何一个SceneEditor正开着"。
+  useEffect(() => {
+    markSceneEditorOpen();
+    return () => markSceneEditorClosed();
+  }, []);
+
   // 贴纸游戏用独立的正方形坐标系统，不跟其他模块共用长方形的 GAME_CANVAS_W/H——
   // 上传的背景图很少天生是1100:700这种比例，硬套共享画布会导致背景被拉伸变形，
   // 或者裁剪后跟贴纸坐标对不上。下面组件内所有引用W,H的地方都会自动用这里的值。
@@ -1089,16 +1097,18 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   // 里被谁包着，实际渲染出来的DOM位置都在body正下方，不会被任何祖先
   // 的transform/overflow影响。
   //
-  // data-portal-exempt——Portal带来一个新问题：如果这个组件是嵌套在别的
-  // Modal(比如AddStepModal/加Activity弹窗)里面用的，Radix Dialog自带
-  // "点击弹窗外部就自动关闭"这套机制，是按*真实DOM结构*判断"这次点击
-  // 算不算在弹窗范围内"的——SceneEditor被Portal搬到body最外层之后，DOM
-  // 位置上已经不在那个外层Modal的DOM子树里了，点这里任何地方都会被
-  // Radix误判成"点了外面"，直接把外层弹窗关掉。打这个标记，配合
-  // Modal.tsx里对应加的 onPointerDownOutside 检查，让Radix学会"看到这个
-  // 标记的元素，别把点击它当成外部点击"。
+  // Portal带来一个新问题：如果这个组件是嵌套在别的Modal(比如
+  // AddStepModal/加Activity弹窗)里面用的，Radix Dialog自带"点击弹窗
+  // 外部就自动关闭"这套机制，是按*真实DOM结构*判断"这次点击算不算在
+  // 弹窗范围内"的——SceneEditor被Portal搬到body最外层之后，DOM位置上
+  // 已经不在那个外层Modal的DOM子树里了，点这里任何地方都会被Radix
+  // 误判成"点了外面"，直接把外层弹窗关掉。这里用 markSceneEditorOpen/
+  // markSceneEditorClosed(见 lib/sceneEditorOpenState.ts)挂载/卸载时
+  // 标记一下，配合 Modal.tsx 里对应的检查，让外层Dialog在SceneEditor
+  // 开着的时候整体跳过"点击外部关闭"这条判断——比起检查DOM结构里有没有
+  // 某个标记元素，这样更直接可靠，不用依赖DOM树实际长什么样。
   return createPortal(
-    <div data-portal-exempt="true" className="fixed inset-0 z-50 bg-background flex flex-col">
+    <div className="fixed inset-0 z-50 bg-background flex flex-col">
       {/* ── 顶部条：标题 + 主操作按钮，全屏模式下始终固定在最上面 ── */}
       <div className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-border bg-card">
         <span className="text-sm font-semibold text-foreground">🎨 场景编辑器</span>
