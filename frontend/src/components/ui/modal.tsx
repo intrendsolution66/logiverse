@@ -36,6 +36,15 @@ export function Modal({ open, onClose, title, description, children, className, 
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-fade-in" />
         <Dialog.Content
+          // onPointerDownOutside/onInteractOutside——Radix默认按*真实DOM
+          // 结构*判断"这次点击算不算在弹窗外面"。像 SceneEditor 这种自己
+          // 用 Portal 搬到 document.body 最外层的全屏内容，物理DOM位置已
+          // 经不在这个弹窗的DOM子树里了，正常情况下会被Radix误判成"点了
+          // 外面"，直接把这层弹窗关掉——哪怕逻辑上SceneEditor就是嵌在
+          // 这个弹窗里面打开的。这两个handler检查点击目标有没有落在带
+          // data-portal-exempt标记的元素里，有的话就跳过默认的关闭行为。
+          onPointerDownOutside={(e) => { if ((e.target as HTMLElement)?.closest("[data-portal-exempt]")) e.preventDefault(); }}
+          onInteractOutside={(e) => { if ((e.target as HTMLElement)?.closest("[data-portal-exempt]")) e.preventDefault(); }}
           className={cn(
             "fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2",
             "w-[calc(100%-2rem)] rounded-xl border bg-card shadow-2xl",

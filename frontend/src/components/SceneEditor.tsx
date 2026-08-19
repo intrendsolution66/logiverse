@@ -1088,8 +1088,17 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   // 节点物理搬到body最外层，彻底跳出这个陷阱，不管这个组件在React树
   // 里被谁包着，实际渲染出来的DOM位置都在body正下方，不会被任何祖先
   // 的transform/overflow影响。
+  //
+  // data-portal-exempt——Portal带来一个新问题：如果这个组件是嵌套在别的
+  // Modal(比如AddStepModal/加Activity弹窗)里面用的，Radix Dialog自带
+  // "点击弹窗外部就自动关闭"这套机制，是按*真实DOM结构*判断"这次点击
+  // 算不算在弹窗范围内"的——SceneEditor被Portal搬到body最外层之后，DOM
+  // 位置上已经不在那个外层Modal的DOM子树里了，点这里任何地方都会被
+  // Radix误判成"点了外面"，直接把外层弹窗关掉。打这个标记，配合
+  // Modal.tsx里对应加的 onPointerDownOutside 检查，让Radix学会"看到这个
+  // 标记的元素，别把点击它当成外部点击"。
   return createPortal(
-    <div className="fixed inset-0 z-50 bg-background flex flex-col">
+    <div data-portal-exempt="true" className="fixed inset-0 z-50 bg-background flex flex-col">
       {/* ── 顶部条：标题 + 主操作按钮，全屏模式下始终固定在最上面 ── */}
       <div className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-border bg-card">
         <span className="text-sm font-semibold text-foreground">🎨 场景编辑器</span>
