@@ -10,6 +10,7 @@
 // `type: "object"` 字段用来区分"这是物件层还是文字层"，不能重名。
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { assetsApi, eduApi } from "@/api";
 import AssetPicker from "@/components/AssetPicker";
 import { Button } from "@/components/ui/button";
@@ -262,6 +263,26 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   const W = presetModuleType === "sticker_game" ? STICKER_CANVAS_SIZE : GAME_CANVAS_W;
   const H = presetModuleType === "sticker_game" ? STICKER_CANVAS_SIZE : GAME_CANVAS_H;
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // 画布内部坐标系(W×H)跟它实际渲染在屏幕上的CSS像素大小不是1:1的
+  // （aspectRatio+maxWidth/maxHeight会让浏览器自动缩放画布的显示尺寸）。
+  // 文字所见即所得那个叠加在画布上的输入框，字号必须按这个缩放比例换
+  // 算，不然输入框里的字看起来会比画布上实际画出来的字大一圈或小一圈，
+  // 跟"实时预览"这个目的正好相反。用ResizeObserver盯着画布，窗口缩放/
+  // 全屏切换的时候这个比例会跟着更新。
+  const [canvasScale, setCanvasScale] = useState(1);
+  // 双击文字才进入"原地编辑"模式(叠加输入框才会真正接收点击/拖拽事件)；
+  // 单击还是走原来canvas自己的拖动/选中逻辑——不然叠加层会挡住"点文字
+  // 拖动移动它"这个手势，单击瞬间就跑去输入框里放光标了，拖不动。
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const update = () => setCanvasScale(el.getBoundingClientRect().width / W);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [W]);
   const imgCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const bgFileInputRef = useRef<HTMLInputElement>(null);
   const [, forceRedraw] = useState(0);
@@ -661,6 +682,20 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
 
   function handlePointerUp() { dragRef.current = null; }
 
+  // 双击文字图层——进入"原地编辑"模式，叠加输入框这时才真正接收点击/
+  // 打字。双击画布上别的地方(或者别的类型图层)就退出编辑模式，回到
+  // 普通拖动/选中。
+  function handleCanvasDoubleClick(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (tool !== "select") return;
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const scaleX = W / rect.width, scaleY = H / rect.height;
+    const x = (e.clientX - rect.left) * scaleX, y = (e.clientY - rect.top) * scaleY;
+    const hit = hitTest(x, y);
+    const layer = hit ? layers.find((l) => l.id === hit.id) : null;
+    if (layer?.type === "text") { setSelectedId(layer.id); setEditingTextId(layer.id); }
+    else { setEditingTextId(null); }
+  }
+
   function setBackgroundFromAsset(url: string) {
     pushHistory();
     ensureImgLoaded(url);
@@ -1042,7 +1077,18 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
       active ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground hover:border-primary/50"
     }`;
 
-  return (
+  // 用 Portal 直接把整个编辑器挂到 document.body 最外层——不这样做的话，
+  // fixed inset-0 会被"最近的、设了 transform 的祖先元素"劫持定位基准
+  // (这是CSS的规定行为，不是bug)。这个组件常常被套在别的Modal弹窗
+  // 里用(比如AddStepModal)，而Modal.tsx那个共享弹窗组件的
+  // Dialog.Content 本身就用了 -translate-x-1/2 -translate-y-1/2 来
+  // 居中——一旦被这类祖先包住，fixed inset-0 就不再相对浏览器视口
+  // 定位，而是被限制在那个祖先的定位盒子范围内，表现出来就是"全屏"
+  // 变成了一个居中的小卡片，四周还能看到背后页面的内容。Portal把DOM
+  // 节点物理搬到body最外层，彻底跳出这个陷阱，不管这个组件在React树
+  // 里被谁包着，实际渲染出来的DOM位置都在body正下方，不会被任何祖先
+  // 的transform/overflow影响。
+  return createPortal(
     <div className="fixed inset-0 z-50 bg-background flex flex-col">
       {/* ── 顶部条：标题 + 主操作按钮，全屏模式下始终固定在最上面 ── */}
       <div className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-border bg-card">
@@ -1080,138 +1126,15 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
           <button type="button" title="形状/网格" onClick={() => setActivePanel(activePanel === "shapes" ? null : "shapes")} className={toolBtnClass(activePanel === "shapes")}>⬜</button>
         </div>
 
-        {/* ── 展开的分类面板：只有左侧图标栏选中了某个分类才会出现，点同一个图标再收起 ── */}
-        {activePanel && (
+        {/* ── 展开的分类面板：点了左侧图标栏某个分类会出现；选中了画布上的
+             背景/物件/文字/形状/网格时，也会自动展开，改成显示"这个东西
+             的属性"（优先于分类内容——选中了东西，说明用户想调整它，不是
+             想加新内容）。跟点分类图标是同一个位置，不是分开两块。 ── */}
+        {(activePanel || selectedLayer || backgroundSelected) && (
           <div className="w-64 shrink-0 border-r border-border bg-card p-3 space-y-3 overflow-y-auto">
-            {activePanel === "background" && (
-              <div className="space-y-3">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">背景</p>
-                <div title="背景（素材库）"><AssetPicker category="background" label="🗂️ 从素材库选" onSelect={setBackgroundFromAsset} /></div>
-                <input
-                  ref={bgFileInputRef} type="file" accept="image/*" className="hidden"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBackgroundUpload(f); e.target.value = ""; }}
-                />
-                <Button size="sm" variant="outline" className="w-full" onClick={() => bgFileInputRef.current?.click()}>📁 从电脑上传</Button>
-              </div>
-            )}
-
-            {activePanel === "elements" && (
-              <div className="space-y-3">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">物件</p>
-                <div title="加物件（可多选）"><AssetPicker category="object" label="🧸 从素材库选（可多选）" onSelect={addObjectFromAsset} multiple onSelectMultiple={addObjectsFromAssets} /></div>
-              </div>
-            )}
-
-            {activePanel === "text" && (
-              <div className="space-y-3">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">文字</p>
-                <Button size="sm" className="w-full" onClick={addText}>🔤 加一段文字</Button>
-              </div>
-            )}
-
-            {activePanel === "shapes" && (
-              <div className="space-y-3">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">形状 / 网格</p>
-                <div className="grid grid-cols-3 gap-2">
-                  <Button size="sm" variant="outline" className="h-12 text-base" onClick={() => addShape("square")} title="方形">⬜</Button>
-                  <Button size="sm" variant="outline" className="h-12 text-base" onClick={() => addShape("rect")} title="长方形">▭</Button>
-                  <Button size="sm" variant="outline" className="h-12 text-base" onClick={() => addShape("circle")} title="圆形">⚫</Button>
-                  <Button size="sm" variant="outline" className="h-12 text-base" onClick={() => addShape("ellipse")} title="椭圆形">⬭</Button>
-                  <Button size="sm" variant="outline" className="h-12 text-base" onClick={() => addShape("triangle")} title="三角形">🔺</Button>
-                  <Button size="sm" variant="outline" className="h-12 text-base" onClick={() => addShape("line")} title="直线">／</Button>
-                </div>
-                <Button size="sm" variant="outline" className="w-full" onClick={addGrid}>▦ 加网格（数独这种自己画格子用）</Button>
-              </div>
-            )}
-
-            {activePanel === "draw" && (
-              <div className="space-y-3">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">画笔</p>
-                <div className="grid grid-cols-4 gap-1.5">
-                  <button type="button" title="铅笔（固定不透明，适合精细线条）" onClick={() => setDrawSubTool("pencil")} className={toolBtnClass(drawSubTool === "pencil")} style={{ width: "100%", height: 36 }}>✏️</button>
-                  <button type="button" title="毛笔（可调不透明度，适合大面积上色）" onClick={() => setDrawSubTool("brush")} className={toolBtnClass(drawSubTool === "brush")} style={{ width: "100%", height: 36 }}>🖌️</button>
-                  <button type="button" title="橡皮擦（擦掉背景图/已经画的笔画）" onClick={() => setDrawSubTool("eraser")} className={toolBtnClass(drawSubTool === "eraser")} style={{ width: "100%", height: 36 }}>🧽</button>
-                  <button type="button" title="填色桶（点击背景图里的区域灌颜色）" onClick={() => setDrawSubTool("bucket")} className={toolBtnClass(drawSubTool === "bucket")} style={{ width: "100%", height: 36 }}>🪣</button>
-                </div>
-
-                {drawSubTool !== "eraser" && (
-                  <div>
-                    <Label>颜色</Label>
-                    <div className="flex items-center gap-1.5 flex-wrap mt-1">
-                      {COLORS.map((c) => (
-                        <button key={c} type="button" onClick={() => setDrawColor(c)} className={`w-6 h-6 rounded-full border-2 ${drawColor === c ? "border-primary" : "border-border"}`} style={{ background: c }} />
-                      ))}
-                      <input type="color" value={drawColor} onChange={(e) => setDrawColor(e.target.value)} title="自定义颜色" className="w-7 h-7 rounded-md border border-border cursor-pointer p-0.5" />
-                    </div>
-                  </div>
-                )}
-
-                {drawSubTool !== "bucket" && (
-                  <div>
-                    <Label>{drawSubTool === "eraser" ? "橡皮大小" : "粗细"}</Label>
-                    <input type="range" min={2} max={40} value={drawWidth} onChange={(e) => setDrawWidth(+e.target.value)} className="w-full" />
-                  </div>
-                )}
-
-                {drawSubTool === "brush" && (
-                  <div>
-                    <Label>不透明度 {drawOpacity}%</Label>
-                    <input type="range" min={10} max={100} value={drawOpacity} onChange={(e) => setDrawOpacity(+e.target.value)} className="w-full" />
-                  </div>
-                )}
-
-                <div className="h-px bg-border" />
-                <Button size="sm" variant="outline" className="w-full" onClick={() => flipCanvas("x")} title="整张画布左右翻转（背景+笔画一起翻，不影响物件/文字/形状）">↔️ 整张画布左右翻转</Button>
-                <Button size="sm" variant="outline" className="w-full" onClick={() => flipCanvas("y")} title="整张画布上下翻转（背景+笔画一起翻，不影响物件/文字/形状）">↕️ 整张画布上下翻转</Button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── 中间：画布 ── */}
-        <div className="flex-1 min-w-0 flex flex-col p-3 overflow-auto">
-          {/* 选中某个物件/文字/形状时的小工具条——复制/旋转/删除这些是针对
-              "当前选中的东西"，不是"加什么新内容"，跟左侧图标栏的分类
-              性质不一样，浮在画布上方更贴近Canva选中元素后的操作习惯 */}
-          {selectedLayer && (
-            <div className="flex items-center gap-1.5 mb-2">
-              <Button size="sm" variant="outline" onClick={duplicateSelected} title="复制（Ctrl/Cmd+D）">📋 复制</Button>
-              <Button size="sm" variant="outline" onClick={() => rotateBy(-90)} title="逆时针转90°">↺</Button>
-              <Button size="sm" variant="outline" onClick={() => rotateBy(90)} title="顺时针转90°">↻</Button>
-              <Button size="sm" variant="outline" onClick={resetRotation} title="角度归零">0°</Button>
-              <Button size="sm" variant="outline" className="text-destructive" onClick={deleteSelected} title="删除（Delete）">🗑️ 删除</Button>
-            </div>
-          )}
-
-          {backgroundSelected && (
-            <p className="text-xs text-muted-foreground bg-muted/40 rounded-lg p-3 mb-2">
-              🖼️ 背景已选中——拖动可以移动位置，拖右下角的蓝点可以缩放大小（背景不用"删除"，选新背景会直接换掉，背景本身不能旋转）
-            </p>
-          )}
-
-          <div className="flex-1 flex items-center justify-center min-h-0">
-            <canvas
-              ref={canvasRef} width={W} height={H}
-              onPointerDown={handlePointerDown} onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
-              style={{
-                touchAction: "none",
-                aspectRatio: `${W} / ${H}`, // W,H已经在组件顶部按模块类型算好了（贴纸游戏是正方形STICKER_CANVAS_SIZE，其他模块是长方形GAME_CANVAS_W/H），这里不用再额外判断
-                width: "auto",
-                height: "auto",
-                maxWidth: "100%",
-                maxHeight: "100%", // 全屏模式下，画布高度上限就是这个中间区域实际能给多少，不用再手动算calc(100vh - 220px)这种魔术数字
-              }}
-              className="rounded-2xl border border-border bg-card cursor-crosshair shadow-lg ring-1 ring-black/5"
-            />
-          </div>
-          <p className="text-xs text-muted-foreground text-center flex-shrink-0 mt-2">选择模式下：点背景、物件、或文字都可以选中，拖动移动；蓝点缩放（斜拖可以宽高分开调整）；绿点拖着转圈可以旋转</p>
-        </div>
-
-      {/* ── 右侧：属性面板 + 图层面板 ── */}
-      <div className="w-80 shrink-0 border-l border-border bg-card p-3 space-y-3 overflow-y-auto">
-        <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">属性</p>
+            {(selectedLayer || backgroundSelected) ? (
+              <>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">属性</p>
 
           {!selectedLayer && !backgroundSelected && (
             <p className="text-xs text-muted-foreground">点选画布上的背景、物件、或文字，在这里查看和调整它的属性</p>
@@ -1556,8 +1479,178 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
               <p className="text-muted-foreground font-normal mt-0.5">文字不算在内。答案由下面"这一题要问哪几种"决定，不一定是总数</p>
             </div>
           )}
+              </>
+            ) : (
+              <>
+            {activePanel === "background" && (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">背景</p>
+                <div title="背景（素材库）"><AssetPicker category="background" label="🗂️ 从素材库选" onSelect={setBackgroundFromAsset} /></div>
+                <input
+                  ref={bgFileInputRef} type="file" accept="image/*" className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBackgroundUpload(f); e.target.value = ""; }}
+                />
+                <Button size="sm" variant="outline" className="w-full" onClick={() => bgFileInputRef.current?.click()}>📁 从电脑上传</Button>
+              </div>
+            )}
+
+            {activePanel === "elements" && (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">物件</p>
+                <div title="加物件（可多选）"><AssetPicker category="object" label="🧸 从素材库选（可多选）" onSelect={addObjectFromAsset} multiple onSelectMultiple={addObjectsFromAssets} /></div>
+              </div>
+            )}
+
+            {activePanel === "text" && (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">文字</p>
+                <Button size="sm" className="w-full" onClick={addText}>🔤 加一段文字</Button>
+              </div>
+            )}
+
+            {activePanel === "shapes" && (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">形状 / 网格</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <Button size="sm" variant="outline" className="h-12 text-base" onClick={() => addShape("square")} title="方形">⬜</Button>
+                  <Button size="sm" variant="outline" className="h-12 text-base" onClick={() => addShape("rect")} title="长方形">▭</Button>
+                  <Button size="sm" variant="outline" className="h-12 text-base" onClick={() => addShape("circle")} title="圆形">⚫</Button>
+                  <Button size="sm" variant="outline" className="h-12 text-base" onClick={() => addShape("ellipse")} title="椭圆形">⬭</Button>
+                  <Button size="sm" variant="outline" className="h-12 text-base" onClick={() => addShape("triangle")} title="三角形">🔺</Button>
+                  <Button size="sm" variant="outline" className="h-12 text-base" onClick={() => addShape("line")} title="直线">／</Button>
+                </div>
+                <Button size="sm" variant="outline" className="w-full" onClick={addGrid}>▦ 加网格（数独这种自己画格子用）</Button>
+              </div>
+            )}
+
+            {activePanel === "draw" && (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">画笔</p>
+                <div className="grid grid-cols-4 gap-1.5">
+                  <button type="button" title="铅笔（固定不透明，适合精细线条）" onClick={() => setDrawSubTool("pencil")} className={toolBtnClass(drawSubTool === "pencil")} style={{ width: "100%", height: 36 }}>✏️</button>
+                  <button type="button" title="毛笔（可调不透明度，适合大面积上色）" onClick={() => setDrawSubTool("brush")} className={toolBtnClass(drawSubTool === "brush")} style={{ width: "100%", height: 36 }}>🖌️</button>
+                  <button type="button" title="橡皮擦（擦掉背景图/已经画的笔画）" onClick={() => setDrawSubTool("eraser")} className={toolBtnClass(drawSubTool === "eraser")} style={{ width: "100%", height: 36 }}>🧽</button>
+                  <button type="button" title="填色桶（点击背景图里的区域灌颜色）" onClick={() => setDrawSubTool("bucket")} className={toolBtnClass(drawSubTool === "bucket")} style={{ width: "100%", height: 36 }}>🪣</button>
+                </div>
+
+                {drawSubTool !== "eraser" && (
+                  <div>
+                    <Label>颜色</Label>
+                    <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                      {COLORS.map((c) => (
+                        <button key={c} type="button" onClick={() => setDrawColor(c)} className={`w-6 h-6 rounded-full border-2 ${drawColor === c ? "border-primary" : "border-border"}`} style={{ background: c }} />
+                      ))}
+                      <input type="color" value={drawColor} onChange={(e) => setDrawColor(e.target.value)} title="自定义颜色" className="w-7 h-7 rounded-md border border-border cursor-pointer p-0.5" />
+                    </div>
+                  </div>
+                )}
+
+                {drawSubTool !== "bucket" && (
+                  <div>
+                    <Label>{drawSubTool === "eraser" ? "橡皮大小" : "粗细"}</Label>
+                    <input type="range" min={2} max={40} value={drawWidth} onChange={(e) => setDrawWidth(+e.target.value)} className="w-full" />
+                  </div>
+                )}
+
+                {drawSubTool === "brush" && (
+                  <div>
+                    <Label>不透明度 {drawOpacity}%</Label>
+                    <input type="range" min={10} max={100} value={drawOpacity} onChange={(e) => setDrawOpacity(+e.target.value)} className="w-full" />
+                  </div>
+                )}
+
+                <div className="h-px bg-border" />
+                <Button size="sm" variant="outline" className="w-full" onClick={() => flipCanvas("x")} title="整张画布左右翻转（背景+笔画一起翻，不影响物件/文字/形状）">↔️ 整张画布左右翻转</Button>
+                <Button size="sm" variant="outline" className="w-full" onClick={() => flipCanvas("y")} title="整张画布上下翻转（背景+笔画一起翻，不影响物件/文字/形状）">↕️ 整张画布上下翻转</Button>
+              </div>
+            )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── 中间：画布 ── */}
+        <div className="flex-1 min-w-0 flex flex-col p-3 overflow-auto">
+          {/* 选中某个物件/文字/形状时的小工具条——复制/旋转/删除这些是针对
+              "当前选中的东西"，不是"加什么新内容"，跟左侧图标栏的分类
+              性质不一样，浮在画布上方更贴近Canva选中元素后的操作习惯 */}
+          {selectedLayer && (
+            <div className="flex items-center gap-1.5 mb-2">
+              <Button size="sm" variant="outline" onClick={duplicateSelected} title="复制（Ctrl/Cmd+D）">📋 复制</Button>
+              <Button size="sm" variant="outline" onClick={() => rotateBy(-90)} title="逆时针转90°">↺</Button>
+              <Button size="sm" variant="outline" onClick={() => rotateBy(90)} title="顺时针转90°">↻</Button>
+              <Button size="sm" variant="outline" onClick={resetRotation} title="角度归零">0°</Button>
+              <Button size="sm" variant="outline" className="text-destructive" onClick={deleteSelected} title="删除（Delete）">🗑️ 删除</Button>
+            </div>
+          )}
+
+          {backgroundSelected && (
+            <p className="text-xs text-muted-foreground bg-muted/40 rounded-lg p-3 mb-2">
+              🖼️ 背景已选中——拖动可以移动位置，拖右下角的蓝点可以缩放大小（背景不用"删除"，选新背景会直接换掉，背景本身不能旋转）
+            </p>
+          )}
+
+          <div className="flex-1 flex items-center justify-center min-h-0">
+            <div className="relative" style={{ maxWidth: "100%", maxHeight: "100%" }}>
+              <canvas
+                ref={canvasRef} width={W} height={H}
+                onPointerDown={handlePointerDown} onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
+                onDoubleClick={handleCanvasDoubleClick}
+                style={{
+                  touchAction: "none",
+                  aspectRatio: `${W} / ${H}`, // W,H已经在组件顶部按模块类型算好了（贴纸游戏是正方形STICKER_CANVAS_SIZE，其他模块是长方形GAME_CANVAS_W/H），这里不用再额外判断
+                  width: "auto",
+                  height: "auto",
+                  maxWidth: "100%",
+                  maxHeight: "100%", // 全屏模式下，画布高度上限就是这个中间区域实际能给多少，不用再手动算calc(100vh - 220px)这种魔术数字
+                }}
+                className="rounded-2xl border border-border bg-card cursor-crosshair shadow-lg ring-1 ring-black/5"
+              />
+
+              {/* 文字所见即所得——选中文字图层时，直接在画布上它所在的
+                  位置叠一个输入框，打字的时候画布本身也会实时重绘(layers
+                  state一变，draw()这个effect就会重画)，看到的就是真实
+                  渲染出来的字体效果，不用先在旁边的表单里打完字、再切
+                  回画布看结果。字号按canvasScale换算，位置用百分比对齐
+                  画布内部坐标(x,y是文字的锚点，canvas那边textAlign=
+                  center/textBaseline=middle，这里也用同一个居中对齐)。
+                  没双击进入编辑模式时 pointer-events 关掉，让点击穿透
+                  到canvas，不挡"点文字拖动移动它"这个手势。 */}
+              {tool === "select" && selectedLayer?.type === "text" && (
+                <input
+                  key={selectedLayer.id}
+                  value={selectedLayer.text}
+                  autoFocus={editingTextId === selectedLayer.id}
+                  onChange={(e) => setLayers((ls) => ls.map((l) => (l.id === selectedId && l.type === "text" ? { ...l, text: e.target.value } : l)))}
+                  onBlur={() => setEditingTextId(null)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") (e.target as HTMLInputElement).blur(); }}
+                  className={`absolute outline-none border-2 border-dashed rounded px-1 ${
+                    editingTextId === selectedLayer.id ? "bg-white/70 border-primary pointer-events-auto" : "bg-transparent border-transparent pointer-events-none"
+                  }`}
+                  style={{
+                    left: `${(selectedLayer.x / W) * 100}%`,
+                    top: `${(selectedLayer.y / H) * 100}%`,
+                    transform: `translate(-50%, -50%) rotate(${selectedLayer.rotation ?? 0}deg)`,
+                    fontSize: `${selectedLayer.fontSize * canvasScale}px`,
+                    fontFamily: selectedLayer.fontFamily,
+                    color: selectedLayer.color,
+                    fontWeight: selectedLayer.bold ? "bold" : "normal",
+                    fontStyle: selectedLayer.italic ? "italic" : "normal",
+                    textDecoration: selectedLayer.underline ? "underline" : "none",
+                    textAlign: "center",
+                    width: `${Math.max(4, selectedLayer.text.length + 2)}ch`,
+                    caretColor: selectedLayer.color,
+                  }}
+                />
+              )}
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground text-center flex-shrink-0 mt-2">选择模式下：点背景、物件、或文字都可以选中，拖动移动；蓝点缩放（斜拖可以宽高分开调整）；绿点拖着转圈可以旋转；双击文字可以原地编辑内容</p>
         </div>
 
+      {/* ── 右侧：只剩图层列表——属性面板已经搬到左侧图标栏旁边 ── */}
+      <div className="w-80 shrink-0 border-l border-border bg-card p-3 space-y-3 overflow-y-auto">
         <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-1.5">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">图层（由上到下：最上面的盖在最下面上面）</p>
           {layers.length === 0 ? (
@@ -1586,7 +1679,8 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
       </div>
 
       <SaveModal open={showSave} onClose={() => setShowSave(false)} presetCategory={presetCategory} presetModuleType={presetModuleType} onSave={handleSave} />
-    </div>
+    </div>,
+    document.body
   );
 }
 
