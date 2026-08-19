@@ -5466,7 +5466,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             </p>
             <SceneEditor
               structuredMode presetModuleType="sticker_game"
-              onSaveStructured={setStickerScene} initial={stickerScene ?? undefined}
+              onSaveStructured={(data) => { setStickerScene(data); setActiveTab("basic"); }} initial={stickerScene ?? undefined}
             />
             {stickerScene && (
               <p className="text-xs text-emerald-600 dark:text-emerald-400">✓ 已摆 {stickerScene.objects.length} 个贴纸，可以点上面"完成"重新调整</p>
@@ -5486,7 +5486,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             </p>
             <SceneEditor
               structuredMode presetModuleType="sticker_game"
-              onSaveStructured={setStickerScene} initial={stickerScene ?? undefined}
+              onSaveStructured={(data) => { setStickerScene(data); setActiveTab("basic"); }} initial={stickerScene ?? undefined}
             />
             {stickerScene && (
               <p className="text-xs text-emerald-600 dark:text-emerald-400">✓ 已摆 {stickerScene.objects.length} 个物件，可以点上面"完成"重新调整</p>

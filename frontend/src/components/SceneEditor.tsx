@@ -10,13 +10,11 @@
 // `type: "object"` 字段用来区分"这是物件层还是文字层"，不能重名。
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { createPortal } from "react-dom";
 import { assetsApi, eduApi } from "@/api";
 import AssetPicker from "@/components/AssetPicker";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/index";
 import { Modal } from "@/components/ui/modal";
-import { markSceneEditorOpen, markSceneEditorClosed } from "@/lib/sceneEditorOpenState";
 import toast from "react-hot-toast";
 import { GAME_CANVAS_W, GAME_CANVAS_H, STICKER_CANVAS_SIZE } from "@/lib/gameCanvas";
 
@@ -258,13 +256,6 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   onSaveStructured?: (data: StructuredSceneOutput) => void;
   initial?: StructuredSceneOutput;
 }) {
-  // 挂载/卸载时标记——配合 lib/sceneEditorOpenState.ts 给外层Modal用，
-  // 让它知道"现在有没有任何一个SceneEditor正开着"。
-  useEffect(() => {
-    markSceneEditorOpen();
-    return () => markSceneEditorClosed();
-  }, []);
-
   // 贴纸游戏用独立的正方形坐标系统，不跟其他模块共用长方形的 GAME_CANVAS_W/H——
   // 上传的背景图很少天生是1100:700这种比例，硬套共享画布会导致背景被拉伸变形，
   // 或者裁剪后跟贴纸坐标对不上。下面组件内所有引用W,H的地方都会自动用这里的值。
@@ -1085,31 +1076,18 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
       active ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground hover:border-primary/50"
     }`;
 
-  // 用 Portal 直接把整个编辑器挂到 document.body 最外层——不这样做的话，
-  // fixed inset-0 会被"最近的、设了 transform 的祖先元素"劫持定位基准
-  // (这是CSS的规定行为，不是bug)。这个组件常常被套在别的Modal弹窗
-  // 里用(比如AddStepModal)，而Modal.tsx那个共享弹窗组件的
-  // Dialog.Content 本身就用了 -translate-x-1/2 -translate-y-1/2 来
-  // 居中——一旦被这类祖先包住，fixed inset-0 就不再相对浏览器视口
-  // 定位，而是被限制在那个祖先的定位盒子范围内，表现出来就是"全屏"
-  // 变成了一个居中的小卡片，四周还能看到背后页面的内容。Portal把DOM
-  // 节点物理搬到body最外层，彻底跳出这个陷阱，不管这个组件在React树
-  // 里被谁包着，实际渲染出来的DOM位置都在body正下方，不会被任何祖先
-  // 的transform/overflow影响。
-  //
-  // Portal带来一个新问题：如果这个组件是嵌套在别的Modal(比如
-  // AddStepModal/加Activity弹窗)里面用的，Radix Dialog自带"点击弹窗
-  // 外部就自动关闭"这套机制，是按*真实DOM结构*判断"这次点击算不算在
-  // 弹窗范围内"的——SceneEditor被Portal搬到body最外层之后，DOM位置上
-  // 已经不在那个外层Modal的DOM子树里了，点这里任何地方都会被Radix
-  // 误判成"点了外面"，直接把外层弹窗关掉。这里用 markSceneEditorOpen/
-  // markSceneEditorClosed(见 lib/sceneEditorOpenState.ts)挂载/卸载时
-  // 标记一下，配合 Modal.tsx 里对应的检查，让外层Dialog在SceneEditor
-  // 开着的时候整体跳过"点击外部关闭"这条判断——比起检查DOM结构里有没有
-  // 某个标记元素，这样更直接可靠，不用依赖DOM树实际长什么样。
-  return createPortal(
-    <div className="fixed inset-0 z-50 bg-background flex flex-col">
-      {/* ── 顶部条：标题 + 主操作按钮，全屏模式下始终固定在最上面 ── */}
+  // 用固定高度(70vh)、正常文档流排布——不用 absolute/fixed 定位，不需要
+  // 调用方额外套"position:relative"容器。SceneEditor 在这个项目里一共
+  // 被用在12个不同的地方(不同module_type各自的"内容设置"标签页)，如果
+  // 靠每个调用点自己套容器才能撑满，等于要去改12处、还容易漏改；固定
+  // 高度的普通区块就不需要这个前提——不管放在DOM树哪里，都会按正常
+  // 文档流排在那个位置，自然而然就出现在外层"加Activity"弹窗标签导航
+  // 的下面(因为标签导航本来就在它前面)，不会盖住导航，同时又有足够大
+  // 的可视区域(70%视口高度)，不是回到最早那种"内容多高editor就多高、
+  // 经常小得要命"的旧样子。
+  return (
+    <div className="w-full h-[70vh] bg-background border border-border rounded-xl overflow-hidden flex flex-col">
+      {/* ── 顶部条：标题 + 主操作按钮 ── */}
       <div className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-border bg-card">
         <span className="text-sm font-semibold text-foreground">🎨 场景编辑器</span>
         <div className="flex items-center gap-2">
@@ -1698,8 +1676,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
       </div>
 
       <SaveModal open={showSave} onClose={() => setShowSave(false)} presetCategory={presetCategory} presetModuleType={presetModuleType} onSave={handleSave} />
-    </div>,
-    document.body
+    </div>
   );
 }
 

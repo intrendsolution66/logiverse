@@ -2,7 +2,6 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "./button";
-import { isSceneEditorOpen } from "@/lib/sceneEditorOpenState";
 
 interface ModalProps {
   open: boolean;
@@ -37,19 +36,6 @@ export function Modal({ open, onClose, title, description, children, className, 
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-fade-in" />
         <Dialog.Content
-          // onPointerDownOutside/onInteractOutside——只要有任何一个
-          // SceneEditor(全屏场景编辑器，比如拖拽游戏摆物件那个)正开着，
-          // 就跳过"点击外部自动关闭"这条判断。SceneEditor自己用Portal
-          // 搬到了document.body最外层，DOM结构上已经不算在这个弹窗
-          // 范围内了，Radix默认会把点它任何地方都判定成"点了外面"，
-          // 直接把这层弹窗关掉——但SceneEditor本身是要求先点自己的
-          // "撤销/完成"按钮才退出的强引导流程，这段时间里本来就不该
-          // 有任何"点外部关闭弹窗"的合理场景，所以直接整体跳过判断，
-          // 不用去猜DOM结构对不对，isSceneEditorOpen()是一个模块级的
-          // 挂载计数器，只要有实例在，读到的值就是true，不依赖DOM树
-          // 实际长什么样。
-          onPointerDownOutside={(e) => { if (isSceneEditorOpen()) e.preventDefault(); }}
-          onInteractOutside={(e) => { if (isSceneEditorOpen()) e.preventDefault(); }}
           className={cn(
             "fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2",
             "w-[calc(100%-2rem)] rounded-xl border bg-card shadow-2xl",
