@@ -4104,7 +4104,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
 
   return (
     <Modal open={open} onClose={onClose} title={editingLevelId ? "编辑 Activity" : "加 Activity"} size="screen">
-      <div className="h-full flex flex-col space-y-5">
+      <div className="h-full flex flex-col space-y-3">
         <div className="flex-shrink-0 flex gap-1.5 bg-muted/50 p-1 rounded-xl">
           {([
             ["basic", Info, "基本信息"],

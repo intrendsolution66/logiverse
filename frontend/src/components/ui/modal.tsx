@@ -50,7 +50,7 @@ export function Modal({ open, onClose, title, description, children, className, 
               // 页面头部(logo+导航)还能透出来，不会被完全盖住。留16(4rem)
               // 顶部间距是个折中值，没有精确对齐头部的确切高度，但足够
               // 让头部看得见、不至于被裁掉一半。
-              ? "fixed left-1/2 top-16 z-50 -translate-x-1/2 w-[calc(100vw-2rem)] h-[calc(100vh-5rem)] max-w-none rounded-xl border bg-card shadow-2xl flex flex-col"
+              ? "fixed left-1/2 top-14 z-50 -translate-x-1/2 w-[calc(100vw-0.5rem)] h-[calc(100vh-3.75rem)] max-w-none rounded-xl border bg-card shadow-2xl flex flex-col"
               : cn(
                   "fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2",
                   "w-[calc(100%-2rem)] rounded-xl border bg-card shadow-2xl",
@@ -80,7 +80,7 @@ export function Modal({ open, onClose, title, description, children, className, 
               CourseDesignerPage.tsx 那边的 flex-1 元素(最终传到
               SceneEditor)。其他size维持原来的简单padding包裹，不影响
               其他所有用 size="sm"/"md" 等等的现有弹窗。 */}
-          <div className={(size === "fullscreen" || size === "screen") ? "flex-1 min-h-0 overflow-y-auto px-6 py-5 flex flex-col" : "px-6 py-5"}>{children}</div>
+          <div className={(size === "fullscreen" || size === "screen") ? "flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col" : "px-6 py-5"}>{children}</div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
