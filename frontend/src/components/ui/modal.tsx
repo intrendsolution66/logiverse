@@ -46,11 +46,12 @@ export function Modal({ open, onClose, title, description, children, className, 
               ? "fixed inset-0 z-50 w-screen h-screen max-w-none rounded-none border-0 bg-card flex flex-col"
               : size === "screen"
               // 介于 full 和 fullscreen 之间——几乎贴满整个视口(左右上下
-              // 都不留大片空白)，但顶部留一点距离，让LogiVerse自己的
-              // 页面头部(logo+导航)还能透出来，不会被完全盖住。留16(4rem)
-              // 顶部间距是个折中值，没有精确对齐头部的确切高度，但足够
-              // 让头部看得见、不至于被裁掉一半。
-              ? "fixed left-1/2 top-14 z-50 -translate-x-1/2 w-[calc(100vw-0.5rem)] h-[calc(100vh-3.75rem)] max-w-none rounded-xl border bg-card shadow-2xl flex flex-col"
+              // 都不留大片空白)。原先顶部留 top-14(56px) 是想让LogiVerse
+              // 自己的页面头部(logo+导航)从modal上方透出来，但这样反而
+              // 在浏览器地址栏和编辑界面之间留出一大截空白，体验不好——
+              // 改成 top-2(8px) 几乎贴顶，牺牲"头部透出"这个次要效果，
+              // 换取编辑界面本身尽量贴近浏览器可视区域顶部。
+              ? "fixed left-1/2 top-2 z-50 -translate-x-1/2 w-[calc(100vw-0.5rem)] h-[calc(100vh-1rem)] max-w-none rounded-xl border bg-card shadow-2xl flex flex-col"
               : cn(
                   "fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2",
                   "w-[calc(100%-2rem)] rounded-xl border bg-card shadow-2xl",
