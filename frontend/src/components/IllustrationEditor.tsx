@@ -10,7 +10,7 @@
 
 import { useState, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { X, Square, Circle, Triangle, Box, Trash2, Type, ImagePlus, ArrowUp, ArrowDown, Copy, FlipHorizontal, FlipVertical } from "lucide-react";
+import { X, Square, Circle, Triangle, Box, Trash2, Type, ImagePlus, Image as ImageIcon, ArrowUp, ArrowDown, Copy, FlipHorizontal, FlipVertical } from "lucide-react";
 import { IllustrationShapeSvg, ILLUSTRATION_FONTS, type IllustrationElement, type IllustrationShape, type IllustrationText, type IllustrationObject, type Illustration } from "@/lib/illustrationShapes";
 
 const CANVAS_W = 400, CANVAS_H = 300; // 内部坐标空间不变，只是下面显示尺寸放大1.5倍
@@ -164,23 +164,43 @@ export default function IllustrationEditor({ initial, onChange }: {
   const popupRep = popupElements[0];
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2 flex-wrap">
-        <Button type="button" variant="outline" size="sm" onClick={() => addShape("rectangle")}><Square size={14} className="mr-1" /> 矩形</Button>
-        <Button type="button" variant="outline" size="sm" onClick={() => addShape("circle")}><Circle size={14} className="mr-1" /> 圆形</Button>
-        <Button type="button" variant="outline" size="sm" onClick={() => addShape("triangle")}><Triangle size={14} className="mr-1" /> 三角形</Button>
-        <Button type="button" variant="outline" size="sm" onClick={() => addShape("cube")}><Box size={14} className="mr-1" /> 立体方块</Button>
-        <Button type="button" variant="outline" size="sm" onClick={addText}><Type size={14} className="mr-1" /> 文字</Button>
-        <label className="text-xs text-muted-foreground cursor-pointer px-2 py-1.5 rounded-lg border border-border hover:bg-muted/40 flex items-center gap-1">
-          <ImagePlus size={14} /> 上传物件<input type="file" accept="image/*" onChange={handleObjectUpload} className="hidden" />
+    <div className="flex gap-3 items-start">
+      {/* 左侧图标工具栏——跟 SceneEditor 同一套布局思路：纯图标竖排，
+          hover 显示文字提示，不占横向空间，画布能挪到旁边占满剩余宽度。
+          前5个是"点一下就插入一个"的形状/文字工具，中间一条分隔线，
+          "上传物件"和"背景图（选填）"用 label 包着隐藏的 file input，
+          点图标直接跳文件选择框，交互不变，只是外观从按钮变图标。 */}
+      <div className="flex-shrink-0 w-11 flex flex-col gap-1 p-1.5 bg-muted/30 rounded-xl border border-border">
+        <button type="button" title="矩形" onClick={() => addShape("rectangle")} className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-white hover:shadow-sm transition-colors">
+          <Square size={16} />
+        </button>
+        <button type="button" title="圆形" onClick={() => addShape("circle")} className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-white hover:shadow-sm transition-colors">
+          <Circle size={16} />
+        </button>
+        <button type="button" title="三角形" onClick={() => addShape("triangle")} className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-white hover:shadow-sm transition-colors">
+          <Triangle size={16} />
+        </button>
+        <button type="button" title="立体方块" onClick={() => addShape("cube")} className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-white hover:shadow-sm transition-colors">
+          <Box size={16} />
+        </button>
+        <button type="button" title="文字" onClick={addText} className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-white hover:shadow-sm transition-colors">
+          <Type size={16} />
+        </button>
+        <div className="h-px bg-border/60 mx-1 my-0.5" />
+        <label title="上传物件" className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-white hover:shadow-sm cursor-pointer transition-colors">
+          <ImagePlus size={16} />
+          <input type="file" accept="image/*" onChange={handleObjectUpload} className="hidden" />
         </label>
-        <label className="text-xs text-muted-foreground cursor-pointer px-2 py-1.5 rounded-lg border border-border hover:bg-muted/40">
-          背景图（选填）<input type="file" accept="image/*" onChange={handleBgUpload} className="hidden" />
+        <label title="背景图（选填）" className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-white hover:shadow-sm cursor-pointer transition-colors">
+          <ImageIcon size={16} />
+          <input type="file" accept="image/*" onChange={handleBgUpload} className="hidden" />
         </label>
       </div>
+
+      <div className="flex-1 min-w-0 space-y-2">
       <p className="text-xs text-muted-foreground/70">单击选中拖动/缩放/旋转；双击弹出详细属性（颜色、字体、翻转、复制等）</p>
 
-      <div className="relative" style={{ width: DISPLAY_W, maxWidth: "100%" }}>
+      <div className="relative" style={{ maxWidth: DISPLAY_W }}>
         <svg
           ref={svgRef} viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
           className="border border-border rounded-xl bg-white" style={{ width: "100%", height: "auto", aspectRatio: `${CANVAS_W} / ${CANVAS_H}` }}
@@ -232,6 +252,7 @@ export default function IllustrationEditor({ initial, onChange }: {
             );
           })()}
         </svg>
+      </div>
       </div>
 
       {popupRep && (
