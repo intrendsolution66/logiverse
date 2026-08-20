@@ -200,7 +200,8 @@ export default function IllustrationEditor({ initial, onChange }: {
       <div className="flex-1 min-w-0 space-y-2">
       <p className="text-xs text-muted-foreground/70">单击选中拖动/缩放/旋转；双击弹出详细属性（颜色、字体、翻转、复制等）</p>
 
-      <div className="relative" style={{ maxWidth: DISPLAY_W }}>
+      <div className="flex-1 min-w-0 flex items-center justify-center">
+        <div className="relative w-full" style={{ maxWidth: DISPLAY_W }}>
         <svg
           ref={svgRef} viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
           className="border border-border rounded-xl bg-white" style={{ width: "100%", height: "auto", aspectRatio: `${CANVAS_W} / ${CANVAS_H}` }}
@@ -252,6 +253,7 @@ export default function IllustrationEditor({ initial, onChange }: {
             );
           })()}
         </svg>
+      </div>
       </div>
       </div>
 
