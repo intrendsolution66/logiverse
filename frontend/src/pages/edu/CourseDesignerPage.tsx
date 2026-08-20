@@ -1824,38 +1824,45 @@ function NumberMazeDesigner({
   }
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2 flex-wrap">
-        <label className="flex items-center gap-1.5 text-sm">背景图 <input type="file" accept="image/*" className="text-xs" onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])} /></label>
+    <div className="h-full flex flex-col space-y-2">
+      <div className="flex-shrink-0 flex items-center gap-2 flex-wrap">
+        <label className="flex items-center gap-1.5 text-xs">背景图 <input type="file" accept="image/*" className="text-[10px] w-28" onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])} /></label>
         <AssetPicker category="background" label="🗂️ 从素材库选" moduleType="number_maze" onSelect={loadBg} />
       </div>
 
-      <div className="flex items-center gap-1.5 flex-wrap">
+      <div className="flex-shrink-0 flex items-center gap-1.5 flex-wrap">
         {([["path", "🖌️ 画路径"], ["erase", "🧹 擦掉路径"], ["start", "🏁 设起点"], ["end", "🏆 设终点"], ["decision", "🔀 加分岔点"]] as const).map(([m, label]) => (
           <button
             key={m} type="button" onClick={() => setMode(m)}
-            className={`px-2.5 py-1.5 rounded-md text-xs font-medium border transition-colors ${mode === m ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground"}`}
+            className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${mode === m ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground"}`}
           >
             {label}
           </button>
         ))}
         {(mode === "path" || mode === "erase") && (
           <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            笔刷 <input type="range" min={12} max={80} value={brushWidth} onChange={(e) => setBrushWidth(+e.target.value)} />
+            笔刷 <input type="range" min={12} max={80} value={brushWidth} onChange={(e) => setBrushWidth(+e.target.value)} className="w-20" />
           </label>
         )}
+        <span
+          className="text-[10px] leading-tight text-muted-foreground/80 truncate"
+          title="先上传背景图、画出可走的路径（绿色半透明区域），设好起点终点，再点「🔀 加分岔点」、在画布上点几个要放判断题的位置——每个分岔点在下面可以编辑它的数字选项，选一个标成正确答案。"
+        >
+          已画路径 · 起点{start ? "✓" : "未设"} · 终点{end ? "✓" : "未设"} · {decisionPoints.length} 个分岔点
+        </span>
       </div>
-      <p className="text-xs text-muted-foreground">先上传背景图、画出可走的路径（绿色半透明区域），设好起点终点，再点"🔀 加分岔点"、在画布上点几个要放判断题的位置——每个分岔点在下面可以编辑它的数字选项，选一个标成正确答案。</p>
 
-      <canvas
-        ref={canvasRef} width={GAME_CANVAS_W} height={GAME_CANVAS_H}
-        onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
-        style={{ touchAction: "none" }}
-        className={`w-full h-auto rounded-lg bg-card border border-border ${mode === "path" || mode === "erase" ? "cursor-crosshair" : "cursor-pointer"}`}
-      />
+      <div className="flex-1 min-h-0 flex items-center justify-center">
+        <canvas
+          ref={canvasRef} width={GAME_CANVAS_W} height={GAME_CANVAS_H}
+          onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
+          style={{ touchAction: "none", aspectRatio: `${GAME_CANVAS_W} / ${GAME_CANVAS_H}`, width: "auto", height: "auto", maxWidth: "100%", maxHeight: "100%" }}
+          className={`rounded-lg bg-card border border-border ${mode === "path" || mode === "erase" ? "cursor-crosshair" : "cursor-pointer"}`}
+        />
+      </div>
 
       {selectedPoint && (
-        <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
+        <div className="flex-shrink-0 rounded-lg border border-border bg-muted/40 p-3 space-y-2 max-h-40 overflow-y-auto">
           <div className="flex items-center justify-between">
             <p className="text-xs font-medium text-muted-foreground">分岔点 #{decisionPoints.findIndex((d) => d.id === selectedDecisionId) + 1} 的数字选项</p>
             <button type="button" onClick={deleteSelectedPoint} className="text-xs text-red-500 hover:text-red-600">删除这个分岔点</button>
@@ -1879,10 +1886,6 @@ function NumberMazeDesigner({
           <p className="text-[11px] text-muted-foreground/70">左边打勾的是正确答案——学生走到这个分岔点，要点选项，选中打勾这个才能继续往前走。</p>
         </div>
       )}
-
-      <p className="text-xs text-muted-foreground">
-        已画路径 · 起点{start ? "✓" : "未设"} · 终点{end ? "✓" : "未设"} · {decisionPoints.length} 个分岔点
-      </p>
     </div>
   );
 }
@@ -4502,26 +4505,27 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         )}
 
         {moduleType === "memory" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
-            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-              <Layers size={14} className="text-primary" /> Memory配对 · 内容设置
-            </div>
-
-            <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
-              {(["preset", "custom"] as const).map((m) => (
-                <button
-                  key={m} type="button" onClick={() => setMemoryMode(m)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                    memoryMode === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {m === "preset" ? "🎨 主题图库" : "🖼️ 自定义图片"}
-                </button>
-              ))}
+          <div className="flex-1 min-h-0 flex flex-col rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex-shrink-0 flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                <Layers size={14} className="text-primary" /> Memory配对 · 内容设置
+              </div>
+              <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
+                {(["preset", "custom"] as const).map((m) => (
+                  <button
+                    key={m} type="button" onClick={() => setMemoryMode(m)}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                      memoryMode === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {m === "preset" ? "🎨 主题图库" : "🖼️ 自定义图片"}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {memoryMode === "preset" ? (
-              <div className="flex gap-3 flex-wrap items-center pt-1 border-t border-border/60">
+              <div className="flex-shrink-0 flex gap-3 flex-wrap items-center pt-1 border-t border-border/60">
                 <label className="flex items-center gap-1.5">主题
                   <select value={memoryTheme} onChange={(e) => setMemoryTheme(e.target.value)} className={MINI_SELECT_CLASS}>
                     <option value="animal">🐶 动物</option><option value="fruit">🍎 水果</option>
@@ -4532,88 +4536,91 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
                 <label className="flex items-center gap-1.5">预览秒数 <input type="number" min={1} max={10} value={previewSeconds} onChange={(e) => setPreviewSeconds(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
               </div>
             ) : (
-              <div className="space-y-4 pt-1 border-t border-border/60">
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-medium text-muted-foreground">配对图片（{memoryCustomIcons.length} 张，至少需要2张）</p>
-                    <AssetPicker category="object" label="🧸 加一张" moduleType="memory" onSelect={(url) => setMemoryCustomIcons((arr) => [...arr, url])} />
+              <div className="flex-1 min-h-0 flex flex-col space-y-2">
+                <div className="flex-shrink-0 flex flex-wrap gap-3 max-h-[28%] overflow-y-auto">
+                  <div className="flex-1 min-w-[220px]">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-[10px] font-medium text-muted-foreground">配对图片（{memoryCustomIcons.length} 张，至少需要2张）</p>
+                      <AssetPicker category="object" label="🧸 加一张" moduleType="memory" onSelect={(url) => setMemoryCustomIcons((arr) => [...arr, url])} />
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {memoryCustomIcons.map((url, i) => (
+                        <div key={i} className="relative w-12 h-12 rounded-md border border-border shadow-sm bg-white flex items-center justify-center overflow-hidden">
+                          <img src={url} alt="" className="max-w-full max-h-full object-contain" />
+                          <button
+                            type="button" onClick={() => setMemoryCustomIcons((arr) => arr.filter((_, idx) => idx !== i))}
+                            className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-black/60 text-white text-[9px] flex items-center justify-center hover:bg-red-500"
+                          >✕</button>
+                        </div>
+                      ))}
+                      {memoryCustomIcons.length === 0 && (
+                        <div className="w-12 h-12 rounded-md border border-dashed border-border flex items-center justify-center text-muted-foreground/50">
+                          <ImagePlus size={14} />
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {memoryCustomIcons.map((url, i) => (
-                      <div key={i} className="relative w-16 h-16 rounded-lg border border-border shadow-sm bg-white flex items-center justify-center overflow-hidden">
-                        <img src={url} alt="" className="max-w-full max-h-full object-contain" />
+
+                  <div className="shrink-0">
+                    <p className="text-[10px] font-medium text-muted-foreground mb-1">背景图（选填）</p>
+                    <div className="flex items-center gap-2">
+                      {memoryBgUrl ? (
+                        <div className="relative w-12 h-12 rounded-md border border-border shadow-sm overflow-hidden bg-muted/30 shrink-0">
+                          <img src={memoryBgUrl} alt="背景" className="w-full h-full object-cover" />
+                          <button
+                            type="button" onClick={() => setMemoryBgUrl(null)}
+                            className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-black/60 text-white text-[9px] flex items-center justify-center hover:bg-red-500"
+                          >✕</button>
+                        </div>
+                      ) : (
+                        <div className="w-12 h-12 rounded-md border border-dashed border-border flex items-center justify-center text-muted-foreground/50 shrink-0">
+                          <ImagePlus size={14} />
+                        </div>
+                      )}
+                      <AssetPicker category="background" label={memoryBgUrl ? "换一张" : "🗂️ 选背景图"} moduleType="memory" onSelect={setMemoryBgUrl} />
+                    </div>
+                  </div>
+
+                  <div className="shrink-0 flex flex-col justify-end gap-1">
+                    <label className="flex items-center gap-1.5 text-xs">预览秒数 <input type="number" min={1} max={10} value={previewSeconds} onChange={(e) => setPreviewSeconds(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
+                    <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
+                      {(["grid", "free"] as const).map((lo) => (
                         <button
-                          type="button" onClick={() => setMemoryCustomIcons((arr) => arr.filter((_, idx) => idx !== i))}
-                          className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/60 text-white text-[10px] flex items-center justify-center hover:bg-red-500"
-                        >✕</button>
-                      </div>
-                    ))}
-                    {memoryCustomIcons.length === 0 && (
-                      <div className="w-16 h-16 rounded-lg border border-dashed border-border flex items-center justify-center text-muted-foreground/50">
-                        <ImagePlus size={18} />
-                      </div>
+                          key={lo} type="button" onClick={() => setMemoryLayout(lo)}
+                          className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                            memoryLayout === lo ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {lo === "grid" ? "🔲 表格排法" : "🖼️ 自由摆放"}
+                        </button>
+                      ))}
+                    </div>
+                    {memoryLayout === "free" && !memoryBgUrl && (
+                      <p className="text-[10px] leading-tight text-amber-600 dark:text-amber-400">自由摆放需要先选背景图</p>
                     )}
                   </div>
                 </div>
 
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-2">背景图（选填）</p>
-                  <div className="flex items-center gap-3">
-                    {memoryBgUrl ? (
-                      <div className="relative w-24 h-24 rounded-lg border border-border shadow-sm overflow-hidden bg-muted/30 shrink-0">
-                        <img src={memoryBgUrl} alt="背景" className="w-full h-full object-cover" />
-                        <button
-                          type="button" onClick={() => setMemoryBgUrl(null)}
-                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-[11px] flex items-center justify-center hover:bg-red-500"
-                        >✕</button>
-                      </div>
-                    ) : (
-                      <div className="w-24 h-24 rounded-lg border border-dashed border-border flex items-center justify-center text-muted-foreground/50 shrink-0">
-                        <ImagePlus size={22} />
-                      </div>
+                {memoryLayout === "free" && memoryBgUrl && (
+                  <div className="flex-1 min-h-0 flex flex-col">
+                    <SceneEditor
+                      key={memoryBgUrl}
+                      structuredMode fillHeight presetModuleType="memory"
+                      headerLabel={
+                        <span className="text-[10px] leading-tight text-muted-foreground/80 truncate block">
+                          已经把 {memoryCustomIcons.length * 2} 张配对图片（每张各出现两次）自动排好摆进画布了——直接拖动调整位置；也可以点左边"🧸 加物件"补充图片或删掉多余的。
+                        </span>
+                      }
+                      onSaveStructured={setMemoryScene}
+                      initial={memoryScene ?? { bgUrl: memoryBgUrl, objects: buildInitialMemoryPositions(memoryCustomIcons), texts: [] }}
+                    />
+                    {memoryScene && (
+                      <p className={`flex-shrink-0 text-xs flex items-center gap-1 mt-1.5 ${memoryScene.objects.length === memoryCustomIcons.length * 2 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                        {memoryScene.objects.length === memoryCustomIcons.length * 2 ? "✓" : "⚠️"} 已摆 {memoryScene.objects.length} / {memoryCustomIcons.length * 2} 个位置
+                      </p>
                     )}
-                    <AssetPicker category="background" label={memoryBgUrl ? "换一张" : "🗂️ 选背景图"} moduleType="memory" onSelect={setMemoryBgUrl} />
                   </div>
-                </div>
-                <label className="flex items-center gap-1.5">预览秒数 <input type="number" min={1} max={10} value={previewSeconds} onChange={(e) => setPreviewSeconds(+e.target.value)} className={MINI_INPUT_CLASS} /></label>
-
-                <div className="pt-3 border-t border-border/60 space-y-3">
-                  <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
-                    {(["grid", "free"] as const).map((lo) => (
-                      <button
-                        key={lo} type="button" onClick={() => setMemoryLayout(lo)}
-                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                          memoryLayout === lo ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        {lo === "grid" ? "🔲 传统表格排法" : "🖼️ 自由摆放"}
-                      </button>
-                    ))}
-                  </div>
-
-                  {memoryLayout === "free" && (
-                    !memoryBgUrl ? (
-                      <p className="text-[10px] leading-tight text-muted-foreground/80 bg-muted/40 rounded-lg px-2 py-1">自由摆放需要先在上面选一张背景图。</p>
-                    ) : (
-                      <>
-                        <p className="text-[10px] leading-tight text-muted-foreground/80 bg-muted/40 rounded-lg px-2 py-1">
-                          已经把 {memoryCustomIcons.length * 2} 张配对图片（每张各出现两次）自动排好摆进画布了——直接拖动调整到想要的位置就行；也可以再点左边"🧸 加物件"补充别的图片、或删掉多余的。哪张图落在哪个位置最后是随机的，跟专注力点数字同一个逻辑。
-                        </p>
-                        <SceneEditor
-                          key={memoryBgUrl}
-                          structuredMode presetModuleType="memory"
-                          onSaveStructured={setMemoryScene}
-                          initial={memoryScene ?? { bgUrl: memoryBgUrl, objects: buildInitialMemoryPositions(memoryCustomIcons), texts: [] }}
-                        />
-                        {memoryScene && (
-                          <p className={`text-xs flex items-center gap-1 ${memoryScene.objects.length === memoryCustomIcons.length * 2 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
-                            {memoryScene.objects.length === memoryCustomIcons.length * 2 ? "✓" : "⚠️"} 已摆 {memoryScene.objects.length} / {memoryCustomIcons.length * 2} 个位置
-                          </p>
-                        )}
-                      </>
-                    )
-                  )}
-                </div>
+                )}
               </div>
             )}
           </div>
@@ -5284,108 +5291,97 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         )}
 
         {moduleType === "maze" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-3">
-            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-              <Route size={14} className="text-primary" /> 迷宫 · 内容设置
-            </div>
-            <div className="space-y-3">
-              <div className="flex items-center gap-3 text-sm flex-wrap pb-3 border-b border-border/60">
-                <span className="text-xs font-medium text-muted-foreground w-16 shrink-0">背景图片</span>
+          <div className="flex-1 min-h-0 flex flex-col rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex-shrink-0 flex items-center gap-3 flex-wrap">
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground shrink-0">
+                <Route size={14} className="text-primary" /> 迷宫
+              </span>
+              <div className="flex items-center gap-1.5 shrink-0">
                 {mazeBgUrl ? (
-                  <div className="w-14 h-14 rounded-lg border border-border shadow-sm overflow-hidden bg-muted/30 shrink-0">
+                  <div className="w-8 h-8 rounded-md border border-border shadow-sm overflow-hidden bg-muted/30 shrink-0">
                     <img src={mazeBgUrl} alt="背景" className="w-full h-full object-cover" />
                   </div>
                 ) : (
-                  <div className="w-14 h-14 rounded-lg border border-dashed border-border flex items-center justify-center text-muted-foreground/50 shrink-0">
-                    <ImagePlus size={18} />
+                  <div className="w-8 h-8 rounded-md border border-dashed border-border flex items-center justify-center text-muted-foreground/50 shrink-0">
+                    <ImagePlus size={14} />
                   </div>
                 )}
-                <label className="flex items-center gap-1.5">
-                  <input type="file" accept="image/*" className="text-xs" onChange={(e) => e.target.files?.[0] && handleMazeBgUpload(e.target.files[0])} />
-                </label>
+                <input type="file" accept="image/*" className="text-[10px] w-28" onChange={(e) => e.target.files?.[0] && handleMazeBgUpload(e.target.files[0])} />
                 <AssetPicker category="background" label={mazeBgUrl ? "换一张" : "🗂️ 从素材库选"} moduleType="maze" onSelect={handleMazeBgSelect} />
               </div>
-
               {mazeBgUrl && (
-                <div className="flex items-center gap-3 flex-wrap pb-3 border-b border-border/60">
-                  <span className="text-xs font-medium text-muted-foreground w-16 shrink-0">编辑模式</span>
-                  <div className="flex gap-1 bg-muted/50 p-1 rounded-lg">
-                    <button
-                      type="button" onClick={() => setMazeEditMode("path")}
-                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${mazeEditMode === "path" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-                    >
-                      🧭 画路径模式
-                    </button>
-                    <button
-                      type="button" onClick={() => setMazeEditMode("decorate")}
-                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${mazeEditMode === "decorate" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-                    >
-                      🎨 装饰模式（不影响走路）
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {mazeBgUrl && mazeEditMode === "path" && (
-                <div className="flex items-start gap-3 flex-wrap pb-3 border-b border-border/60">
-                  <span className="text-xs font-medium text-muted-foreground w-16 shrink-0 pt-1.5">工具</span>
-                  <div className="flex-1 space-y-2 min-w-[240px]">
-                    <div className="flex gap-1 flex-wrap bg-muted/50 p-1 rounded-lg w-fit">
-                      {([["paint","🖌️ 画路径"],["erase","🧹 擦除"],["fill","🪣 填充"],["barrier","🚧 画分隔线"],["fillErase","🗑️ 删除颜色"],["start","🟠 设起点"],["end","🟢 设终点"]] as const).map(([key,label]) => (
-                        <button
-                          key={key} type="button" onClick={() => setMazeTool(key)}
-                          className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                            mazeTool === key ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex gap-1.5">
-                      <button
-                        type="button" onClick={undoMaze} disabled={mazeHistoryCount === 0}
-                        className="px-2.5 py-1 rounded-md text-xs font-medium border bg-card border-border text-muted-foreground disabled:opacity-30"
-                      >
-                        ↩️ 撤销
-                      </button>
-                      <button
-                        type="button" onClick={clearMazeBarriers}
-                        className="px-2.5 py-1 rounded-md text-xs font-medium border bg-card border-border text-muted-foreground"
-                        title="把画好的分隔线（红色）全部清掉，不影响已经填好的路径"
-                      >
-                        🧽 清除分隔线
-                      </button>
-                    </div>
-                    {(mazeTool === "paint" || mazeTool === "erase" || mazeTool === "barrier") && (
-                      <div className="flex items-center gap-4 flex-wrap pt-1">
-                        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">笔刷宽度
-                          <input
-                            type="range" min={8} max={50} value={mazeBrushWidth}
-                            onChange={(e) => setMazeBrushWidth(+e.target.value)}
-                            className="w-24"
-                          />
-                          <span className="w-6 text-right">{mazeBrushWidth}</span>
-                        </label>
-                        {mazeTool === "erase" && (
-                          <span className="text-xs text-amber-600" title="墙（没画到/被擦掉的部分）太细的话，游戏里球可能会直接穿过去——两条路径之间留的间隔建议不要小于笔刷宽度本身">
-                            💡 两条路径中间留的墙要够宽，太细容易被穿过
-                          </span>
-                        )}
-                        {mazeTool === "paint" && (
-                          <label className="flex items-center gap-1.5 text-xs text-muted-foreground" title="只是方便看清楚画了哪里，颜色本身不影响走不走得通">画笔颜色
-                            <input type="color" value={mazePaintColor} onChange={(e) => setMazePaintColor(e.target.value)} className="w-7 h-7 rounded border border-border cursor-pointer p-0.5" />
-                          </label>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                <div className="flex gap-1 bg-muted/50 p-1 rounded-lg shrink-0">
+                  <button
+                    type="button" onClick={() => setMazeEditMode("path")}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${mazeEditMode === "path" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    🧭 画路径
+                  </button>
+                  <button
+                    type="button" onClick={() => setMazeEditMode("decorate")}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${mazeEditMode === "decorate" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    🎨 装饰（不影响走路）
+                  </button>
                 </div>
               )}
             </div>
+
             {mazeBgUrl && mazeEditMode === "path" && (
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-medium text-muted-foreground">起点/终点配对：</span>
+              <div className="flex-shrink-0 flex items-center gap-2 flex-wrap">
+                <div className="flex gap-1 flex-wrap bg-muted/50 p-1 rounded-lg w-fit">
+                  {([["paint","🖌️ 画路径"],["erase","🧹 擦除"],["fill","🪣 填充"],["barrier","🚧 画分隔线"],["fillErase","🗑️ 删除颜色"],["start","🟠 设起点"],["end","🟢 设终点"]] as const).map(([key,label]) => (
+                    <button
+                      key={key} type="button" onClick={() => setMazeTool(key)}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                        mazeTool === key ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button" onClick={undoMaze} disabled={mazeHistoryCount === 0}
+                  className="px-2.5 py-1 rounded-md text-xs font-medium border bg-card border-border text-muted-foreground disabled:opacity-30 shrink-0"
+                >
+                  ↩️ 撤销
+                </button>
+                <button
+                  type="button" onClick={clearMazeBarriers}
+                  className="px-2.5 py-1 rounded-md text-xs font-medium border bg-card border-border text-muted-foreground shrink-0"
+                  title="把画好的分隔线（红色）全部清掉，不影响已经填好的路径"
+                >
+                  🧽 清除分隔线
+                </button>
+                {(mazeTool === "paint" || mazeTool === "erase" || mazeTool === "barrier") && (
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0">笔刷
+                      <input
+                        type="range" min={8} max={50} value={mazeBrushWidth}
+                        onChange={(e) => setMazeBrushWidth(+e.target.value)}
+                        className="w-20"
+                      />
+                      <span className="w-5 text-right">{mazeBrushWidth}</span>
+                    </label>
+                    {mazeTool === "erase" && (
+                      <span className="text-[10px] text-amber-600 truncate" title="墙（没画到/被擦掉的部分）太细的话，游戏里球可能会直接穿过去——两条路径之间留的间隔建议不要小于笔刷宽度本身">
+                        💡 墙要够宽，太细容易被穿过
+                      </span>
+                    )}
+                    {mazeTool === "paint" && (
+                      <label className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0" title="只是方便看清楚画了哪里，颜色本身不影响走不走得通">画笔颜色
+                        <input type="color" value={mazePaintColor} onChange={(e) => setMazePaintColor(e.target.value)} className="w-6 h-6 rounded border border-border cursor-pointer p-0.5" />
+                      </label>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {mazeBgUrl && mazeEditMode === "path" && (
+              <div className="flex-shrink-0 flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-medium text-muted-foreground shrink-0">起点/终点：</span>
                 {mazePairs.map((p, i) => (
                   <button
                     key={i} type="button" onClick={() => setMazeActivePairIdx(i)}
@@ -5413,29 +5409,38 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
                 <button
                   type="button"
                   onClick={() => { setMazePairs((ps) => [...ps, { start: null, end: null }]); setMazeActivePairIdx(mazePairs.length); }}
-                  className="px-2.5 py-1 rounded-full text-xs border border-dashed border-border text-muted-foreground hover:border-primary hover:text-primary"
+                  className="px-2.5 py-1 rounded-full text-xs border border-dashed border-border text-muted-foreground hover:border-primary hover:text-primary shrink-0"
                 >
                   ➕ 加一对
                 </button>
               </div>
             )}
+
             {mazeBgUrl && mazeEditMode === "path" && (
-              <>
-                <p className="text-xs text-muted-foreground">
-                  用"画路径"在图上涂出孩子能走的路（按住拖动，笔刷宽度可以调到很小方便画细的路），画错了"擦除"修正。"填充"认的是背景图片本身画好的颜色和边界——如果背景图上已经有一条边界清楚的路（比如这张图这种），点一下路中间就能把整条路自动填满，不用重新描一遍轮廓；如果背景图没有清楚边界，填充还是可能顺着颜色相近的地方漏出去，这种情况建议直接用"画路径"手动涂。如果路是一整条连在一起、只想填其中一段（比如螺旋迷宫从头到尾没分岔），先用"🚧 画分隔线"在想切开的地方画一道红线当"墙"，再点"填充"，就只会填到墙为止，不会漫过去——分隔线画错了用"🧽 清除分隔线"整个清掉重画（这个没有单独的撤销，跟"↩️ 撤销"是分开的两套）。"删除颜色"是填充的反向操作，点一下能把蒙版上连在一起的一整块已填色区域清掉。"设起点"/"设终点"改的是上面选中的那一对——先点选一对，再点"设起点"/"设终点"，在图上点一下位置。
+              <div className="flex-1 min-h-0 flex flex-col">
+                <p
+                  className="flex-shrink-0 text-[10px] leading-tight text-muted-foreground/80 truncate"
+                  title={`用"画路径"在图上涂出孩子能走的路（按住拖动，笔刷宽度可以调到很小方便画细的路），画错了"擦除"修正。"填充"认的是背景图片本身画好的颜色和边界——如果背景图上已经有一条边界清楚的路，点一下路中间就能把整条路自动填满，不用重新描一遍轮廓；如果背景图没有清楚边界，填充还是可能顺着颜色相近的地方漏出去，这种情况建议直接用"画路径"手动涂。如果路是一整条连在一起、只想填其中一段，先用"🚧 画分隔线"在想切开的地方画一道红线当"墙"，再点"填充"，就只会填到墙为止——分隔线画错了用"🧽 清除分隔线"整个清掉重画（这个没有单独的撤销，跟"↩️ 撤销"是分开的两套）。"删除颜色"是填充的反向操作。"设起点"/"设终点"改的是上面选中的那一对。`}
+                >
+                  用"画路径"涂出能走的路，"擦除"修正；"填充"按颜色边界一键填满，配合"画分隔线"能只填一段；"设起点/终点"改上面选中的那一对。
                   {mazePairs.every((p) => p.start && p.end) ? ` 全部 ${mazePairs.length} 对都设好了 ✓` : " 还有配对没设完。"}
                 </p>
-                <canvas
-                  ref={mazeCanvasRef} width={MZ_W} height={MZ_H}
-                  onPointerDown={handleMazePointerDown} onPointerMove={handleMazePointerMove}
-                  onPointerUp={handleMazePointerUp} onPointerLeave={handleMazePointerUp}
-                  style={{ touchAction: "none" }}
-                  className="w-full h-auto rounded-lg bg-card cursor-crosshair border border-border"
-                />
-              </>
+                <div className="flex-1 min-h-0 flex items-center justify-center">
+                  <canvas
+                    ref={mazeCanvasRef} width={MZ_W} height={MZ_H}
+                    onPointerDown={handleMazePointerDown} onPointerMove={handleMazePointerMove}
+                    onPointerUp={handleMazePointerUp} onPointerLeave={handleMazePointerUp}
+                    style={{ touchAction: "none", aspectRatio: `${MZ_W} / ${MZ_H}`, width: "auto", height: "auto", maxWidth: "100%", maxHeight: "100%" }}
+                    className="rounded-lg bg-card cursor-crosshair border border-border"
+                  />
+                </div>
+              </div>
             )}
+
             {mazeBgUrl && mazeEditMode === "decorate" && (
-              <MazeDecorator bgUrl={mazeBgUrl} onBgUpdated={handleMazeDecorationUpdate} />
+              <div className="flex-1 min-h-0">
+                <MazeDecorator bgUrl={mazeBgUrl} onBgUpdated={handleMazeDecorationUpdate} />
+              </div>
             )}
           </div>
         )}
@@ -5489,28 +5494,27 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         )}
 
         {moduleType === "number_maze" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-3 text-sm">
-            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-              <GitBranch size={14} className="text-primary" /> 数字迷宫 · 内容设置
-            </div>
-            <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
-              {(["path", "grid"] as const).map((m) => (
-                <button
-                  key={m} type="button" onClick={() => setNmLayout(m)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                    nmLayout === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {m === "path" ? "🧭 路径分岔（房间迷宫）" : "▦ 方格棋盘（跳格子）"}
-                </button>
-              ))}
+          <div className="flex-1 min-h-0 flex flex-col rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex-shrink-0 flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                <GitBranch size={14} className="text-primary" /> 数字迷宫
+              </div>
+              <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
+                {(["path", "grid"] as const).map((m) => (
+                  <button
+                    key={m} type="button" onClick={() => setNmLayout(m)}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                      nmLayout === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {m === "path" ? "🧭 路径分岔（房间迷宫）" : "▦ 方格棋盘（跳格子）"}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {nmLayout === "path" ? (
-              <>
-                <p className="text-[10px] leading-tight text-muted-foreground/80 bg-muted/40 rounded-lg px-2 py-1">
-                  跟走迷宫玩法基本一样（沿着画好的路径拖着走，碰不到障碍物），多了"分岔点"——学生走到分岔点，要先点对数字选项才能继续往前走，选错算一次失误、可以重选。
-                </p>
+              <div className="flex-1 min-h-0">
                 <NumberMazeDesigner
                   bgUrl={nmBgUrl} setBgUrl={setNmBgUrl}
                   maskDataUrl={nmMaskDataUrl} setMaskDataUrl={setNmMaskDataUrl}
@@ -5518,18 +5522,23 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
                   end={nmEnd} setEnd={setNmEnd}
                   decisionPoints={nmDecisionPoints} setDecisionPoints={setNmDecisionPoints}
                 />
-              </>
+              </div>
             ) : (
-              <div className="space-y-3">
-                <p className="text-[10px] leading-tight text-muted-foreground/80 bg-muted/40 rounded-lg px-2 py-1">
-                  点"▦ 加网格"插入棋盘，每格填一个数字。再点画布上要走的每一格，在右边"路径顺序"填第几步——起点填1，往后依次+1，一路连到终点（只能填相邻的格子，上下左右，不能斜着跳）。学生玩的时候要照这个顺序，从相邻格子一步步跳过去。
-                </p>
+              <div className="flex-1 min-h-0 flex flex-col">
                 <SceneEditor
-                  structuredMode presetModuleType="number_maze"
+                  structuredMode fillHeight presetModuleType="number_maze"
+                  headerLabel={
+                    <span
+                      className="text-[10px] leading-tight text-muted-foreground/80 truncate block"
+                      title="点「▦ 加网格」插入棋盘，每格填一个数字。再点画布上要走的每一格，在右边「路径顺序」填第几步——起点填1，往后依次+1，一路连到终点（只能填相邻的格子，上下左右，不能斜着跳）。学生玩的时候要照这个顺序，从相邻格子一步步跳过去。"
+                    >
+                      点"▦加网格"插入棋盘，每格填数字；再点要走的格子，在"路径顺序"填第几步，起点1一路+1连到终点（只能上下左右相邻）。
+                    </span>
+                  }
                   onSaveStructured={setNmScene} initial={nmScene ?? undefined}
                 />
                 {nmScene?.grids?.[0] && (
-                  <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                  <p className="flex-shrink-0 text-xs text-emerald-600 dark:text-emerald-400 mt-1.5">
                     ✓ 网格 {nmScene.grids[0].rows}×{nmScene.grids[0].cols}，已标 {nmScene.grids[0].cells.flat().filter((c) => c.pathStep).length} 步路径，可以点上面"完成"重新调整
                   </p>
                 )}
