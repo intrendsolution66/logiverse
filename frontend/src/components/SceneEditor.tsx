@@ -38,7 +38,7 @@ function drawImageCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement, dx
 }
 
 interface BackgroundLayer { url: string; x: number; y: number; w: number; h: number }
-interface ObjectLayer { id: string; type: "object"; imageUrl: string; x: number; y: number; w: number; h: number; rotation: number; objectType?: string; flipX?: boolean; flipY?: boolean; opacity?: number }
+interface ObjectLayer { id: string; type: "object"; imageUrl: string; x: number; y: number; w: number; h: number; rotation: number; objectType?: string; flipX?: boolean; flipY?: boolean; opacity?: number; isTarget?: boolean }
 interface TextLayer { id: string; type: "text"; text: string; x: number; y: number; fontSize: number; color: string; fontFamily: string; rotation: number; bold?: boolean; italic?: boolean; underline?: boolean }
 interface ShapeLayer {
   id: string; type: "shape"; shape: "rect" | "ellipse" | "line" | "triangle";
@@ -231,7 +231,7 @@ export interface StructuredSceneOutput {
    *  对比框）。这个值也会出现在 onSaveStructured 的回传结果里，读取
    *  设计师确认后背景实际的最终位置（万一背景被手动拖动/缩放过）。 */
   bgBounds?: { x: number; y: number; w: number; h: number };
-  objects: Array<{ imageUrl: string; x: number; y: number; w: number; h: number; rotation: number; objectType?: string; flipX?: boolean; flipY?: boolean; opacity?: number }>;
+  objects: Array<{ imageUrl: string; x: number; y: number; w: number; h: number; rotation: number; objectType?: string; flipX?: boolean; flipY?: boolean; opacity?: number; isTarget?: boolean }>;
   texts: Array<{ text: string; x: number; y: number; fontSize: number; color: string; fontFamily: string; rotation: number; bold?: boolean; italic?: boolean; underline?: boolean }>;
   // 网格（数独这种"自己画格子"用）——不像形状会被烤进背景图，网格要
   // 保持可交互（学生要能填空），所以走跟 objects/texts 一样的结构化
@@ -250,7 +250,7 @@ export interface StructuredSceneOutput {
   }>;
 }
 
-export default function SceneEditor({ presetCategory, presetModuleType, onSaved, structuredMode, onSaveStructured, initial, fillHeight }: {
+export default function SceneEditor({ presetCategory, presetModuleType, onSaved, structuredMode, onSaveStructured, initial, fillHeight, headerLabel }: {
   presetCategory?: string; presetModuleType?: string; onSaved?: (dataUrl: string) => void;
   structuredMode?: boolean;
   onSaveStructured?: (data: StructuredSceneOutput) => void;
@@ -261,6 +261,11 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   // scroll条。父容器还是普通 block/space-y 布局(没有确定高度可分配)
   // 的老用法就不要传，保持默认 false，走 min-h-[70vh] 兜底，行为不变。
   fillHeight?: boolean;
+  // 外层想把自己的模块标题+说明文字（比如"拖拽游戏（位置版）· 内容设置
+  // 选背景图、加物件..."）直接塞进这个组件自带的工具条里、跟撤销/完成
+  // 按钮合用同一行，省掉外层自己再占一整行的空间——传了就替换掉默认的
+  // "🎨 场景编辑器"文字；不传的话行为不变。
+  headerLabel?: React.ReactNode;
 }) {
   // 贴纸游戏用独立的正方形坐标系统，不跟其他模块共用长方形的 GAME_CANVAS_W/H——
   // 上传的背景图很少天生是1100:700这种比例，硬套共享画布会导致背景被拉伸变形，
@@ -299,7 +304,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   );
   const [layers, setLayers] = useState<Layer[]>(() => {
     if (!initial) return [];
-    const objectLayers: ObjectLayer[] = initial.objects.map((o) => ({ id: uid(), type: "object", imageUrl: o.imageUrl, x: o.x, y: o.y, w: o.w, h: o.h, rotation: o.rotation, objectType: o.objectType ?? "", flipX: o.flipX, flipY: o.flipY, opacity: o.opacity }));
+    const objectLayers: ObjectLayer[] = initial.objects.map((o) => ({ id: uid(), type: "object", imageUrl: o.imageUrl, x: o.x, y: o.y, w: o.w, h: o.h, rotation: o.rotation, objectType: o.objectType ?? "", flipX: o.flipX, flipY: o.flipY, opacity: o.opacity, isTarget: o.isTarget }));
     const textLayers: TextLayer[] = initial.texts.map((t) => ({ id: uid(), type: "text", text: t.text, x: t.x, y: t.y, fontSize: t.fontSize, color: t.color, fontFamily: t.fontFamily, rotation: t.rotation, bold: t.bold, italic: t.italic, underline: t.underline }));
     const gridLayers: GridLayer[] = (initial.grids ?? []).map((g) => ({
       id: uid(), type: "grid", x: g.x, y: g.y, w: g.w, h: g.h, rotation: g.rotation,
@@ -947,6 +952,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
       const shapeNames: Record<string, string> = { rect: "方块", ellipse: "圆/椭圆", triangle: "三角形", line: "直线" };
       return `▦ ${shapeNames[l.shape] ?? "形状"}`;
     }
+    if (l.isTarget) return l.objectType ? `🎯 目标：${l.objectType}` : "🎯 目标物件（未标配对标记）";
     return l.objectType ? `🧸 ${l.objectType}` : "🧸 物件（未标类型）";
   }
 
@@ -956,6 +962,10 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
 
   function updateSelectedObjectType(objectType: string) {
     setLayers((ls) => ls.map((l) => (l.id === selectedId && l.type === "object" ? { ...l, objectType } : l)));
+  }
+
+  function updateSelectedIsTarget(isTarget: boolean) {
+    setLayers((ls) => ls.map((l) => (l.id === selectedId && l.type === "object" ? { ...l, isTarget } : l)));
   }
 
   // 改行数/列数——尽量保留原有格子的内容，缩小的话超出范围的格子直接
@@ -1023,7 +1033,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
 
   function handleSaveStructured() {
     const objects = layers.filter((l): l is ObjectLayer => l.type === "object")
-      .map((l) => ({ imageUrl: l.imageUrl, x: l.x, y: l.y, w: l.w, h: l.h, rotation: l.rotation ?? 0, objectType: l.objectType || undefined, flipX: l.flipX || undefined, flipY: l.flipY || undefined, opacity: l.opacity !== undefined && l.opacity !== 100 ? l.opacity : undefined }));
+      .map((l) => ({ imageUrl: l.imageUrl, x: l.x, y: l.y, w: l.w, h: l.h, rotation: l.rotation ?? 0, objectType: l.objectType || undefined, flipX: l.flipX || undefined, flipY: l.flipY || undefined, opacity: l.opacity !== undefined && l.opacity !== 100 ? l.opacity : undefined, isTarget: l.isTarget || undefined }));
     const texts = layers.filter((l): l is TextLayer => l.type === "text")
       .map((l) => ({ text: l.text, x: l.x, y: l.y, fontSize: l.fontSize, color: l.color, fontFamily: l.fontFamily, rotation: l.rotation ?? 0, bold: l.bold || undefined, italic: l.italic || undefined, underline: l.underline || undefined }));
     const grids = layers.filter((l): l is GridLayer => l.type === "grid")
@@ -1097,9 +1107,11 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   return (
     <div className={`w-full flex-1 bg-background border border-border rounded-xl overflow-hidden flex flex-col ${fillHeight ? "min-h-0" : "min-h-[70vh]"}`}>
       {/* ── 顶部条：标题 + 主操作按钮 ── */}
-      <div className="flex-shrink-0 flex items-center justify-between px-3 py-1.5 border-b border-border bg-card">
-        <span className="text-xs font-semibold text-foreground">🎨 场景编辑器</span>
-        <div className="flex items-center gap-1.5">
+      <div className="flex-shrink-0 flex items-center justify-between gap-2 px-3 py-1.5 border-b border-border bg-card">
+        <div className="flex-1 min-w-0">
+          {headerLabel ?? <span className="text-xs font-semibold text-foreground">🎨 场景编辑器</span>}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
           <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={undo} disabled={history.length === 0} title="撤销">↩️ 撤销</Button>
           {structuredMode
             ? <Button size="sm" className="h-7 px-2 text-xs" onClick={handleSaveStructured}>✅ 完成</Button>
@@ -1148,17 +1160,50 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
 
           {selectedLayer?.type === "object" && (
             <div className="space-y-3">
+              {structuredMode && presetModuleType === "drag_match" && (
+                <div>
+                  <Label>物件角色</Label>
+                  <div className="flex gap-2 mt-1">
+                    <button
+                      type="button" onClick={() => updateSelectedIsTarget(false)}
+                      className={`flex-1 px-2.5 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+                        !selectedLayer.isTarget ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground"
+                      }`}
+                    >
+                      🧲 被拖拽物件
+                    </button>
+                    <button
+                      type="button" onClick={() => updateSelectedIsTarget(true)}
+                      className={`flex-1 px-2.5 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+                        selectedLayer.isTarget ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground"
+                      }`}
+                    >
+                      🎯 目标物件
+                    </button>
+                  </div>
+                </div>
+              )}
               {structuredMode && (
                 <div>
-                  <Label>{presetModuleType === "line_match" ? "配对标记（选填）" : "物件类型（选填）"}</Label>
+                  <Label>
+                    {presetModuleType === "line_match" ? "配对标记（选填）"
+                      : presetModuleType === "drag_match" ? "配对标记"
+                      : "物件类型（选填）"}
+                  </Label>
                   <Input
                     value={selectedLayer.objectType ?? ""}
                     onChange={(e) => updateSelectedObjectType(e.target.value)}
-                    placeholder={presetModuleType === "line_match" ? "如：1（两边填一样的字就算一对）" : "如：苹果"}
+                    placeholder={
+                      presetModuleType === "line_match" ? "如：1（两边填一样的字就算一对）"
+                      : presetModuleType === "drag_match" ? (selectedLayer.isTarget ? "如：红色盒子（目标的标记要唯一）" : "如：红色盒子（跟要拖进去的目标填一样）")
+                      : "如：苹果"
+                    }
                   />
                   <p className="text-xs text-muted-foreground mt-1">
                     {presetModuleType === "line_match"
                       ? "要连在一起的两个物件，填一样的标记（比如都填「1」）——保存时会检查每个标记正好出现两次。"
+                      : presetModuleType === "drag_match"
+                      ? "「被拖拽物件」拖到标记相同的「目标物件」上才算对。同一个标记可以有多个被拖拽物件（多对一，比如分类），但目标物件同一个标记只能有1个，不然系统不知道该判给哪个。"
                       : "同一种物件用同一个名字标（比如都叫\"苹果\"），之后可以按类型出题（数一种，或几种加起来）。不标的话默认算总数。"}
                   </p>
                 </div>

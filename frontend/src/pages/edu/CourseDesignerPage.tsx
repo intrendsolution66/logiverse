@@ -8,7 +8,7 @@
 // existing scale instead of ad-hoc inline styles.
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Move, Boxes, Rows3, Eye, RotateCw, Hammer, Frame, Square, Clock, Grid2x2, PenLine, X, CheckSquare, PencilLine, Search, ListOrdered, TreePine, Scale, Plus, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
+import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Move, Magnet, Boxes, Rows3, Eye, RotateCw, Hammer, Frame, Square, Clock, Grid2x2, PenLine, X, CheckSquare, PencilLine, Search, ListOrdered, TreePine, Scale, Plus, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { eduApi, lessonsApi, exerciseClassificationApi, taxonomyApi } from "@/api";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
@@ -57,6 +57,7 @@ const MODULE_LABELS: Record<string, { emoji: string; label: string }> = {
   play_along:   { emoji: "🎼", label: "跟弹练习" },
   sticker_game: { emoji: "🏷️", label: "贴纸游戏" },
   drag_drop:    { emoji: "🧩", label: "拖拽游戏（位置版）" },
+  drag_match:   { emoji: "🧲", label: "拖拽配对" },
   cube_stack:   { emoji: "🧊", label: "立体方块计数" },
   cube_layer_count: { emoji: "🧱", label: "立体方块-逐层计数" },
   cube_find_hidden: { emoji: "🕵️", label: "立体方块-找隐藏方块" },
@@ -96,6 +97,7 @@ const MODULE_COLORS: Record<string, { bg: string; text: string; ring: string }> 
   play_along:    { bg: "#FDF4FF", text: "#A21CAF", ring: "#D946EF" },
   sticker_game:  { bg: "#FEF9C3", text: "#854D0E", ring: "#EAB308" },
   drag_drop:     { bg: "#E9D5FF", text: "#6B21A8", ring: "#A855F7" },
+  drag_match:    { bg: "#FEE2E2", text: "#991B1B", ring: "#F87171" },
   cube_stack:    { bg: "#E7E5E4", text: "#44403C", ring: "#78716C" },
   cube_layer_count: { bg: "#FFEDD5", text: "#9A3412", ring: "#FB923C" },
   cube_find_hidden: { bg: "#E0E7FF", text: "#3730A3", ring: "#818CF8" },
@@ -123,7 +125,7 @@ const MODULE_ICONS: Record<string, LucideIcon> = {
   counting: Hash, spot_diff: ScanSearch, focus_tap: Target, memory: Layers,
   pattern: Puzzle, word_problem: FileText, maze: Route, number_maze: GitBranch, sudoku: Grid3x3,
   line_match: Link2, coloring: Palette, ppt_lecture: Presentation, video_lecture: Film,
-  play_along: Music2, sticker_game: Sticker, drag_drop: Move, cube_stack: Boxes,
+  play_along: Music2, sticker_game: Sticker, drag_drop: Move, drag_match: Magnet, cube_stack: Boxes,
   cube_layer_count: Rows3, cube_find_hidden: Eye, cube_free_rotate: RotateCw,
   cube_build: Hammer, cube_three_view: Frame, shape_count: Square, clock: Clock, latin_square: Grid2x2,
   number_find: Search, number_sequence: ListOrdered, number_bond: TreePine, number_compare: Scale, number_addition: Plus,
@@ -2169,7 +2171,7 @@ function PlayAlongMarkerEditor({ pages, audioUrl, markers, setMarkers, currentPa
 // 里用 typeof moduleType 反过来引用它自己（TS 处理不了这种循环引用，
 // 会报 "implicitly has type any"）。这两个地方（下面 useState 的初始值、
 // presetModuleType 转型）都要用这个命名类型，不要图省事写 typeof。
-type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game" | "drag_drop" | "cube_stack" | "cube_layer_count" | "cube_find_hidden" | "cube_free_rotate" | "cube_build" | "cube_three_view" | "shape_count" | "clock" | "latin_square" | "number_find" | "number_sequence" | "number_bond" | "number_compare" | "number_addition" | "chinese_stroke" | "multiple_choice" | "fill_blank";
+type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game" | "drag_drop" | "drag_match" | "cube_stack" | "cube_layer_count" | "cube_find_hidden" | "cube_free_rotate" | "cube_build" | "cube_three_view" | "shape_count" | "clock" | "latin_square" | "number_find" | "number_sequence" | "number_bond" | "number_compare" | "number_addition" | "chinese_stroke" | "multiple_choice" | "fill_blank";
 
 function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleType }: {
   open: boolean; onClose: () => void; editingLevelId?: string | null; onSaved: () => void;
@@ -2369,7 +2371,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   // 数独）共用同一个"自定义题目句子"栏位——一次只编辑一个 Activity，共用
   // 一个 state 就够了，不用给每个模块各开一个。counting 自己已经有独立的
   // 一套（上面那个 countingQuestionText），这里不重复。
-  const CUSTOM_QUESTION_MODULES = ["spot_diff", "focus_tap", "memory", "pattern", "maze", "coloring", "line_match", "sudoku", "shape_count", "number_find"];
+  const CUSTOM_QUESTION_MODULES = ["spot_diff", "focus_tap", "memory", "pattern", "maze", "coloring", "line_match", "drag_match", "sudoku", "shape_count", "number_find"];
   const [customQuestionText, setCustomQuestionText] = useState("");
 
   // focus_tap fields (grid mode only for now)
@@ -2472,6 +2474,16 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   // 对应"一组可以超过两个成员"这个需求）。
   const [lineMatchLayout, setLineMatchLayout] = useState<"list" | "scene">("list");
   const [lineMatchScene, setLineMatchScene] = useState<StructuredSceneOutput | null>(null);
+
+  // drag_match（拖拽配对）——跟line_match的"scene"布局同一个思路：背景图+
+  // 自由摆放物件，复用SceneEditor structuredMode，配对标记也是同一个
+  // objectType字段。区别在于line_match是"同标记互相连线"（对称、双向），
+  // drag_match是"被拖拽物件 → 目标物件"（有方向），所以SceneEditor那边
+  // 每个物件多一个isTarget标记区分"这是目标"还是"这是要拖的东西"。
+  // 支持一对一和多对一：多个"被拖拽物件"可以共用同一个配对标记指向同
+  // 一个目标；但同一个标记只能有一个"目标物件"，不然拖过去的时候不知道
+  // 该判给哪个目标——这条在保存时会校验。
+  const [dragMatchScene, setDragMatchScene] = useState<StructuredSceneOutput | null>(null);
 
   // ppt_lecture / video_lecture fields — 讲义类，不是游戏，没有对错判断。
   // 字段名直接对齐 courses.controller.ts 实际存的 config 形状：
@@ -2819,6 +2831,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       setLineMatchRightItems([{ id: uid(), type: "text", content: "" }]);
       setLineMatchEdges([]); setLineMatchConnectFrom(null); setLineMatchShuffleRight(true);
       setLineMatchLayout("list"); setLineMatchScene(null);
+      setDragMatchScene(null);
       setPptSlideUrls([]); setPptOriginalFilename(""); setVideoUrl(null); setVideoPosterUrl(null);
       setPaSheetUrls([]); setPaOriginalFilename(""); setPaAudioUrl(null); setPaMarkers([]); setPaEditorPage(0); setPaOriginalBpm(120);
       setColoringBgUrl(null); setColoringRegions([]); setColoringMaskDataUrl(null);
@@ -3205,6 +3218,19 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           }
         }
         setLineMatchShuffleRight((cfg.shuffle_right as boolean) ?? true);
+      } else if (level.module_type === "drag_match") {
+        const objs = (cfg.objects as Array<{ image_url: string; x: number; y: number; w: number; h: number; rotation: number; pair_key?: string; is_target?: boolean; flip_x?: boolean; flip_y?: boolean; opacity?: number }>) ?? [];
+        setDragMatchScene({
+          bgUrl: (cfg.bg_image_url as string) ?? null,
+          objects: objs.map((o) => ({
+            imageUrl: o.image_url,
+            x: o.x * GAME_CANVAS_W, y: o.y * GAME_CANVAS_H,
+            w: o.w * GAME_CANVAS_W, h: o.h * GAME_CANVAS_H,
+            rotation: o.rotation, objectType: o.pair_key ?? "", isTarget: o.is_target,
+            flipX: o.flip_x, flipY: o.flip_y, opacity: o.opacity,
+          })),
+          texts: [],
+        });
       } else if (level.module_type === "ppt_lecture") {
         setPptSlideUrls((cfg.slide_image_urls as string[]) ?? []);
         setPptOriginalFilename((cfg.original_filename as string) ?? "");
@@ -3832,6 +3858,44 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             },
           });
         }
+      } else if (moduleType === "drag_match") { // 拖拽配对——跟line_match的scene布局很像，区别是有方向：被拖拽物件要拖进标记相同的目标物件
+        if (!dragMatchScene || dragMatchScene.objects.length === 0) { toast.error("请先在编辑器里摆好物件"); return; }
+        const untagged = dragMatchScene.objects.some((o) => !(o.objectType ?? "").trim());
+        if (untagged) { toast.error("每个物件都要填「配对标记」，不能留空"); return; }
+        const targets = dragMatchScene.objects.filter((o) => o.isTarget);
+        const draggables = dragMatchScene.objects.filter((o) => !o.isTarget);
+        if (targets.length === 0) { toast.error("至少要有1个「目标物件」——选中物件后在右边属性面板里切换"); return; }
+        if (draggables.length === 0) { toast.error("至少要有1个「被拖拽物件」——选中物件后在右边属性面板里切换"); return; }
+        const targetKeyCounts = new Map<string, number>();
+        targets.forEach((o) => { const k = o.objectType!.trim(); targetKeyCounts.set(k, (targetKeyCounts.get(k) ?? 0) + 1); });
+        const dupTargetKeys = [...targetKeyCounts.entries()].filter(([, c]) => c > 1).map(([k]) => k);
+        if (dupTargetKeys.length > 0) { toast.error(`目标物件的配对标记「${dupTargetKeys.join("、")}」重复了——同一个标记只能有1个目标物件，不然系统不知道该判给哪个`); return; }
+        const orphanKeys = [...new Set(draggables.map((o) => o.objectType!.trim()))].filter((k) => !targetKeyCounts.has(k));
+        if (orphanKeys.length > 0) { toast.error(`配对标记「${orphanKeys.join("、")}」没有对应的目标物件——被拖拽物件的标记必须跟某个目标物件一致`); return; }
+        await saveLevel({
+          module_type: "drag_match",
+          title_i18n: { zh: levelTitle || "拖拽配对", en: levelTitle || "Drag Match" },
+          explanation_text: explanationText || undefined,
+          explanation_image_url: explanationImageUrl || undefined,
+          explanation_video_url: explanationVideoUrl || undefined,
+
+          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: {
+            bg_image_url: dragMatchScene.bgUrl,
+            objects: dragMatchScene.objects.map((o) => ({
+              image_url: o.imageUrl,
+              x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H,
+              w: o.w / GAME_CANVAS_W, h: o.h / GAME_CANVAS_H,
+              rotation: o.rotation, pair_key: o.objectType, is_target: o.isTarget || undefined,
+              flip_x: o.flipX || undefined, flip_y: o.flipY || undefined,
+              opacity: o.opacity,
+            })),
+            timer_mode: "stopwatch",
+            question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+          },
+        });
       } else if (moduleType === "ppt_lecture") { // 讲义类，不是游戏：一份转好的幻灯片图片清单，没有对错判断
         if (pptSlideUrls.length === 0) { toast.error("请先上传并转换 PPT，至少要有1页幻灯片"); return; }
         await saveLevel({
@@ -4103,27 +4167,32 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={editingLevelId ? "编辑 Activity" : "加 Activity"} size="screen">
+    <Modal open={open} onClose={onClose} size="screen">
       <div className="h-full flex flex-col space-y-2">
-        <div className="flex-shrink-0 flex gap-1.5 bg-muted/50 p-1 rounded-lg">
-          {([
-            ["basic", Info, "基本信息"],
-            ["classification", Tags, "分类"],
-            ["content", SlidersHorizontal, "内容设置"],
-            ["properties", Sparkles, "属性"],
-            ["hints", MessageSquareText, "提示与讲解"],
-          ] as [TabKey, LucideIcon, string][]).map(([key, Icon, label]) => (
-            <button
-              key={key} type="button" onClick={() => setActiveTab(key)}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all ${
-                activeTab === key ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
-              style={activeTab === key ? { boxShadow: "0 1px 3px rgba(0,0,0,0.08)" } : undefined}
-            >
-              <Icon size={13} strokeWidth={2} className={activeTab === key ? "text-primary" : ""} />
-              {label}
-            </button>
-          ))}
+        <div className="flex-shrink-0 flex items-center gap-2">
+          <div className="flex-1 flex gap-1.5 bg-muted/50 p-1 rounded-lg">
+            {([
+              ["basic", Info, "基本信息"],
+              ["classification", Tags, "分类"],
+              ["content", SlidersHorizontal, "内容设置"],
+              ["properties", Sparkles, "属性"],
+              ["hints", MessageSquareText, "提示与讲解"],
+            ] as [TabKey, LucideIcon, string][]).map(([key, Icon, label]) => (
+              <button
+                key={key} type="button" onClick={() => setActiveTab(key)}
+                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                  activeTab === key ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+                style={activeTab === key ? { boxShadow: "0 1px 3px rgba(0,0,0,0.08)" } : undefined}
+              >
+                <Icon size={13} strokeWidth={2} className={activeTab === key ? "text-primary" : ""} />
+                {label}
+              </button>
+            ))}
+          </div>
+          <button type="button" onClick={onClose} title="关闭" className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
+            <X size={16} />
+          </button>
         </div>
 
         {/* 分类：确定这个 Activity 属于哪个 Programme → Subject → Topic——
@@ -4284,18 +4353,18 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               </div>
             ) : (
               <div className="flex-1 min-h-0 flex flex-col space-y-2">
-                <p
-                  className="flex-shrink-0 text-[11px] leading-snug text-muted-foreground/80 truncate"
-                  title="选背景图、加物件（可以从素材库选，也可以直接上传——每次加的物件图片可以都不一样，数量不限），拖到想要的位置，还能旋转、缩放。加了几个物件，答案就是几个；文字是装饰用的，不算进答案里。"
-                >
-                  选背景图、加物件，拖到想要的位置，还能旋转、缩放。加了几个物件答案就是几个；文字是装饰用的，不算进答案。
-                </p>
-                <div className="flex-1 min-h-0">
-                  <SceneEditor
-                    structuredMode fillHeight presetModuleType="counting"
-                    onSaveStructured={setCountingScene} initial={countingScene ?? undefined}
-                  />
-                </div>
+                <SceneEditor
+                  structuredMode fillHeight presetModuleType="counting"
+                  headerLabel={
+                    <span
+                      className="text-[10px] leading-tight text-muted-foreground/80 truncate block"
+                      title="选背景图、加物件（可以从素材库选，也可以直接上传——每次加的物件图片可以都不一样，数量不限），拖到想要的位置，还能旋转、缩放。加了几个物件，答案就是几个；文字是装饰用的，不算进答案里。"
+                    >
+                      选背景图、加物件，拖到想要的位置，还能旋转、缩放。加了几个物件答案就是几个；文字是装饰用的，不算进答案。
+                    </span>
+                  }
+                  onSaveStructured={setCountingScene} initial={countingScene ?? undefined}
+                />
                 {countingScene && (
   <div className="flex-shrink-0 space-y-1.5 max-h-40 overflow-y-auto">
     <p className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1">✓ 场景已确认（{countingScene.objects.length} 个物件），可以点上面"完成"重新调整</p>
@@ -5465,20 +5534,20 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
 
         {moduleType === "sticker_game" && activeTab === "content" && (
           <div className="flex-1 min-h-0 flex flex-col">
-            <div className="flex-shrink-0 flex items-center gap-2 mb-1">
-              <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground shrink-0">
-                <Sticker size={14} className="text-primary" /> 贴纸游戏 · 内容设置
-              </span>
-              <span className="flex-1 min-w-0 text-[10px] leading-tight text-muted-foreground/80 truncate">
-                选背景图、加贴纸物件，拖到"正确位置"摆好即为答案；学生玩时贴纸会被打乱，要拖回原位。
-              </span>
-            </div>
-            <div className="flex-1 min-h-0">
-              <SceneEditor
-                structuredMode fillHeight presetModuleType="sticker_game"
-                onSaveStructured={(data) => { setStickerScene(data); setActiveTab("basic"); }} initial={stickerScene ?? undefined}
-              />
-            </div>
+            <SceneEditor
+              structuredMode fillHeight presetModuleType="sticker_game"
+              headerLabel={
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground shrink-0">
+                    <Sticker size={14} className="text-primary" /> 贴纸游戏
+                  </span>
+                  <span className="flex-1 min-w-0 text-[10px] leading-tight text-muted-foreground/80 truncate">
+                    选背景图、加贴纸物件，拖到"正确位置"摆好即为答案；学生玩时贴纸会被打乱，要拖回原位。
+                  </span>
+                </div>
+              }
+              onSaveStructured={(data) => { setStickerScene(data); setActiveTab("basic"); }} initial={stickerScene ?? undefined}
+            />
             {stickerScene && (
               <p className="flex-shrink-0 text-xs text-emerald-600 dark:text-emerald-400 mt-1.5">✓ 已摆 {stickerScene.objects.length} 个贴纸，可以点上面"完成"重新调整</p>
             )}
@@ -5487,26 +5556,57 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
 
         {moduleType === "drag_drop" && activeTab === "content" && (
           <div className="flex-1 min-h-0 flex flex-col">
-            <div className="flex-shrink-0 flex items-center gap-2 mb-1">
-              <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground shrink-0">
-                <Move size={14} className="text-primary" /> 拖拽游戏（位置版）· 内容设置
-              </span>
-              <span
-                className="flex-1 min-w-0 text-[10px] leading-tight text-muted-foreground/80 truncate"
-                title={`统一拖拽引擎的第一种玩法——选背景图、加物件，拖到"正确的位置"摆好，这个位置就是答案。学生玩的时候，物件会被打乱塞进旁边的物件盘，要一个个拖回你摆的这个位置上。\n💡 跟"贴纸游戏"用的是同一套引擎（画布坐标系统也共用，别改presetModuleType）——以后这里会陆续加入拖拽排序、拖到分类框、拖词块填空这几种新玩法。`}
-              >
-                选背景图、加物件，拖到"正确位置"摆好即为答案；学生玩时物件会被打乱，要拖回原位。
-              </span>
-            </div>
-            <div className="flex-1 min-h-0">
-              <SceneEditor
-                structuredMode fillHeight presetModuleType="sticker_game"
-                onSaveStructured={(data) => { setStickerScene(data); setActiveTab("basic"); }} initial={stickerScene ?? undefined}
-              />
-            </div>
+            <SceneEditor
+              structuredMode fillHeight presetModuleType="drag_drop"
+              headerLabel={
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground shrink-0">
+                    <Move size={14} className="text-primary" /> 拖拽游戏（位置版）
+                  </span>
+                  <span
+                    className="flex-1 min-w-0 text-[10px] leading-tight text-muted-foreground/80 truncate"
+                    title={`统一拖拽引擎的第一种玩法——选背景图、加物件，拖到"正确的位置"摆好，这个位置就是答案。学生玩的时候，物件会被打乱塞进旁边的物件盘，要一个个拖回你摆的这个位置上。\n💡 跟"贴纸游戏"用的是同一套引擎（画布坐标系统也共用，别改presetModuleType）——以后这里会陆续加入拖拽排序、拖到分类框、拖词块填空这几种新玩法。`}
+                  >
+                    选背景图、加物件，拖到"正确位置"摆好即为答案；学生玩时物件会被打乱，要拖回原位。
+                  </span>
+                </div>
+              }
+              onSaveStructured={(data) => { setStickerScene(data); setActiveTab("basic"); }} initial={stickerScene ?? undefined}
+            />
             {stickerScene && (
               <p className="flex-shrink-0 text-xs text-emerald-600 dark:text-emerald-400 mt-1.5">✓ 已摆 {stickerScene.objects.length} 个物件，可以点上面"完成"重新调整</p>
             )}
+          </div>
+        )}
+
+        {moduleType === "drag_match" && activeTab === "content" && (
+          <div className="flex-1 min-h-0 flex flex-col">
+            <SceneEditor
+              structuredMode fillHeight presetModuleType="drag_match"
+              headerLabel={
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground shrink-0">
+                    <Magnet size={14} className="text-primary" /> 拖拽配对
+                  </span>
+                  <span
+                    className="flex-1 min-w-0 text-[10px] leading-tight text-muted-foreground/80 truncate"
+                    title={`跟"连线配对"是同一个思路，只是把"画线"换成"拖拽"——选背景图、加物件，每个物件要么是"被拖拽物件"要么是"目标物件"（选中物件后在右边属性面板切换），再给要配成一对的两边填一样的「配对标记」。学生玩的时候把"被拖拽物件"拖到标记相同的"目标物件"上就算对。一个标记可以有多个被拖拽物件（多对一，比如分类归类），但目标物件同一个标记只能有1个。`}
+                  >
+                    选背景图、加物件，标记谁是"被拖拽物件"谁是"目标物件"，标记相同的一对拖对了就算对；一个目标可以配多个被拖拽物件。
+                  </span>
+                </div>
+              }
+              onSaveStructured={(data) => { setDragMatchScene(data); setActiveTab("basic"); }} initial={dragMatchScene ?? undefined}
+            />
+            {dragMatchScene && (() => {
+              const targetCount = dragMatchScene.objects.filter((o) => o.isTarget).length;
+              const dragCount = dragMatchScene.objects.length - targetCount;
+              return (
+                <p className="flex-shrink-0 text-xs text-emerald-600 dark:text-emerald-400 mt-1.5">
+                  ✓ 已摆 {targetCount} 个目标物件、{dragCount} 个被拖拽物件，可以点上面"完成"重新调整（保存前会自动检查配对标记是否齐全）
+                </p>
+              );
+            })()}
           </div>
         )}
 
