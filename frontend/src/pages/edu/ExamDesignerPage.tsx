@@ -945,14 +945,22 @@ function QuestionBankTab() {
         </div>
       </div>
 
-      {showAdd && (
-        <AddBankQuestionForm
-          editing={editingItem}
-          onDone={() => { setShowAdd(false); setEditingItem(null); load(); }}
-          onCancel={() => { setShowAdd(false); setEditingItem(null); }}
-        />
-      )}
-      {showImport && <ImportFromActivityForm onDone={() => { setShowImport(false); load(); }} onCancel={() => setShowImport(false)} />}
+      <Modal
+        open={showAdd}
+        onClose={() => { setShowAdd(false); setEditingItem(null); }}
+        size="screen" modal={false}
+      >
+        {showAdd && (
+          <AddBankQuestionForm
+            editing={editingItem}
+            onDone={() => { setShowAdd(false); setEditingItem(null); load(); }}
+            onCancel={() => { setShowAdd(false); setEditingItem(null); }}
+          />
+        )}
+      </Modal>
+      <Modal open={showImport} onClose={() => setShowImport(false)} size="screen" modal={false}>
+        {showImport && <ImportFromActivityForm onDone={() => { setShowImport(false); load(); }} onCancel={() => setShowImport(false)} />}
+      </Modal>
 
       {loading ? (
         <p className="text-sm text-muted-foreground">{t("exam.loading")}</p>
@@ -1041,7 +1049,17 @@ function ImportFromActivityForm({ onDone, onCancel }: { onDone: () => void; onCa
   }
 
   return (
-    <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4">
+    <div className="h-full flex flex-col">
+      <div className="flex-shrink-0 flex items-center gap-2 pb-2 mb-2 border-b border-border">
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground shrink-0">
+          <FileText size={14} className="text-primary" /> {t("examDesigner.bank.importFromActivity")}
+        </span>
+        <div className="flex-1" />
+        <Button size="sm" onClick={handleImport} disabled={importing}>{importing ? t("examDesigner.importForm.importing") : t("examDesigner.importForm.import")}</Button>
+        <Button size="sm" variant="outline" onClick={onCancel}>{t("examDesigner.form.cancel")}</Button>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
       {(moduleType === "sudoku" || moduleType === "sticker_game") && (
         <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
           {t("examDesigner.importForm.safetyNoticeBase")}
@@ -1090,10 +1108,6 @@ function ImportFromActivityForm({ onDone, onCancel }: { onDone: () => void; onCa
           {existingCategories.map((c) => <option key={c} value={c} />)}
         </datalist>
       </div>
-
-      <div className="flex gap-2 pt-2">
-        <Button onClick={handleImport} disabled={importing}>{importing ? t("examDesigner.importForm.importing") : t("examDesigner.importForm.import")}</Button>
-        <Button variant="outline" onClick={onCancel}>{t("examDesigner.form.cancel")}</Button>
       </div>
     </div>
   );
@@ -1225,26 +1239,35 @@ function AddBankQuestionForm({ editing, onDone, onCancel }: { editing?: ExamQues
   }
 
   return (
-    <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4">
-      <div>
-        <Label>{t("examDesigner.bank.categoryLabelBank")}</Label>
-        <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder={t("examDesigner.bank.categoryPlaceholder")} />
+    <div className="h-full flex flex-col">
+      <div className="flex-shrink-0 flex items-center gap-2 flex-wrap pb-2 mb-2 border-b border-border">
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground shrink-0">
+          <PencilLine size={14} className="text-primary" /> {isEditing ? t("examDesigner.form.submitSave") : t("examDesigner.bank.addToBank")}
+        </span>
+        <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder={t("examDesigner.bank.categoryPlaceholder")} className="h-7 text-xs w-40" />
+        <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
+          {(["multiple_choice", "fill_blank", "coloring", "drag_drop"] as const).map((qt) => (
+            <button key={qt} onClick={() => setQType(qt)} className={`px-2.5 py-1 rounded-md text-xs font-medium ${qType === qt ? "bg-white shadow-sm" : "text-muted-foreground"}`}>
+              {qt === "multiple_choice" ? t("examDesigner.form.typeMC") : qt === "fill_blank" ? t("examDesigner.form.typeFB") : qt === "coloring" ? t("examDesigner.form.typeColoring") : t("examDesigner.form.typeDragDrop")}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1" />
+        <Button size="sm" onClick={handleSubmit}>{isEditing ? t("examDesigner.form.submitSave") : t("examDesigner.bank.addToBank")}</Button>
+        <Button size="sm" variant="outline" onClick={onCancel}>{t("examDesigner.form.cancel")}</Button>
       </div>
-      <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
-        {(["multiple_choice", "fill_blank", "coloring", "drag_drop"] as const).map((qt) => (
-          <button key={qt} onClick={() => setQType(qt)} className={`px-3 py-1.5 rounded-md text-xs font-medium ${qType === qt ? "bg-white shadow-sm" : "text-muted-foreground"}`}>
-            {qt === "multiple_choice" ? t("examDesigner.form.typeMC") : qt === "fill_blank" ? t("examDesigner.form.typeFB") : qt === "coloring" ? t("examDesigner.form.typeColoring") : t("examDesigner.form.typeDragDrop")}
-          </button>
-        ))}
-      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
       {qType === "coloring" && <ColoringQuestionEditor initial={coloringConfig ?? undefined} onChange={setColoringConfig} />}
       {qType === "drag_drop" && (
         <div className="space-y-2">
-          <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
-            选背景图、加物件，拖到"正确的位置"摆好。考试作答时学生看不到任何提示框，要自己判断该放哪，全部摆完才能交卷。
-          </p>
           <SceneEditor
             structuredMode presetModuleType="sticker_game"
+            headerLabel={
+              <span className="text-[10px] leading-tight text-muted-foreground/80 truncate block">
+                选背景图、加物件，拖到"正确的位置"摆好。考试作答时学生看不到任何提示框，全部摆完才能交卷。
+              </span>
+            }
             onSaveStructured={setDragDropScene} initial={dragDropScene ?? undefined}
           />
           {dragDropScene && (
@@ -1337,11 +1360,9 @@ function AddBankQuestionForm({ editing, onDone, onCancel }: { editing?: ExamQues
               </div>
             );
           })()}
-        </>
+      </>
       ))}
-      <div className="flex gap-2 pt-2">
-        <Button onClick={handleSubmit}>{isEditing ? t("examDesigner.form.submitSave") : t("examDesigner.bank.addToBank")}</Button>
-        <Button variant="outline" onClick={onCancel}>{t("examDesigner.form.cancel")}</Button>
+
       </div>
     </div>
   );
