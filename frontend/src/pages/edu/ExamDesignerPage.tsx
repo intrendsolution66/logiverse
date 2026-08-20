@@ -16,7 +16,8 @@ import { useTranslation } from "react-i18next";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/index";
-import { CheckSquare, PencilLine, X, Plus, FileText, Users, Trophy, Download, Trash2 } from "lucide-react";
+import { Modal } from "@/components/ui/modal";
+import { CheckSquare, PencilLine, X, Plus, FileText, Users, Trophy, Download, Trash2, Info, Layers } from "lucide-react";
 import { examApi, adminUsersApi, type ExamPaper, type ExamPaperQuestion, type ExamQuestionBankItem } from "@/api";
 import ColoringQuestionEditor from "@/components/ColoringQuestionEditor";
 import SceneEditor, { type StructuredSceneOutput } from "@/components/SceneEditor";
@@ -57,10 +58,6 @@ export default function ExamDesignerPage() {
       await loadPapers();
       setEditingPaperId(paper.id);
     } catch (err) { toast.error(t("examDesigner.createFailed")); }
-  }
-
-  if (editingPaperId) {
-    return <ExamPaperEditor paperId={editingPaperId} onBack={() => { setEditingPaperId(null); loadPapers(); }} />;
   }
 
   return (
@@ -113,6 +110,16 @@ export default function ExamDesignerPage() {
           ))}
         </div>
       )}
+
+      {/* 试卷编辑器——原本是把整个列表页换成编辑器页面(state切换整页内容)，
+          现在改成跟Activities一样的近全屏Modal弹窗，体验统一：列表页始终
+          在背后，关掉弹窗直接回到列表，不用"返回"再等一次列表重新加载
+          渲染的跳转感。*/}
+      <Modal open={!!editingPaperId} onClose={() => { setEditingPaperId(null); loadPapers(); }} size="screen">
+        {editingPaperId && (
+          <ExamPaperEditor paperId={editingPaperId} onBack={() => { setEditingPaperId(null); loadPapers(); }} />
+        )}
+      </Modal>
     </div>
   );
 }
@@ -180,21 +187,49 @@ function ExamPaperEditor({ paperId, onBack }: { paperId: string; onBack: () => v
     }
   }
 
-  if (loading || !paper) return <div className="max-w-4xl mx-auto py-8 px-4"><p className="text-sm text-muted-foreground">{t("exam.loading")}</p></div>;
+  if (loading || !paper) return <div className="h-full flex items-center justify-center"><p className="text-sm text-muted-foreground">{t("exam.loading")}</p></div>;
 
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <button onClick={onBack} className="text-sm text-muted-foreground hover:text-foreground">{t("examDesigner.backToList")}</button>
-          <h1 className="text-xl font-bold text-foreground">{paper.title_i18n?.zh || paper.title_i18n?.en}</h1>
-          <span className={`text-xs px-2 py-0.5 rounded-full ${
+    <div className="h-full flex flex-col space-y-2">
+      <div className="flex-shrink-0 flex items-center gap-2">
+        <div
+          className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md bg-muted/50 text-muted-foreground"
+          title="编辑试卷"
+        >
+          <FileText size={14} />
+        </div>
+        <div className="flex-1 flex gap-1.5 bg-muted/50 p-1 rounded-lg overflow-x-auto">
+          {([
+            ["basic", Info, t("examDesigner.tabs.basic")],
+            ["questions", CheckSquare, t("examDesigner.tabs.questions", { n: paper.questions.length })],
+            ["bank", Layers, t("examDesigner.tabs.bank")],
+            ["students", Users, t("examDesigner.tabs.students")],
+            ["leaderboard", Trophy, t("examDesigner.leaderboard.tabLabel")],
+          ] as const).map(([key, Icon, label]) => (
+            <button
+              key={key} onClick={() => setTab(key)}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all whitespace-nowrap ${tab === key ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              <Icon size={13} strokeWidth={2} className={tab === key ? "text-primary" : ""} />
+              {label}
+            </button>
+          ))}
+        </div>
+        <button type="button" onClick={onBack} title="关闭" className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
+          <X size={16} />
+        </button>
+      </div>
+
+      <div className="flex-shrink-0 flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <h1 className="text-sm font-semibold text-foreground truncate">{paper.title_i18n?.zh || paper.title_i18n?.en}</h1>
+          <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${
             paper.status === "published" ? "bg-emerald-100 text-emerald-700" : paper.status === "closed" ? "bg-gray-100 text-gray-600" : "bg-amber-100 text-amber-700"
           }`}>
             {paper.status === "published" ? t("examDesigner.status.published") : paper.status === "closed" ? t("examDesigner.status.closed") : t("examDesigner.status.draft")}
           </span>
         </div>
-        <div className="flex gap-2 relative">
+        <div className="flex gap-1.5 relative shrink-0">
           <Button variant="outline" size="sm" onClick={() => window.open(`/exam-preview/${paper.id}`, "_blank")}>{t("examDesigner.tryPreview")}</Button>
           <Button variant="outline" size="sm" onClick={() => setShowPdfLangPicker((v) => !v)}><Download size={14} className="mr-1" /> {t("examDesigner.downloadPdf")}</Button>
           {showPdfLangPicker && (
@@ -210,24 +245,13 @@ function ExamPaperEditor({ paperId, onBack }: { paperId: string; onBack: () => v
         </div>
       </div>
 
-      <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit mb-6">
-        {([
-          ["basic", t("examDesigner.tabs.basic")], ["questions", t("examDesigner.tabs.questions", { n: paper.questions.length })], ["bank", t("examDesigner.tabs.bank")], ["students", t("examDesigner.tabs.students")], ["leaderboard", t("examDesigner.leaderboard.tabLabel")],
-        ] as const).map(([key, label]) => (
-          <button
-            key={key} onClick={() => setTab(key)}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${tab === key ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {tab === "basic" && <BasicInfoTab paper={paper} onSaved={load} />}
+        {tab === "questions" && <QuestionsTab paper={paper} onChanged={load} />}
+        {tab === "bank" && <QuestionBankTab />}
+        {tab === "students" && <StudentsTab paperId={paperId} />}
+        {tab === "leaderboard" && <LeaderboardTab paperId={paperId} />}
       </div>
-
-      {tab === "basic" && <BasicInfoTab paper={paper} onSaved={load} />}
-      {tab === "questions" && <QuestionsTab paper={paper} onChanged={load} />}
-      {tab === "bank" && <QuestionBankTab />}
-      {tab === "students" && <StudentsTab paperId={paperId} />}
-      {tab === "leaderboard" && <LeaderboardTab paperId={paperId} />}
     </div>
   );
 }
@@ -475,27 +499,44 @@ function QuestionsTab({ paper, onChanged }: { paper: ExamPaper & { questions: Ex
         )}
       </div>
 
-      {!locked && !showAddForm && (
+      {!locked && (
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => { setEditingQuestion(null); setShowAddForm("fixed"); }}><Plus size={14} className="mr-1" /> {t("examDesigner.questions.addFixed")}</Button>
           <Button variant="outline" onClick={() => { setEditingQuestion(null); setShowAddForm("random"); }}><Plus size={14} className="mr-1" /> {t("examDesigner.questions.addRandom")}</Button>
         </div>
       )}
 
-      {showAddForm === "fixed" && (
-        <AddFixedQuestionForm
-          paperId={paper.id} editing={editingQuestion}
-          onDone={() => { setShowAddForm(null); setEditingQuestion(null); onChanged(); }}
-          onCancel={() => { setShowAddForm(null); setEditingQuestion(null); }}
-        />
-      )}
-      {showAddForm === "random" && (
-        <AddRandomSlotForm
-          paperId={paper.id} editing={editingQuestion}
-          onDone={() => { setShowAddForm(null); setEditingQuestion(null); onChanged(); }}
-          onCancel={() => { setShowAddForm(null); setEditingQuestion(null); }}
-        />
-      )}
+      {/* 单题编辑——原本是往题目列表下面直接追加一段表单(inline)，现在
+          改成跟Activities一样的近全屏Modal弹窗浮层。modal={false}是因为
+          这层弹窗嵌套在ExamPaperEditor那层Modal里面，要用Radix官方推荐
+          的嵌套Dialog写法（关掉这一层自己的焦点锁定/指针拦截），不然
+          两层Modal会互相打架，见modal.tsx里的注释。 */}
+      <Modal
+        open={showAddForm === "fixed"}
+        onClose={() => { setShowAddForm(null); setEditingQuestion(null); }}
+        size="screen" modal={false}
+      >
+        {showAddForm === "fixed" && (
+          <AddFixedQuestionForm
+            paperId={paper.id} editing={editingQuestion}
+            onDone={() => { setShowAddForm(null); setEditingQuestion(null); onChanged(); }}
+            onCancel={() => { setShowAddForm(null); setEditingQuestion(null); }}
+          />
+        )}
+      </Modal>
+      <Modal
+        open={showAddForm === "random"}
+        onClose={() => { setShowAddForm(null); setEditingQuestion(null); }}
+        size="screen" modal={false}
+      >
+        {showAddForm === "random" && (
+          <AddRandomSlotForm
+            paperId={paper.id} editing={editingQuestion}
+            onDone={() => { setShowAddForm(null); setEditingQuestion(null); onChanged(); }}
+            onCancel={() => { setShowAddForm(null); setEditingQuestion(null); }}
+          />
+        )}
+      </Modal>
     </div>
   );
 }
@@ -647,30 +688,42 @@ function AddFixedQuestionForm({ paperId, editing, onDone, onCancel }: { paperId:
   }
 
   return (
-    <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4">
-      <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
-        {(["multiple_choice", "fill_blank", "coloring", "drag_drop"] as const).map((qt) => (
-          <button
-            key={qt} onClick={() => setQType(qt)}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${qType === qt ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            {qt === "multiple_choice" ? t("examDesigner.form.typeMC") : qt === "fill_blank" ? t("examDesigner.form.typeFB") : qt === "coloring" ? t("examDesigner.form.typeColoring") : t("examDesigner.form.typeDragDrop")}
-          </button>
-        ))}
-        <div className="flex items-center gap-1.5 pl-3">
+    <div className="h-full flex flex-col">
+      <div className="flex-shrink-0 flex items-center gap-2 flex-wrap pb-2 mb-2 border-b border-border">
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground shrink-0">
+          <PencilLine size={14} className="text-primary" /> {isEditing ? t("examDesigner.form.submitSave") : t("examDesigner.form.submitAdd")}
+        </span>
+        <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
+          {(["multiple_choice", "fill_blank", "coloring", "drag_drop"] as const).map((qt) => (
+            <button
+              key={qt} onClick={() => setQType(qt)}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${qType === qt ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              {qt === "multiple_choice" ? t("examDesigner.form.typeMC") : qt === "fill_blank" ? t("examDesigner.form.typeFB") : qt === "coloring" ? t("examDesigner.form.typeColoring") : t("examDesigner.form.typeDragDrop")}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1.5">
           <span className="text-xs text-muted-foreground">{t("examDesigner.form.marksLabel")}</span>
           <Input type="number" min={1} value={marks} onChange={(e) => setMarks(Math.max(1, +e.target.value))} className="w-16 h-7 text-xs" />
         </div>
+        <div className="flex-1" />
+        <Button size="sm" onClick={handleSubmit}>{isEditing ? t("examDesigner.form.submitSave") : t("examDesigner.form.submitAdd")}</Button>
+        <Button size="sm" variant="outline" onClick={onCancel}>{t("examDesigner.form.cancel")}</Button>
       </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
 
       {qType === "coloring" && <ColoringQuestionEditor initial={coloringConfig ?? undefined} onChange={setColoringConfig} />}
       {qType === "drag_drop" && (
         <div className="space-y-2">
-          <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
-            选背景图、加物件，拖到"正确的位置"摆好。考试作答时学生看不到任何提示框，要自己判断该放哪，全部摆完才能交卷——这是有意的设计，不是漏了提示。
-          </p>
           <SceneEditor
             structuredMode presetModuleType="sticker_game"
+            headerLabel={
+              <span className="text-[10px] leading-tight text-muted-foreground/80 truncate block">
+                选背景图、加物件，拖到"正确的位置"摆好。考试作答时学生看不到任何提示框，全部摆完才能交卷——这是有意的设计。
+              </span>
+            }
             onSaveStructured={setDragDropScene} initial={dragDropScene ?? undefined}
           />
           {dragDropScene && (
@@ -778,12 +831,9 @@ function AddFixedQuestionForm({ paperId, editing, onDone, onCancel }: { paperId:
               </div>
             );
           })()}
-        </>
+      </>
       ))}
 
-      <div className="flex gap-2 pt-2">
-        <Button onClick={handleSubmit}>{isEditing ? t("examDesigner.form.submitSave") : t("examDesigner.form.submitAdd")}</Button>
-        <Button variant="outline" onClick={onCancel}>{t("examDesigner.form.cancel")}</Button>
       </div>
     </div>
   );
@@ -816,8 +866,19 @@ function AddRandomSlotForm({ paperId, editing, onDone, onCancel }: { paperId: st
   }
 
   return (
-    <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4">
-      <p className="text-xs text-muted-foreground">{t("examDesigner.randomForm.hint")}</p>
+    <div className="h-full flex flex-col">
+      <div className="flex-shrink-0 flex items-center gap-2 flex-wrap pb-2 mb-2 border-b border-border">
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground shrink-0">
+          <Layers size={14} className="text-primary" /> {isEditing ? t("examDesigner.form.submitSave") : t("examDesigner.form.submitAdd")}
+        </span>
+        <span className="flex-1 min-w-0 text-[10px] leading-tight text-muted-foreground/80 truncate">
+          {t("examDesigner.randomForm.hint")}
+        </span>
+        <Button size="sm" onClick={handleSubmit} disabled={categories.length === 0}>{isEditing ? t("examDesigner.form.submitSave") : t("examDesigner.form.submitAdd")}</Button>
+        <Button size="sm" variant="outline" onClick={onCancel}>{t("examDesigner.form.cancel")}</Button>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
       <div>
         <Label>{t("examDesigner.randomForm.categoryLabel")}</Label>
         {categories.length === 0 ? (
@@ -839,9 +900,6 @@ function AddRandomSlotForm({ paperId, editing, onDone, onCancel }: { paperId: st
           <Input type="number" min={1} value={marks} onChange={(e) => setMarks(Math.max(1, +e.target.value))} className="w-24" />
         </div>
       </div>
-      <div className="flex gap-2 pt-2">
-        <Button onClick={handleSubmit} disabled={categories.length === 0}>{isEditing ? t("examDesigner.form.submitSave") : t("examDesigner.form.submitAdd")}</Button>
-        <Button variant="outline" onClick={onCancel}>{t("examDesigner.form.cancel")}</Button>
       </div>
     </div>
   );
