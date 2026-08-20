@@ -14,7 +14,7 @@ import { X, Square, Circle, Triangle, Box, Trash2, Type, ImagePlus, Image as Ima
 import { IllustrationShapeSvg, ILLUSTRATION_FONTS, type IllustrationElement, type IllustrationShape, type IllustrationText, type IllustrationObject, type Illustration } from "@/lib/illustrationShapes";
 
 const CANVAS_W = 400, CANVAS_H = 300; // 内部坐标空间不变，只是下面显示尺寸放大1.5倍
-const DISPLAY_W = 630; // 之前是420，按反馈放大1.5倍
+const DISPLAY_W = 840; // 按反馈再放大1/3 (630 -> 840)，内部坐标空间CANVAS_W/H不变
 
 let idCounter = 0;
 const genId = () => `el_${Date.now()}_${idCounter++}`;
