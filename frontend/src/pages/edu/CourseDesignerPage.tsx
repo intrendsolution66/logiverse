@@ -8,7 +8,7 @@
 // existing scale instead of ad-hoc inline styles.
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Move, Boxes, Rows3, Eye, RotateCw, Hammer, Frame, Square, Clock, Grid2x2, PenLine, X, CheckSquare, PencilLine, Search, ListOrdered, TreePine, Scale, Plus, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
+import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Move, Magnet, Boxes, Rows3, Eye, RotateCw, Hammer, Frame, Square, Clock, Grid2x2, PenLine, X, CheckSquare, PencilLine, Search, ListOrdered, TreePine, Scale, Plus, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { eduApi, lessonsApi, exerciseClassificationApi, taxonomyApi } from "@/api";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
@@ -57,6 +57,7 @@ const MODULE_LABELS: Record<string, { emoji: string; label: string }> = {
   play_along:   { emoji: "🎼", label: "跟弹练习" },
   sticker_game: { emoji: "🏷️", label: "贴纸游戏" },
   drag_drop:    { emoji: "🧩", label: "拖拽游戏（位置版）" },
+  drag_match:   { emoji: "🧲", label: "拖拽配对" },
   cube_stack:   { emoji: "🧊", label: "立体方块计数" },
   cube_layer_count: { emoji: "🧱", label: "立体方块-逐层计数" },
   cube_find_hidden: { emoji: "🕵️", label: "立体方块-找隐藏方块" },
@@ -96,6 +97,7 @@ const MODULE_COLORS: Record<string, { bg: string; text: string; ring: string }> 
   play_along:    { bg: "#FDF4FF", text: "#A21CAF", ring: "#D946EF" },
   sticker_game:  { bg: "#FEF9C3", text: "#854D0E", ring: "#EAB308" },
   drag_drop:     { bg: "#E9D5FF", text: "#6B21A8", ring: "#A855F7" },
+  drag_match:    { bg: "#FEE2E2", text: "#991B1B", ring: "#F87171" },
   cube_stack:    { bg: "#E7E5E4", text: "#44403C", ring: "#78716C" },
   cube_layer_count: { bg: "#FFEDD5", text: "#9A3412", ring: "#FB923C" },
   cube_find_hidden: { bg: "#E0E7FF", text: "#3730A3", ring: "#818CF8" },
@@ -123,7 +125,7 @@ const MODULE_ICONS: Record<string, LucideIcon> = {
   counting: Hash, spot_diff: ScanSearch, focus_tap: Target, memory: Layers,
   pattern: Puzzle, word_problem: FileText, maze: Route, number_maze: GitBranch, sudoku: Grid3x3,
   line_match: Link2, coloring: Palette, ppt_lecture: Presentation, video_lecture: Film,
-  play_along: Music2, sticker_game: Sticker, drag_drop: Move, cube_stack: Boxes,
+  play_along: Music2, sticker_game: Sticker, drag_drop: Move, drag_match: Magnet, cube_stack: Boxes,
   cube_layer_count: Rows3, cube_find_hidden: Eye, cube_free_rotate: RotateCw,
   cube_build: Hammer, cube_three_view: Frame, shape_count: Square, clock: Clock, latin_square: Grid2x2,
   number_find: Search, number_sequence: ListOrdered, number_bond: TreePine, number_compare: Scale, number_addition: Plus,
@@ -2061,7 +2063,7 @@ function PlayAlongMarkerEditor({ pages, audioUrl, markers, setMarkers, currentPa
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+      <p className="text-[10px] leading-tight text-muted-foreground/80 bg-muted/40 rounded-lg px-2 py-1">
         放慢速度、圈一小段反复听，点到乐谱上对应音符的位置——不用跟着真实节奏抢时间点，点下去会自动暂停，看清楚了再用下面的步进按钮微调、或者直接放下一段接着点。点之间用虚线按弹奏顺序连起来，方便检查路径对不对。
       </p>
 
@@ -2169,7 +2171,7 @@ function PlayAlongMarkerEditor({ pages, audioUrl, markers, setMarkers, currentPa
 // 里用 typeof moduleType 反过来引用它自己（TS 处理不了这种循环引用，
 // 会报 "implicitly has type any"）。这两个地方（下面 useState 的初始值、
 // presetModuleType 转型）都要用这个命名类型，不要图省事写 typeof。
-type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game" | "drag_drop" | "cube_stack" | "cube_layer_count" | "cube_find_hidden" | "cube_free_rotate" | "cube_build" | "cube_three_view" | "shape_count" | "clock" | "latin_square" | "number_find" | "number_sequence" | "number_bond" | "number_compare" | "number_addition" | "chinese_stroke" | "multiple_choice" | "fill_blank";
+type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game" | "drag_drop" | "drag_match" | "cube_stack" | "cube_layer_count" | "cube_find_hidden" | "cube_free_rotate" | "cube_build" | "cube_three_view" | "shape_count" | "clock" | "latin_square" | "number_find" | "number_sequence" | "number_bond" | "number_compare" | "number_addition" | "chinese_stroke" | "multiple_choice" | "fill_blank";
 
 function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleType }: {
   open: boolean; onClose: () => void; editingLevelId?: string | null; onSaved: () => void;
@@ -2369,7 +2371,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   // 数独）共用同一个"自定义题目句子"栏位——一次只编辑一个 Activity，共用
   // 一个 state 就够了，不用给每个模块各开一个。counting 自己已经有独立的
   // 一套（上面那个 countingQuestionText），这里不重复。
-  const CUSTOM_QUESTION_MODULES = ["spot_diff", "focus_tap", "memory", "pattern", "maze", "coloring", "line_match", "sudoku", "shape_count", "number_find"];
+  const CUSTOM_QUESTION_MODULES = ["spot_diff", "focus_tap", "memory", "pattern", "maze", "coloring", "line_match", "drag_match", "sudoku", "shape_count", "number_find"];
   const [customQuestionText, setCustomQuestionText] = useState("");
 
   // focus_tap fields (grid mode only for now)
@@ -2472,6 +2474,16 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   // 对应"一组可以超过两个成员"这个需求）。
   const [lineMatchLayout, setLineMatchLayout] = useState<"list" | "scene">("list");
   const [lineMatchScene, setLineMatchScene] = useState<StructuredSceneOutput | null>(null);
+
+  // drag_match（拖拽配对）——跟line_match的"scene"布局同一个思路：背景图+
+  // 自由摆放物件，复用SceneEditor structuredMode，配对标记也是同一个
+  // objectType字段。区别在于line_match是"同标记互相连线"（对称、双向），
+  // drag_match是"被拖拽物件 → 目标物件"（有方向），所以SceneEditor那边
+  // 每个物件多一个isTarget标记区分"这是目标"还是"这是要拖的东西"。
+  // 支持一对一和多对一：多个"被拖拽物件"可以共用同一个配对标记指向同
+  // 一个目标；但同一个标记只能有一个"目标物件"，不然拖过去的时候不知道
+  // 该判给哪个目标——这条在保存时会校验。
+  const [dragMatchScene, setDragMatchScene] = useState<StructuredSceneOutput | null>(null);
 
   // ppt_lecture / video_lecture fields — 讲义类，不是游戏，没有对错判断。
   // 字段名直接对齐 courses.controller.ts 实际存的 config 形状：
@@ -2819,6 +2831,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       setLineMatchRightItems([{ id: uid(), type: "text", content: "" }]);
       setLineMatchEdges([]); setLineMatchConnectFrom(null); setLineMatchShuffleRight(true);
       setLineMatchLayout("list"); setLineMatchScene(null);
+      setDragMatchScene(null);
       setPptSlideUrls([]); setPptOriginalFilename(""); setVideoUrl(null); setVideoPosterUrl(null);
       setPaSheetUrls([]); setPaOriginalFilename(""); setPaAudioUrl(null); setPaMarkers([]); setPaEditorPage(0); setPaOriginalBpm(120);
       setColoringBgUrl(null); setColoringRegions([]); setColoringMaskDataUrl(null);
@@ -3205,6 +3218,19 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           }
         }
         setLineMatchShuffleRight((cfg.shuffle_right as boolean) ?? true);
+      } else if (level.module_type === "drag_match") {
+        const objs = (cfg.objects as Array<{ image_url: string; x: number; y: number; w: number; h: number; rotation: number; pair_key?: string; is_target?: boolean; flip_x?: boolean; flip_y?: boolean; opacity?: number }>) ?? [];
+        setDragMatchScene({
+          bgUrl: (cfg.bg_image_url as string) ?? null,
+          objects: objs.map((o) => ({
+            imageUrl: o.image_url,
+            x: o.x * GAME_CANVAS_W, y: o.y * GAME_CANVAS_H,
+            w: o.w * GAME_CANVAS_W, h: o.h * GAME_CANVAS_H,
+            rotation: o.rotation, objectType: o.pair_key ?? "", isTarget: o.is_target,
+            flipX: o.flip_x, flipY: o.flip_y, opacity: o.opacity,
+          })),
+          texts: [],
+        });
       } else if (level.module_type === "ppt_lecture") {
         setPptSlideUrls((cfg.slide_image_urls as string[]) ?? []);
         setPptOriginalFilename((cfg.original_filename as string) ?? "");
@@ -3832,6 +3858,44 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             },
           });
         }
+      } else if (moduleType === "drag_match") { // 拖拽配对——跟line_match的scene布局很像，区别是有方向：被拖拽物件要拖进标记相同的目标物件
+        if (!dragMatchScene || dragMatchScene.objects.length === 0) { toast.error("请先在编辑器里摆好物件"); return; }
+        const untagged = dragMatchScene.objects.some((o) => !(o.objectType ?? "").trim());
+        if (untagged) { toast.error("每个物件都要填「配对标记」，不能留空"); return; }
+        const targets = dragMatchScene.objects.filter((o) => o.isTarget);
+        const draggables = dragMatchScene.objects.filter((o) => !o.isTarget);
+        if (targets.length === 0) { toast.error("至少要有1个「目标物件」——选中物件后在右边属性面板里切换"); return; }
+        if (draggables.length === 0) { toast.error("至少要有1个「被拖拽物件」——选中物件后在右边属性面板里切换"); return; }
+        const targetKeyCounts = new Map<string, number>();
+        targets.forEach((o) => { const k = o.objectType!.trim(); targetKeyCounts.set(k, (targetKeyCounts.get(k) ?? 0) + 1); });
+        const dupTargetKeys = [...targetKeyCounts.entries()].filter(([, c]) => c > 1).map(([k]) => k);
+        if (dupTargetKeys.length > 0) { toast.error(`目标物件的配对标记「${dupTargetKeys.join("、")}」重复了——同一个标记只能有1个目标物件，不然系统不知道该判给哪个`); return; }
+        const orphanKeys = [...new Set(draggables.map((o) => o.objectType!.trim()))].filter((k) => !targetKeyCounts.has(k));
+        if (orphanKeys.length > 0) { toast.error(`配对标记「${orphanKeys.join("、")}」没有对应的目标物件——被拖拽物件的标记必须跟某个目标物件一致`); return; }
+        await saveLevel({
+          module_type: "drag_match",
+          title_i18n: { zh: levelTitle || "拖拽配对", en: levelTitle || "Drag Match" },
+          explanation_text: explanationText || undefined,
+          explanation_image_url: explanationImageUrl || undefined,
+          explanation_video_url: explanationVideoUrl || undefined,
+
+          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: {
+            bg_image_url: dragMatchScene.bgUrl,
+            objects: dragMatchScene.objects.map((o) => ({
+              image_url: o.imageUrl,
+              x: o.x / GAME_CANVAS_W, y: o.y / GAME_CANVAS_H,
+              w: o.w / GAME_CANVAS_W, h: o.h / GAME_CANVAS_H,
+              rotation: o.rotation, pair_key: o.objectType, is_target: o.isTarget || undefined,
+              flip_x: o.flipX || undefined, flip_y: o.flipY || undefined,
+              opacity: o.opacity,
+            })),
+            timer_mode: "stopwatch",
+            question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+          },
+        });
       } else if (moduleType === "ppt_lecture") { // 讲义类，不是游戏：一份转好的幻灯片图片清单，没有对错判断
         if (pptSlideUrls.length === 0) { toast.error("请先上传并转换 PPT，至少要有1页幻灯片"); return; }
         await saveLevel({
@@ -4103,27 +4167,38 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={editingLevelId ? "编辑 Activity" : "加 Activity"} size="screen">
-      <div className="h-full flex flex-col space-y-3">
-        <div className="flex-shrink-0 flex gap-1.5 bg-muted/50 p-1 rounded-xl">
-          {([
-            ["basic", Info, "基本信息"],
-            ["classification", Tags, "分类"],
-            ["content", SlidersHorizontal, "内容设置"],
-            ["properties", Sparkles, "属性"],
-            ["hints", MessageSquareText, "提示与讲解"],
-          ] as [TabKey, LucideIcon, string][]).map(([key, Icon, label]) => (
-            <button
-              key={key} type="button" onClick={() => setActiveTab(key)}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-all ${
-                activeTab === key ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
-              style={activeTab === key ? { boxShadow: "0 1px 3px rgba(0,0,0,0.08)" } : undefined}
-            >
-              <Icon size={15} strokeWidth={2} className={activeTab === key ? "text-primary" : ""} />
-              {label}
-            </button>
-          ))}
+    <Modal open={open} onClose={onClose} size="screen">
+      <div className="h-full flex flex-col space-y-2">
+        <div className="flex-shrink-0 flex items-center gap-2">
+          <div
+            className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md bg-muted/50 text-muted-foreground"
+            title={editingLevelId ? "编辑 Activity" : "新增 Activity"}
+          >
+            {editingLevelId ? <PencilLine size={14} /> : <Plus size={14} />}
+          </div>
+          <div className="flex-1 flex gap-1.5 bg-muted/50 p-1 rounded-lg">
+            {([
+              ["basic", Info, "基本信息"],
+              ["classification", Tags, "分类"],
+              ["content", SlidersHorizontal, "内容设置"],
+              ["properties", Sparkles, "属性"],
+              ["hints", MessageSquareText, "提示与讲解"],
+            ] as [TabKey, LucideIcon, string][]).map(([key, Icon, label]) => (
+              <button
+                key={key} type="button" onClick={() => setActiveTab(key)}
+                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                  activeTab === key ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+                style={activeTab === key ? { boxShadow: "0 1px 3px rgba(0,0,0,0.08)" } : undefined}
+              >
+                <Icon size={13} strokeWidth={2} className={activeTab === key ? "text-primary" : ""} />
+                {label}
+              </button>
+            ))}
+          </div>
+          <button type="button" onClick={onClose} title="关闭" className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
+            <X size={16} />
+          </button>
         </div>
 
         {/* 分类：确定这个 Activity 属于哪个 Programme → Subject → Topic——
@@ -4235,27 +4310,29 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         </div>
         </div>
 
-        <div className={activeTab === "content" ? "flex-1 min-h-0 flex flex-col space-y-4 overflow-y-auto" : "hidden"}>
+        <div className={activeTab === "content" ? "flex-1 min-h-0 flex flex-col space-y-2 overflow-y-auto" : "hidden"}>
         {moduleType === "counting" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Hash size={16} className="text-primary" /> 点点数数 · 内容设置
-            </div>
-            <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
-              {(["random", "custom_scene"] as const).map((m) => (
-                <button
-                  key={m} type="button" onClick={() => setCountingMode(m)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                    countingMode === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {m === "random" ? "🎲 随机生成" : "🖼️ 自定义画面"}
-                </button>
-              ))}
+          <div className="flex-1 min-h-0 flex flex-col rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex-shrink-0 flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                <Hash size={14} className="text-primary" /> 点点数数 · 内容设置
+              </div>
+              <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
+                {(["random", "custom_scene"] as const).map((m) => (
+                  <button
+                    key={m} type="button" onClick={() => setCountingMode(m)}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                      countingMode === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {m === "random" ? "🎲 随机生成" : "🖼️ 自定义画面"}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {countingMode === "random" ? (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="flex-shrink-0 grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs">主题</Label>
                   <select value={theme} onChange={(e) => setTheme(e.target.value)} className={`${MINI_SELECT_CLASS} w-full`}>
@@ -4281,16 +4358,21 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
                 </div>
               </div>
             ) : (
-              <>
-                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
-                  选背景图、加物件（可以从素材库选，也可以直接上传——每次加的物件图片可以都不一样，数量不限），拖到想要的位置，还能旋转、缩放。加了几个物件，答案就是几个；文字是装饰用的，不算进答案里。
-                </p>
+              <div className="flex-1 min-h-0 flex flex-col space-y-2">
                 <SceneEditor
-                  structuredMode presetModuleType="counting"
+                  structuredMode fillHeight presetModuleType="counting"
+                  headerLabel={
+                    <span
+                      className="text-[10px] leading-tight text-muted-foreground/80 truncate block"
+                      title="选背景图、加物件（可以从素材库选，也可以直接上传——每次加的物件图片可以都不一样，数量不限），拖到想要的位置，还能旋转、缩放。加了几个物件，答案就是几个；文字是装饰用的，不算进答案里。"
+                    >
+                      选背景图、加物件，拖到想要的位置，还能旋转、缩放。加了几个物件答案就是几个；文字是装饰用的，不算进答案。
+                    </span>
+                  }
                   onSaveStructured={setCountingScene} initial={countingScene ?? undefined}
                 />
                 {countingScene && (
-  <>
+  <div className="flex-shrink-0 space-y-1.5 max-h-40 overflow-y-auto">
     <p className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1">✓ 场景已确认（{countingScene.objects.length} 个物件），可以点上面"完成"重新调整</p>
 
     <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
@@ -4335,17 +4417,17 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         </div>
       );
     })()}
-  </>
+  </div>
 )}
-              </>
+              </div>
             )}
           </div>
         )}
 
         {moduleType === "spot_diff" && (
           <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <ScanSearch size={16} className="text-primary" /> 找不同 · 内容设置
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <ScanSearch size={14} className="text-primary" /> 找不同 · 内容设置
             </div>
             <div className="flex gap-4 flex-wrap">
               {([["a", "原图", imgAUrl, "选原图"], ["b", "找不同图", imgBUrl, "选找不同图"]] as const).map(([side, label, url, pickerLabel]) => (
@@ -4369,15 +4451,15 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
                 </div>
               ))}
             </div>
-            <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">在下面画布上点一下标记一个差异点（左右两图点哪张都行，会同步显示）；已有标记可拖动、调整判定范围或删除。已标记 {hotspots.length} 个。</p>
+            <p className="text-[10px] leading-tight text-muted-foreground/80 bg-muted/40 rounded-lg px-2 py-1">在下面画布上点一下标记一个差异点（左右两图点哪张都行，会同步显示）；已有标记可拖动、调整判定范围或删除。已标记 {hotspots.length} 个。</p>
             <SpotDiffMarker imgAUrl={imgAUrl} imgBUrl={imgBUrl} hotspots={hotspots} setHotspots={setHotspots} onImgBUpdated={setImgBUrl} />
           </div>
         )}
 
         {moduleType === "focus_tap" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Target size={16} className="text-primary" /> 专注力点数字 · 内容设置
+          <div className="rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <Target size={14} className="text-primary" /> 专注力点数字 · 内容设置
             </div>
             <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
               {(["grid", "custom"] as const).map((m) => (
@@ -4404,7 +4486,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               </div>
             ) : (
               <div className="space-y-3 pt-1 border-t border-border/60">
-                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+                <p className="text-[10px] leading-tight text-muted-foreground/80 bg-muted/40 rounded-lg px-2 py-1">
                   选背景图、加几个标记（代表数字会出现的位置，可以从素材库选任意图标，也可以直接上传），拖到想要的位置，还能旋转、缩放、复制。加了几个标记，游戏里就有几个数字，具体哪个数字落在哪个位置，每次玩都会重新随机分配。
                 </p>
                 <SceneEditor
@@ -4420,9 +4502,9 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         )}
 
         {moduleType === "memory" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Layers size={16} className="text-primary" /> Memory配对 · 内容设置
+          <div className="rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <Layers size={14} className="text-primary" /> Memory配对 · 内容设置
             </div>
 
             <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
@@ -4511,10 +4593,10 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
 
                   {memoryLayout === "free" && (
                     !memoryBgUrl ? (
-                      <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">自由摆放需要先在上面选一张背景图。</p>
+                      <p className="text-[10px] leading-tight text-muted-foreground/80 bg-muted/40 rounded-lg px-2 py-1">自由摆放需要先在上面选一张背景图。</p>
                     ) : (
                       <>
-                        <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+                        <p className="text-[10px] leading-tight text-muted-foreground/80 bg-muted/40 rounded-lg px-2 py-1">
                           已经把 {memoryCustomIcons.length * 2} 张配对图片（每张各出现两次）自动排好摆进画布了——直接拖动调整到想要的位置就行；也可以再点左边"🧸 加物件"补充别的图片、或删掉多余的。哪张图落在哪个位置最后是随机的，跟专注力点数字同一个逻辑。
                         </p>
                         <SceneEditor
@@ -4663,9 +4745,9 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         )}
 
         {moduleType === "shape_count" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Square size={16} className="text-primary" /> 数方块(平面图形) · 内容设置
+          <div className="rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <Square size={14} className="text-primary" /> 数方块(平面图形) · 内容设置
             </div>
             <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
               {(["grid", "custom"] as const).map((m) => (
@@ -4701,7 +4783,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               </div>
             ) : (
               <div className="space-y-3 pt-1 border-t border-border/60">
-                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+                <p className="text-[10px] leading-tight text-muted-foreground/80 bg-muted/40 rounded-lg px-2 py-1">
                   选背景图（选填）、用画笔工具画方形/圆形/三角形（可以互相重叠），也可以上传物件图片、在"类型"里打上 square/circle/triangle 其中一个标签让它算进对应类型。学生玩的时候要分别数出"正方形/圆形/三角形"各有几个——单题，不循环。
                 </p>
                 <SceneEditor
@@ -4762,9 +4844,9 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         )}
 
         {moduleType === "chinese_stroke" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <PenLine size={16} className="text-primary" /> 中文字笔顺练习 · 内容设置
+          <div className="rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <PenLine size={14} className="text-primary" /> 中文字笔顺练习 · 内容设置
             </div>
             <div className="space-y-2">
               <span className="text-xs text-muted-foreground block">字库（至少1个字，每次玩从这里随机抽题）</span>
@@ -4826,9 +4908,9 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         )}
 
         {moduleType === "multiple_choice" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <CheckSquare size={16} className="text-primary" /> 选择题 · 内容设置
+          <div className="rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <CheckSquare size={14} className="text-primary" /> 选择题 · 内容设置
             </div>
 
             <div className="space-y-1.5">
@@ -4908,9 +4990,9 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         )}
 
         {moduleType === "fill_blank" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <PencilLine size={16} className="text-primary" /> 填充题 · 内容设置
+          <div className="rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <PencilLine size={14} className="text-primary" /> 填充题 · 内容设置
             </div>
 
             <div className="space-y-2">
@@ -4965,9 +5047,9 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         )}
 
         {moduleType === "number_find" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Search size={16} className="text-primary" /> 数字大搜寻 · 内容设置
+          <div className="rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <Search size={14} className="text-primary" /> 数字大搜寻 · 内容设置
             </div>
             <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
               {(["grid", "custom"] as const).map((m) => (
@@ -5003,7 +5085,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               </p>
             ) : (
               <div className="space-y-3 pt-1 border-t border-border/60">
-                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+                <p className="text-[10px] leading-tight text-muted-foreground/80 bg-muted/40 rounded-lg px-2 py-1">
                   选背景图、摆几个纯装饰用的物件(不参与判定，比如恐龙、铅笔这种插图)。网格本身还是现场随机生成的数字，只是摆在你指定的那块区域里，不会跟装饰物件重叠。
                 </p>
                 <SceneEditor
@@ -5048,9 +5130,9 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         )}
 
         {moduleType === "number_bond" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <TreePine size={16} className="text-primary" /> 数的分解与合成 · 内容设置
+          <div className="rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <TreePine size={14} className="text-primary" /> 数的分解与合成 · 内容设置
             </div>
             <div className="space-y-2">
               <span className="text-xs text-muted-foreground block">图标（至少1张，多张时每棵树随机挑一张用）</span>
@@ -5087,9 +5169,9 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         )}
 
         {moduleType === "number_compare" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Scale size={16} className="text-primary" /> 数字比大小 · 内容设置
+          <div className="rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <Scale size={14} className="text-primary" /> 数字比大小 · 内容设置
             </div>
             <div className="space-y-2">
               <span className="text-xs text-muted-foreground block">图标（至少1张，多张时随机挑一张用）</span>
@@ -5126,9 +5208,9 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         )}
 
         {moduleType === "number_addition" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Plus size={16} className="text-primary" /> 加法算式 · 内容设置
+          <div className="rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <Plus size={14} className="text-primary" /> 加法算式 · 内容设置
             </div>
             <div className="space-y-2">
               <span className="text-xs text-muted-foreground block">图标（至少1张，多张时每道算式随机挑一张用）</span>
@@ -5203,8 +5285,8 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
 
         {moduleType === "maze" && (
           <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Route size={16} className="text-primary" /> 迷宫 · 内容设置
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <Route size={14} className="text-primary" /> 迷宫 · 内容设置
             </div>
             <div className="space-y-3">
               <div className="flex items-center gap-3 text-sm flex-wrap pb-3 border-b border-border/60">
@@ -5359,9 +5441,9 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         )}
 
         {moduleType === "sudoku" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Grid3x3 size={16} className="text-primary" /> 数独 · 内容设置
+          <div className="rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <Grid3x3 size={14} className="text-primary" /> 数独 · 内容设置
             </div>
             <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
               {(["photo", "grid"] as const).map((m) => (
@@ -5389,7 +5471,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               <SudokuCellDesigner bgUrl={sudokuBgUrl} setBgUrl={setSudokuBgUrl} cells={sudokuCells} setCells={setSudokuCells} />
             ) : (
               <div className="space-y-3">
-                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+                <p className="text-[10px] leading-tight text-muted-foreground/80 bg-muted/40 rounded-lg px-2 py-1">
                   点左边工具栏的"▦ 加网格"插入格子，点画布上的格子选中它、在右边填数字，勾选"留空给学生填"标出哪些格要学生自己填——不勾的格子直接显示数字给学生看。背景图、物件、画笔这些工具照常能用，可以自由装饰。
                 </p>
                 <SceneEditor
@@ -5408,8 +5490,8 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
 
         {moduleType === "number_maze" && (
           <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-3 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <GitBranch size={16} className="text-primary" /> 数字迷宫 · 内容设置
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <GitBranch size={14} className="text-primary" /> 数字迷宫 · 内容设置
             </div>
             <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
               {(["path", "grid"] as const).map((m) => (
@@ -5426,7 +5508,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
 
             {nmLayout === "path" ? (
               <>
-                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+                <p className="text-[10px] leading-tight text-muted-foreground/80 bg-muted/40 rounded-lg px-2 py-1">
                   跟走迷宫玩法基本一样（沿着画好的路径拖着走，碰不到障碍物），多了"分岔点"——学生走到分岔点，要先点对数字选项才能继续往前走，选错算一次失误、可以重选。
                 </p>
                 <NumberMazeDesigner
@@ -5439,7 +5521,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               </>
             ) : (
               <div className="space-y-3">
-                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+                <p className="text-[10px] leading-tight text-muted-foreground/80 bg-muted/40 rounded-lg px-2 py-1">
                   点"▦ 加网格"插入棋盘，每格填一个数字。再点画布上要走的每一格，在右边"路径顺序"填第几步——起点填1，往后依次+1，一路连到终点（只能填相邻的格子，上下左右，不能斜着跳）。学生玩的时候要照这个顺序，从相邻格子一步步跳过去。
                 </p>
                 <SceneEditor
@@ -5458,18 +5540,20 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
 
         {moduleType === "sticker_game" && activeTab === "content" && (
           <div className="flex-1 min-h-0 flex flex-col">
-            <div className="flex-shrink-0 flex items-center gap-2 text-sm font-semibold text-foreground mb-1.5">
-              <Sticker size={16} className="text-primary" /> 贴纸游戏 · 内容设置
-            </div>
-            <p className="flex-shrink-0 text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5 mb-2">
-              选背景图、加贴纸物件（素材库选或直接上传），拖到"正确的位置"摆好——这个位置就是答案。学生玩的时候，这些贴纸会被打乱塞进旁边的贴纸盘，要一个个拖回你摆的这个位置上。
-            </p>
-            <div className="flex-1 min-h-0">
-              <SceneEditor
-                structuredMode presetModuleType="sticker_game"
-                onSaveStructured={(data) => { setStickerScene(data); setActiveTab("basic"); }} initial={stickerScene ?? undefined}
-              />
-            </div>
+            <SceneEditor
+              structuredMode fillHeight presetModuleType="sticker_game"
+              headerLabel={
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground shrink-0">
+                    <Sticker size={14} className="text-primary" /> 贴纸游戏
+                  </span>
+                  <span className="flex-1 min-w-0 text-[10px] leading-tight text-muted-foreground/80 truncate">
+                    选背景图、加贴纸物件，拖到"正确位置"摆好即为答案；学生玩时贴纸会被打乱，要拖回原位。
+                  </span>
+                </div>
+              }
+              onSaveStructured={(data) => { setStickerScene(data); setActiveTab("basic"); }} initial={stickerScene ?? undefined}
+            />
             {stickerScene && (
               <p className="flex-shrink-0 text-xs text-emerald-600 dark:text-emerald-400 mt-1.5">✓ 已摆 {stickerScene.objects.length} 个贴纸，可以点上面"完成"重新调整</p>
             )}
@@ -5478,30 +5562,64 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
 
         {moduleType === "drag_drop" && activeTab === "content" && (
           <div className="flex-1 min-h-0 flex flex-col">
-            <div className="flex-shrink-0 flex items-center gap-2 text-sm font-semibold text-foreground mb-1.5">
-              <Move size={16} className="text-primary" /> 拖拽游戏（位置版）· 内容设置
-            </div>
-            <p className="flex-shrink-0 text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5 mb-2">
-              统一拖拽引擎的第一种玩法——选背景图、加物件，拖到"正确的位置"摆好，这个位置就是答案。学生玩的时候，物件会被打乱塞进旁边的物件盘，要一个个拖回你摆的这个位置上。
-              <br />
-              <span className="text-primary/70">💡 跟"贴纸游戏"用的是同一套引擎（画布坐标系统也共用，别改presetModuleType）——以后这里会陆续加入拖拽排序、拖到分类框、拖词块填空这几种新玩法。</span>
-            </p>
-            <div className="flex-1 min-h-0">
-              <SceneEditor
-                structuredMode presetModuleType="sticker_game"
-                onSaveStructured={(data) => { setStickerScene(data); setActiveTab("basic"); }} initial={stickerScene ?? undefined}
-              />
-            </div>
+            <SceneEditor
+              structuredMode fillHeight presetModuleType="drag_drop"
+              headerLabel={
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground shrink-0">
+                    <Move size={14} className="text-primary" /> 拖拽游戏（位置版）
+                  </span>
+                  <span
+                    className="flex-1 min-w-0 text-[10px] leading-tight text-muted-foreground/80 truncate"
+                    title={`统一拖拽引擎的第一种玩法——选背景图、加物件，拖到"正确的位置"摆好，这个位置就是答案。学生玩的时候，物件会被打乱塞进旁边的物件盘，要一个个拖回你摆的这个位置上。\n💡 跟"贴纸游戏"用的是同一套引擎（画布坐标系统也共用，别改presetModuleType）——以后这里会陆续加入拖拽排序、拖到分类框、拖词块填空这几种新玩法。`}
+                  >
+                    选背景图、加物件，拖到"正确位置"摆好即为答案；学生玩时物件会被打乱，要拖回原位。
+                  </span>
+                </div>
+              }
+              onSaveStructured={(data) => { setStickerScene(data); setActiveTab("basic"); }} initial={stickerScene ?? undefined}
+            />
             {stickerScene && (
               <p className="flex-shrink-0 text-xs text-emerald-600 dark:text-emerald-400 mt-1.5">✓ 已摆 {stickerScene.objects.length} 个物件，可以点上面"完成"重新调整</p>
             )}
           </div>
         )}
 
+        {moduleType === "drag_match" && activeTab === "content" && (
+          <div className="flex-1 min-h-0 flex flex-col">
+            <SceneEditor
+              structuredMode fillHeight presetModuleType="drag_match"
+              headerLabel={
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground shrink-0">
+                    <Magnet size={14} className="text-primary" /> 拖拽配对
+                  </span>
+                  <span
+                    className="flex-1 min-w-0 text-[10px] leading-tight text-muted-foreground/80 truncate"
+                    title={`跟"连线配对"是同一个思路，只是把"画线"换成"拖拽"——选背景图、加物件，每个物件要么是"被拖拽物件"要么是"目标物件"（选中物件后在右边属性面板切换），再给要配成一对的两边填一样的「配对标记」。学生玩的时候把"被拖拽物件"拖到标记相同的"目标物件"上就算对。一个标记可以有多个被拖拽物件（多对一，比如分类归类），但目标物件同一个标记只能有1个。`}
+                  >
+                    选背景图、加物件，标记谁是"被拖拽物件"谁是"目标物件"，标记相同的一对拖对了就算对；一个目标可以配多个被拖拽物件。
+                  </span>
+                </div>
+              }
+              onSaveStructured={(data) => { setDragMatchScene(data); setActiveTab("basic"); }} initial={dragMatchScene ?? undefined}
+            />
+            {dragMatchScene && (() => {
+              const targetCount = dragMatchScene.objects.filter((o) => o.isTarget).length;
+              const dragCount = dragMatchScene.objects.length - targetCount;
+              return (
+                <p className="flex-shrink-0 text-xs text-emerald-600 dark:text-emerald-400 mt-1.5">
+                  ✓ 已摆 {targetCount} 个目标物件、{dragCount} 个被拖拽物件，可以点上面"完成"重新调整（保存前会自动检查配对标记是否齐全）
+                </p>
+              );
+            })()}
+          </div>
+        )}
+
         {moduleType === "line_match" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Link2 size={16} className="text-primary" /> 连线配对 · 内容设置
+          <div className="rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <Link2 size={14} className="text-primary" /> 连线配对 · 内容设置
             </div>
             <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
               {(["list", "scene"] as const).map((m) => (
@@ -5523,7 +5641,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
                   右栏顺序打乱（推荐开启，不然一眼就能看穿答案）
                 </label>
 
-                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+                <p className="text-[10px] leading-tight text-muted-foreground/80 bg-muted/40 rounded-lg px-2 py-1">
                   左右两边先各自加物件，加完之后点下面"连线"区块里的一个左边项目、再点一个右边项目，就连一条线——一个物件可以连好几条线，不限1对1。
                 </p>
 
@@ -5638,7 +5756,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
               </>
             ) : (
               <div className="space-y-3 pt-1 border-t border-border/60">
-                <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+                <p className="text-[10px] leading-tight text-muted-foreground/80 bg-muted/40 rounded-lg px-2 py-1">
                   选背景图（素材库选或直接从电脑上传都可以）、加物件自由摆放到想要的位置。要连在一起的物件，在右边属性面板的「配对标记」填一样的字（比如都填「1」）——一组可以是2个也可以是3个以上，同一组的物件保存时会检查是不是至少2个、最后播放时会互相连起来。连线怎么连（直的、弯的）不影响判分，只看两端有没有接对。
                 </p>
                 <SceneEditor
@@ -5654,11 +5772,11 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         )}
 
         {moduleType === "ppt_lecture" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Presentation size={16} className="text-primary" /> PPT讲义 · 内容设置
+          <div className="rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <Presentation size={14} className="text-primary" /> PPT讲义 · 内容设置
             </div>
-            <p className="text-xs text-muted-foreground/80 bg-muted/40 rounded-lg p-2.5">
+            <p className="text-[10px] leading-tight text-muted-foreground/80 bg-muted/40 rounded-lg px-2 py-1">
               上传 PPT 文件，后端会自动转换成一页页的幻灯片图片；也可以直接从素材库选一份已经上传过的 PPT。转换需要几秒钟，转换完成前选到的话幻灯片数量会是 0，重新打开这个选择器再选一次就有了。
             </p>
             <div className="flex items-center gap-3">
@@ -5687,9 +5805,9 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         )}
 
         {moduleType === "video_lecture" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Film size={16} className="text-primary" /> 视频讲义 · 内容设置
+          <div className="rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <Film size={14} className="text-primary" /> 视频讲义 · 内容设置
             </div>
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-2">视频</p>
@@ -5727,9 +5845,9 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         )}
 
         {moduleType === "play_along" && (
-          <div className="rounded-xl bg-white border border-border shadow-sm p-4 space-y-4 text-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Music2 size={16} className="text-primary" /> 跟弹练习 · 内容设置
+          <div className="rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+              <Music2 size={14} className="text-primary" /> 跟弹练习 · 内容设置
             </div>
 
             <div>
