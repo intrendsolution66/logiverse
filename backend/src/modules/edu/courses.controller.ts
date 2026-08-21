@@ -798,10 +798,10 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
           if (!blankCells?.length) throw new Error("至少要有1个留空的格子给学生填");
           if (blankCells.some((c) => !c.answer)) throw new Error("每个留空的格子都要填答案（1-9）");
           const { rows: cfgRows } = await client.query(
-            `INSERT INTO edu.sudoku_configs (layout, rows, cols, given_cells, blank_cells, line_color, given_color, blank_bg, bg_color, bg_enabled, opacity, difficulty, timer_mode, time_limit, question_i18n)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+            `INSERT INTO edu.sudoku_configs (layout, rows, cols, box_rows, box_cols, given_cells, blank_cells, line_color, given_color, blank_bg, bg_color, bg_enabled, opacity, difficulty, timer_mode, time_limit, question_i18n)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
              RETURNING id`,
-            [sudokuLayout, cfg.rows, cfg.cols, JSON.stringify(givenCells ?? []), JSON.stringify(blankCells),
+            [sudokuLayout, cfg.rows, cfg.cols, cfg.box_rows ?? cfg.rows, cfg.box_cols ?? cfg.cols, JSON.stringify(givenCells ?? []), JSON.stringify(blankCells),
              cfg.line_color ?? null, cfg.given_color ?? null, cfg.blank_bg ?? null, cfg.bg_color ?? null,
              cfg.bg_enabled ?? null, cfg.opacity ?? null, cfg.difficulty ?? "medium", cfg.timer_mode ?? "stopwatch",
              cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
@@ -1290,8 +1290,8 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
             // cells)，不然编辑器如果之前存过photo模式的数据，会留着一份
             // 没人用得到的旧图片网址混在数据库里。
             await client.query(
-              `UPDATE edu.sudoku_configs SET layout=$2, bg_image_url=NULL, cells=NULL, rows=$3, cols=$4, given_cells=$5, blank_cells=$6, line_color=$7, given_color=$8, blank_bg=$9, bg_color=$10, bg_enabled=$11, opacity=$12, difficulty=$13, timer_mode=$14, time_limit=$15, question_i18n=$16 WHERE id=$1`,
-              [module_config_id, sudokuLayout, cfg.rows, cfg.cols, JSON.stringify(givenCells ?? []), JSON.stringify(blankCells),
+              `UPDATE edu.sudoku_configs SET layout=$2, bg_image_url=NULL, cells=NULL, rows=$3, cols=$4, box_rows=$5, box_cols=$6, given_cells=$7, blank_cells=$8, line_color=$9, given_color=$10, blank_bg=$11, bg_color=$12, bg_enabled=$13, opacity=$14, difficulty=$15, timer_mode=$16, time_limit=$17, question_i18n=$18 WHERE id=$1`,
+              [module_config_id, sudokuLayout, cfg.rows, cfg.cols, cfg.box_rows ?? cfg.rows, cfg.box_cols ?? cfg.cols, JSON.stringify(givenCells ?? []), JSON.stringify(blankCells),
                cfg.line_color ?? null, cfg.given_color ?? null, cfg.blank_bg ?? null, cfg.bg_color ?? null,
                cfg.bg_enabled ?? null, cfg.opacity ?? null, cfg.difficulty ?? "medium", cfg.timer_mode ?? "stopwatch",
                cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
@@ -1303,9 +1303,10 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
             if (cells.some((c) => !Number.isInteger(c.answer) || c.answer < 1 || c.answer > 9)) {
               throw new Error("每个空格的答案必须是1到9的数字");
             }
-            // 切换回photo模式时，同样清空grid模式那些字段。
+            // 切换回photo模式时，同样清空grid模式那些字段(box_rows/
+            // box_cols 也是grid模式专用，一并清掉)。
             await client.query(
-              `UPDATE edu.sudoku_configs SET layout=$2, bg_image_url=$3, cells=$4, rows=NULL, cols=NULL, given_cells=NULL, blank_cells=NULL, difficulty=$5, timer_mode=$6, time_limit=$7, question_i18n=$8 WHERE id=$1`,
+              `UPDATE edu.sudoku_configs SET layout=$2, bg_image_url=$3, cells=$4, rows=NULL, cols=NULL, box_rows=NULL, box_cols=NULL, given_cells=NULL, blank_cells=NULL, difficulty=$5, timer_mode=$6, time_limit=$7, question_i18n=$8 WHERE id=$1`,
               [module_config_id, sudokuLayout, cfg.bg_image_url, JSON.stringify(cells), cfg.difficulty ?? "medium", cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
             );
           }
@@ -1552,17 +1553,18 @@ export async function buildLevelPayload(level: Record<string, unknown>): Promise
       }
     } else if (level.module_type === "sudoku") {
       const { rows: cfgRows } = await query(
-        `SELECT layout, bg_image_url, cells, rows, cols, given_cells, blank_cells, line_color, given_color, blank_bg, bg_color, bg_enabled, opacity, difficulty, timer_mode, time_limit, question_i18n FROM edu.sudoku_configs WHERE id = $1`,
+        `SELECT layout, bg_image_url, cells, rows, cols, box_rows, box_cols, given_cells, blank_cells, line_color, given_color, blank_bg, bg_color, bg_enabled, opacity, difficulty, timer_mode, time_limit, question_i18n FROM edu.sudoku_configs WHERE id = $1`,
         [level.module_config_id]
       );
       const row = cfgRows[0];
       if (row && row.layout === "grid") {
         // grid模式——given_cells本来就是"明摆着给学生看的数字"，原样发；
         // blank_cells只送位置，answer这个字段(隐藏的答案)不能发给学生，
-        // 跟photo模式一样的"答案不下发"原则。
+        // 跟photo模式一样的"答案不下发"原则。box_rows/box_cols只是"宫"
+        // 的结构信息(画粗分隔线用)，不是答案，正常下发。
         const blankCellsWithoutAnswers = (row.blank_cells as Array<{ row: number; col: number }>).map((c) => ({ row: c.row, col: c.col }));
         config = {
-          layout: "grid", rows: row.rows, cols: row.cols, given_cells: row.given_cells, blank_cells: blankCellsWithoutAnswers,
+          layout: "grid", rows: row.rows, cols: row.cols, box_rows: row.box_rows, box_cols: row.box_cols, given_cells: row.given_cells, blank_cells: blankCellsWithoutAnswers,
           line_color: row.line_color, given_color: row.given_color, blank_bg: row.blank_bg, bg_color: row.bg_color, bg_enabled: row.bg_enabled, opacity: row.opacity,
           difficulty: row.difficulty, timer_mode: row.timer_mode, time_limit: row.time_limit, question_i18n: row.question_i18n,
         };
@@ -2124,7 +2126,7 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
     } else if (level.module_type === "sudoku") {
       // the ONLY branch that differs from getLevel: cells/blank_cells keep `answer`
       const { rows: cfgRows } = await query(
-        `SELECT layout, bg_image_url, cells, rows, cols, given_cells, blank_cells, line_color, given_color, blank_bg, bg_color, bg_enabled, opacity, difficulty, timer_mode, time_limit, question_i18n FROM edu.sudoku_configs WHERE id = $1`,
+        `SELECT layout, bg_image_url, cells, rows, cols, box_rows, box_cols, given_cells, blank_cells, line_color, given_color, blank_bg, bg_color, bg_enabled, opacity, difficulty, timer_mode, time_limit, question_i18n FROM edu.sudoku_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;
