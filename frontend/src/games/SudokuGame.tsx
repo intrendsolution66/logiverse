@@ -68,6 +68,11 @@ export interface SudokuConfig {
   cells?: { x: number; y: number }[]; // 没有 answer——见文件头说明
   // grid 模式专用
   rows?: number; cols?: number;
+  // "宫"——每隔几行/几列画一条粗分隔线，经典数独是3×3宫(box_rows=
+  // box_cols=3，配合rows=cols=9)。不传就退回"整个网格只有外框粗线、
+  // 内部全部细线"的旧行为(等于box_rows=rows, box_cols=cols，没有内部
+  // 细分)，兼容 SceneEditor 那次功能上线之前存的旧数据。
+  box_rows?: number; box_cols?: number;
   given_cells?: SudokuGivenCell[];
   blank_cells?: SudokuBlankCell[]; // 顺序 = 提交答案数组的顺序
   line_color?: string; given_color?: string; blank_bg?: string;
@@ -182,28 +187,38 @@ export default function SudokuGame({ levelId, config, onComplete, locale = "zh" 
 
       <div
         ref={boardRef}
-        className="relative w-full aspect-[11/7] rounded-2xl mb-4 bg-white overflow-hidden shadow-lg ring-1 ring-black/5"
-        style={isGrid ? undefined : { backgroundImage: `url(${config.bg_image_url})`, backgroundSize: "100% 100%", backgroundPosition: "center" }}
+        className={`relative w-full rounded-2xl mb-4 bg-white overflow-hidden shadow-lg ring-1 ring-black/5 ${isGrid ? "" : "aspect-[11/7]"}`}
+        style={isGrid ? { aspectRatio: `${cols} / ${rows}` } : { backgroundImage: `url(${config.bg_image_url})`, backgroundSize: "100% 100%", backgroundPosition: "center" }}
       >
-        {/* grid 模式——自己画网格线 + 给定数字，photo 模式这一块完全没有（线/数字都在照片里） */}
-        {isGrid && (
-          <svg viewBox={`0 0 ${cols} ${rows}`} preserveAspectRatio="none" className="absolute inset-0 w-full h-full pointer-events-none">
-            {Array.from({ length: rows + 1 }, (_, r) => (
-              <line key={`r${r}`} x1={0} y1={r} x2={cols} y2={r} stroke={config.line_color ?? "#333"} strokeWidth={r === 0 || r === rows ? 0.06 : 0.02} vectorEffect="non-scaling-stroke" />
-            ))}
-            {Array.from({ length: cols + 1 }, (_, c) => (
-              <line key={`c${c}`} x1={c} y1={0} x2={c} y2={rows} stroke={config.line_color ?? "#333"} strokeWidth={c === 0 || c === cols ? 0.06 : 0.02} vectorEffect="non-scaling-stroke" />
-            ))}
-            {givenCells.map((c, i) => (
-              <text
-                key={i} x={c.col + 0.5} y={c.row + 0.5} textAnchor="middle" dominantBaseline="central"
-                fontSize={0.55} fontWeight="bold" fill={config.given_color ?? "#222"}
-              >
-                {c.value}
-              </text>
-            ))}
-          </svg>
-        )}
+        {/* grid 模式——自己画网格线 + 给定数字，photo 模式这一块完全没有（线/数字都在照片里）。
+            容器 aspect-ratio 已经改成 cols/rows(正方形网格=正方形容器)，
+            格子必然是正方形，跟下面输入框的 aspect-ratio:1/1 对得上，
+            不会再出现网格被拉伸变形、数字对不齐格子的情况——那是这次
+            连带修的一个bug，不是这次box分宫功能引入的新代码。
+            box_rows/box_cols 决定"宫"的粗分隔线位置：每隔box_rows行、
+            box_cols列画一条粗线(经典数独3×3宫)；不传就等于整个网格只
+            有外框是粗线，内部全部细线(旧行为，向后兼容)。 */}
+        {isGrid && (() => {
+          const boxRows = config.box_rows ?? rows, boxCols = config.box_cols ?? cols;
+          return (
+            <svg viewBox={`0 0 ${cols} ${rows}`} preserveAspectRatio="none" className="absolute inset-0 w-full h-full pointer-events-none">
+              {Array.from({ length: rows + 1 }, (_, r) => (
+                <line key={`r${r}`} x1={0} y1={r} x2={cols} y2={r} stroke={config.line_color ?? "#333"} strokeWidth={r === 0 || r === rows || r % boxRows === 0 ? 0.06 : 0.02} vectorEffect="non-scaling-stroke" />
+              ))}
+              {Array.from({ length: cols + 1 }, (_, c) => (
+                <line key={`c${c}`} x1={c} y1={0} x2={c} y2={rows} stroke={config.line_color ?? "#333"} strokeWidth={c === 0 || c === cols || c % boxCols === 0 ? 0.06 : 0.02} vectorEffect="non-scaling-stroke" />
+              ))}
+              {givenCells.map((c, i) => (
+                <text
+                  key={i} x={c.col + 0.5} y={c.row + 0.5} textAnchor="middle" dominantBaseline="central"
+                  fontSize={0.55} fontWeight="bold" fill={config.given_color ?? "#222"}
+                >
+                  {c.value}
+                </text>
+              ))}
+            </svg>
+          );
+        })()}
 
         {activeCells.map((c, i) => {
           const isCorrect = correctness?.[i];

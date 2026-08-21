@@ -3116,7 +3116,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             bgUrl: null, objects: [], texts: [],
             grids: [{
               x: GAME_CANVAS_W / 2, y: GAME_CANVAS_H / 2, w: 320, h: 320, rotation: 0,
-              rows, cols, cells,
+              rows, cols, boxRows: (cfg.box_rows as number) ?? rows, boxCols: (cfg.box_cols as number) ?? cols, cells,
               lineColor: (cfg.line_color as string) ?? "#333333",
               givenColor: (cfg.given_color as string) ?? "#222222",
               blankBg: (cfg.blank_bg as string) ?? "#fff3d6",
@@ -4010,7 +4010,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
             config: {
               layout: "grid",
-              rows: grid.rows, cols: grid.cols,
+              rows: grid.rows, cols: grid.cols, box_rows: grid.boxRows, box_cols: grid.boxCols,
               given_cells: givenCells, blank_cells: blankCells,
               line_color: grid.lineColor, given_color: grid.givenColor, blank_bg: grid.blankBg,
               bg_color: grid.bgColor, bg_enabled: grid.bgEnabled, opacity: grid.opacity,

@@ -60,6 +60,7 @@ interface GridLayer {
   id: string; type: "grid";
   x: number; y: number; w: number; h: number; rotation: number;
   rows: number; cols: number;
+  boxRows: number; boxCols: number; // "宫"——每隔几行/几列画粗分隔线，经典数独=3×3宫(boxRows=boxCols=3, rows=cols=9)。等于rows/cols时不分宫，只有外框是粗线(旧行为)。
   cells: GridCellData[][]; // [row][col]
   lineColor: string; givenColor: string; blankBg: string;
   bgColor: string; bgEnabled: boolean; // 整个网格底色（选填，跟blankBg是两回事——blankBg只填空格那一小块，这个是整个网格范围的底色）
@@ -236,7 +237,7 @@ export interface StructuredSceneOutput {
   // 网格（数独这种"自己画格子"用）——不像形状会被烤进背景图，网格要
   // 保持可交互（学生要能填空），所以走跟 objects/texts 一样的结构化
   // 导出，不是扁平化 PNG 的那条路。
-  grids?: Array<{ x: number; y: number; w: number; h: number; rotation: number; rows: number; cols: number; cells: { value: string; blank: boolean; answer?: string; pathStep?: number }[][]; lineColor: string; givenColor: string; blankBg: string; bgColor: string; bgEnabled: boolean; opacity?: number }>;
+  grids?: Array<{ x: number; y: number; w: number; h: number; rotation: number; rows: number; cols: number; boxRows: number; boxCols: number; cells: { value: string; blank: boolean; answer?: string; pathStep?: number }[][]; lineColor: string; givenColor: string; blankBg: string; bgColor: string; bgEnabled: boolean; opacity?: number }>;
   // 形状（画方形/圆形/三角形等）——之前一直是"烤进背景图"那条路(跟
   // 画笔涂鸦一样处理)，只有需要"这个游戏要把形状当成独立可数的物件"
   // (比如数方块/圆形/三角形一共有几个，形状还可能互相重叠)才会用到
@@ -308,7 +309,8 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     const textLayers: TextLayer[] = initial.texts.map((t) => ({ id: uid(), type: "text", text: t.text, x: t.x, y: t.y, fontSize: t.fontSize, color: t.color, fontFamily: t.fontFamily, rotation: t.rotation, bold: t.bold, italic: t.italic, underline: t.underline }));
     const gridLayers: GridLayer[] = (initial.grids ?? []).map((g) => ({
       id: uid(), type: "grid", x: g.x, y: g.y, w: g.w, h: g.h, rotation: g.rotation,
-      rows: g.rows, cols: g.cols, cells: g.cells, lineColor: g.lineColor, givenColor: g.givenColor, blankBg: g.blankBg,
+      rows: g.rows, cols: g.cols, boxRows: g.boxRows ?? g.rows, boxCols: g.boxCols ?? g.cols,
+      cells: g.cells, lineColor: g.lineColor, givenColor: g.givenColor, blankBg: g.blankBg,
       bgColor: g.bgColor ?? "#ffffff", bgEnabled: g.bgEnabled ?? false, opacity: g.opacity,
     }));
     // 形状——之前的版本里形状从来不会出现在initial.shapes里(因为之前
@@ -498,9 +500,20 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
               ctx.fillStyle = l.blankBg;
               ctx.fillRect(cellX + 2, cellY + 2, cellW - 4, cellH - 4);
             }
-            // 内部分隔线（细一点，跟外框区分开）
+            // 内部分隔线——"宫"边界(每隔boxRows行/boxCols列)用跟外框一样
+            // 粗的线，其余格子之间是细线，让设计师在编辑器里就能看到
+            // 跟实际游戏里一致的宫结构（经典数独3×3宫）。
+            const isBoxBottom = (r + 1) % l.boxRows === 0 && r + 1 < l.rows;
+            const isBoxRight = (c + 1) % l.boxCols === 0 && c + 1 < l.cols;
             ctx.strokeStyle = l.lineColor; ctx.lineWidth = 1;
             ctx.strokeRect(cellX, cellY, cellW, cellH);
+            if (isBoxBottom || isBoxRight) {
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              if (isBoxBottom) { ctx.moveTo(cellX, cellY + cellH); ctx.lineTo(cellX + cellW, cellY + cellH); }
+              if (isBoxRight) { ctx.moveTo(cellX + cellW, cellY); ctx.lineTo(cellX + cellW, cellY + cellH); }
+              ctx.stroke();
+            }
             if (cell.blank) {
               // 答案只在编辑器里给设计师自己看一眼核对用（淡色小字，
               // 跟给定数字的粗体正常颜色明显区分），不会真的画进保存的
@@ -872,7 +885,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     const newLayer: GridLayer = {
       id: uid(), type: "grid",
       x: W / 2, y: H / 2, w: 320, h: 320, rotation: 0,
-      rows, cols, cells,
+      rows, cols, boxRows: rows, boxCols: cols, cells,
       lineColor: "#333333", givenColor: "#222222", blankBg: "#fff3d6",
       bgColor: "#ffffff", bgEnabled: false, opacity: 100,
     };
@@ -976,7 +989,16 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
       const nextCells: GridCellData[][] = Array.from({ length: rows }, (_, r) =>
         Array.from({ length: cols }, (_, c) => l.cells[r]?.[c] ?? { value: "", blank: true })
       );
-      return { ...l, rows, cols, cells: nextCells };
+      return { ...l, rows, cols, boxRows: Math.min(l.boxRows, rows), boxCols: Math.min(l.boxCols, cols), cells: nextCells };
+    }));
+  }
+
+  // 改"宫"的大小——只影响粗分隔线画在哪，不动格子内容。夹在1和总行/列
+  // 数之间，等于总行/列数就是"不分宫"(只有外框是粗线，退回旧行为)。
+  function setSelectedBoxSize(boxRows: number, boxCols: number) {
+    setLayers((ls) => ls.map((l) => {
+      if (l.id !== selectedId || l.type !== "grid") return l;
+      return { ...l, boxRows: Math.max(1, Math.min(boxRows, l.rows)), boxCols: Math.max(1, Math.min(boxCols, l.cols)) };
     }));
   }
 
@@ -1037,7 +1059,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     const texts = layers.filter((l): l is TextLayer => l.type === "text")
       .map((l) => ({ text: l.text, x: l.x, y: l.y, fontSize: l.fontSize, color: l.color, fontFamily: l.fontFamily, rotation: l.rotation ?? 0, bold: l.bold || undefined, italic: l.italic || undefined, underline: l.underline || undefined }));
     const grids = layers.filter((l): l is GridLayer => l.type === "grid")
-      .map((l) => ({ x: l.x, y: l.y, w: l.w, h: l.h, rotation: l.rotation ?? 0, rows: l.rows, cols: l.cols, cells: l.cells, lineColor: l.lineColor, givenColor: l.givenColor, blankBg: l.blankBg, bgColor: l.bgColor, bgEnabled: l.bgEnabled, opacity: l.opacity }));
+      .map((l) => ({ x: l.x, y: l.y, w: l.w, h: l.h, rotation: l.rotation ?? 0, rows: l.rows, cols: l.cols, boxRows: l.boxRows, boxCols: l.boxCols, cells: l.cells, lineColor: l.lineColor, givenColor: l.givenColor, blankBg: l.blankBg, bgColor: l.bgColor, bgEnabled: l.bgEnabled, opacity: l.opacity }));
     // 结构化模式下形状不再烤进背景图(见 bakeBackgroundWithDecorations
     // 的改动)——保持成独立数据，运行时才有办法把每个形状当成一个可数
     // 的物件(比如数方块/圆形/三角形，形状还可能互相重叠)，不是死死画
@@ -1353,6 +1375,40 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
                     className="w-full border rounded-md p-1.5 text-sm"
                   />
                 </div>
+              </div>
+
+              <div>
+                <Label>宫（粗线分隔的小方块，比如经典数独=3×3宫）</Label>
+                <div className="grid grid-cols-2 gap-2 mt-1">
+                  <input
+                    type="number" min={1} max={selectedLayer.rows} value={selectedLayer.boxRows}
+                    onChange={(e) => setSelectedBoxSize(+e.target.value || 1, selectedLayer.boxCols)}
+                    className="w-full border rounded-md p-1.5 text-sm"
+                    placeholder="每几行一条粗线"
+                  />
+                  <input
+                    type="number" min={1} max={selectedLayer.cols} value={selectedLayer.boxCols}
+                    onChange={(e) => setSelectedBoxSize(selectedLayer.boxRows, +e.target.value || 1)}
+                    className="w-full border rounded-md p-1.5 text-sm"
+                    placeholder="每几列一条粗线"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {([
+                    ["1个2×2", 2, 2, 2, 2], ["4个2×2", 4, 4, 2, 2],
+                    ["1个3×3", 3, 3, 3, 3], ["4个3×3", 6, 6, 3, 3], ["9个3×3(经典数独)", 9, 9, 3, 3],
+                    ["1个4×4", 4, 4, 4, 4], ["4个4×4", 8, 8, 4, 4],
+                  ] as const).map(([label, rows, cols, boxRows, boxCols]) => (
+                    <button
+                      key={label} type="button"
+                      onClick={() => { setSelectedGridSize(rows, cols); setSelectedBoxSize(boxRows, boxCols); }}
+                      className="px-2 py-1 rounded-md text-[11px] border border-border text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">跟行数/列数相等就是"不分宫"——只有最外框是粗线，格子内部全部细线。</p>
               </div>
 
               <p className="text-xs text-muted-foreground">直接在画布上点一个格子来选中它（跟点物件、点形状是一样的操作），选中的格子在下面编辑。</p>
