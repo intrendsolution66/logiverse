@@ -1842,6 +1842,20 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
                       else if (e.key === "ArrowUp") { e.preventDefault(); moveTo(-1, 0); }
                       else if (e.key === "Escape") (e.target as HTMLInputElement).blur();
                     }}
+                    onContextMenu={(e) => {
+                      // 这个输入框叠在选中格子正上方，右键点它会被输入框
+                      // 自己的默认菜单(Select password/Paste as plain text
+                      // 这些浏览器给输入框的专属菜单项)拦下来，走不到下面
+                      // canvas 那个 onContextMenu——所以这里单独也要挡一次、
+                      // 弹同一个自定义菜单。格子就是这一个(row/col已经在
+                      // 闭包里)，不用重新算hit test。
+                      e.preventDefault();
+                      const menuW = 256, menuH = 220;
+                      setGridCellMenuPos({
+                        x: Math.min(e.clientX, window.innerWidth - menuW - 8),
+                        y: Math.min(e.clientY, window.innerHeight - menuH - 8),
+                      });
+                    }}
                     className={`absolute outline-none border-2 rounded text-center font-bold pointer-events-auto ${
                       isBlank ? "bg-amber-50/90 border-primary text-foreground" : "bg-white/85 border-primary/60 text-foreground"
                     }`}
@@ -1946,6 +1960,4 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     </div>
   );
 }
-
-
 
