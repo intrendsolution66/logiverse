@@ -3102,16 +3102,18 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         if (layout === "grid") {
           // 跟 photo 模式一样的限制——getLevel 不会把留空格子的正确答案
           // 送回来（安全考量，见 checkSudoku 那边的说明），所以重新编辑
-          // grid 模式的数独，留空格子会是空的占位符，设计师要重新打一次
-          // 答案；给定的数字(given_cells)不是要藏的答案，会正常还原。
+          // grid 模式的数独，留空格子的 value 会是空的占位符，设计师要
+          // 重新打一次数字；给定的数字(given_cells)不是要藏的答案，会
+          // 正常还原。不再分"给定数字"/"答案"两个字段，统一都是value，
+          // 是不是要藏起来只看 blank 这个开关。
           const rows = (cfg.rows as number) ?? 4, cols = (cfg.cols as number) ?? 4;
           const givenCells = (cfg.given_cells as Array<{ row: number; col: number; value: string }>) ?? [];
-          const blankCells = (cfg.blank_cells as Array<{ row: number; col: number; answer?: string }>) ?? [];
-          const cells: { value: string; blank: boolean; answer?: string }[][] = Array.from({ length: rows }, () =>
+          const blankCells = (cfg.blank_cells as Array<{ row: number; col: number }>) ?? [];
+          const cells: { value: string; blank: boolean }[][] = Array.from({ length: rows }, () =>
             Array.from({ length: cols }, () => ({ value: "", blank: false }))
           );
           givenCells.forEach((c) => { if (cells[c.row]?.[c.col]) cells[c.row][c.col] = { value: c.value, blank: false }; });
-          blankCells.forEach((c) => { if (cells[c.row]?.[c.col]) cells[c.row][c.col] = { value: "", blank: true, answer: c.answer ?? "" }; });
+          blankCells.forEach((c) => { if (cells[c.row]?.[c.col]) cells[c.row][c.col] = { value: "", blank: true }; });
           setSudokuScene({
             bgUrl: null, objects: [], texts: [],
             grids: [{
@@ -3986,18 +3988,21 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           const givenCells: Array<{ row: number; col: number; value: string }> = [];
           const blankCells: Array<{ row: number; col: number; answer: string }> = [];
           const missingCells: Array<{ row: number; col: number }> = [];
+          // 不再区分"给定数字"和"答案"两个字段——统一读cell.value，是
+          // 不是要藏起来当答案只看cell.blank这一个开关。留空格子的
+          // value本身就是答案，不用另外填一次。
           grid.cells.forEach((rowArr, r) => rowArr.forEach((cell, c) => {
-            if (cell.blank) blankCells.push({ row: r, col: c, answer: (cell.answer ?? "").trim() });
-            else if (cell.value.trim()) givenCells.push({ row: r, col: c, value: cell.value.trim() });
-            else missingCells.push({ row: r, col: c }); // 既没勾"留空给学生填"也没填数字——不能悄悄丢弃，否则这格在游戏里会彻底消失
+            const v = cell.value.trim();
+            if (!v) { missingCells.push({ row: r, col: c }); return; } // 不管留没留空，没打数字都不能悄悄丢弃，否则这格在游戏里会彻底消失
+            if (cell.blank) blankCells.push({ row: r, col: c, answer: v });
+            else givenCells.push({ row: r, col: c, value: v });
           }));
           if (missingCells.length > 0) {
             const list = missingCells.map((m) => `第${m.row + 1}行第${m.col + 1}列`).join("、");
-            toast.error(`这些格子既没填数字也没勾"留空给学生填"：${list}，请点画布上对应格子处理`);
+            toast.error(`这些格子还没打数字：${list}，请点画布上对应格子处理`);
             return;
           }
-          if (blankCells.length === 0) { toast.error("至少要有1个留空的格子给学生填"); return; }
-          if (blankCells.some((c) => !c.answer)) { toast.error("每个留空的格子都要填答案（1-9），点画布上那个格子在右边填"); return; }
+          if (blankCells.length === 0) { toast.error("至少要有1个格子右键勾选\"需要被填入的答案\"，留给学生填"); return; }
           await saveLevel({
             module_type: "sudoku",
             title_i18n: { zh: levelTitle || "数独", en: levelTitle || "Sudoku" },

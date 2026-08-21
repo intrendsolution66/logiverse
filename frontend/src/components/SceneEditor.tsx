@@ -506,8 +506,10 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
         const b = objectBounds(l);
         const cellW = b.w / l.cols, cellH = b.h / l.rows;
         if (l.bgEnabled) { ctx.fillStyle = l.bgColor; ctx.fillRect(b.x, b.y, b.w, b.h); }
-        // 外框
-        ctx.strokeStyle = l.lineColor; ctx.lineWidth = 2;
+        // 外框——比普通格线粗很多，跟"宫"的边界线是同一个粗细，一眼就能
+        // 看出宫的分界，不会看起来像普通的NxN网格（比如"4个2×2"要清楚
+        // 看出是4个独立的2×2宫拼起来，不是一个普通4×4网格）。
+        ctx.strokeStyle = l.lineColor; ctx.lineWidth = 4;
         ctx.strokeRect(b.x, b.y, b.w, b.h);
         for (let r = 0; r < l.rows; r++) {
           for (let c = 0; c < l.cols; c++) {
@@ -518,29 +520,32 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
               ctx.fillRect(cellX + 2, cellY + 2, cellW - 4, cellH - 4);
             }
             // 内部分隔线——"宫"边界(每隔boxRows行/boxCols列)用跟外框一样
-            // 粗的线，其余格子之间是细线，让设计师在编辑器里就能看到
-            // 跟实际游戏里一致的宫结构（经典数独3×3宫）。
+            // 粗的线，其余格子之间是细线，粗细差拉大到4:1，让设计师在
+            // 编辑器里就能清楚看到跟实际游戏里一致的宫结构。
             const isBoxBottom = (r + 1) % l.boxRows === 0 && r + 1 < l.rows;
             const isBoxRight = (c + 1) % l.boxCols === 0 && c + 1 < l.cols;
             ctx.strokeStyle = l.lineColor; ctx.lineWidth = 1;
             ctx.strokeRect(cellX, cellY, cellW, cellH);
             if (isBoxBottom || isBoxRight) {
-              ctx.lineWidth = 2;
+              ctx.lineWidth = 4;
               ctx.beginPath();
               if (isBoxBottom) { ctx.moveTo(cellX, cellY + cellH); ctx.lineTo(cellX + cellW, cellY + cellH); }
               if (isBoxRight) { ctx.moveTo(cellX + cellW, cellY); ctx.lineTo(cellX + cellW, cellY + cellH); }
               ctx.stroke();
             }
             if (cell.blank) {
-              // 答案只在编辑器里给设计师自己看一眼核对用（淡色小字，
-              // 跟给定数字的粗体正常颜色明显区分），不会真的画进保存的
-              // 图片/发给运行时——运行时只拿得到 blank_cells 的位置，
-              // 答案是server端核对，这里纯粹是编辑器的可视化辅助。
-              if (cell.answer) {
+              // 留空格子——打的数字其实是"答案"，编辑器里用淡色小字显示
+              // 给设计师自己看一眼核对（跟给定数字的粗体正常颜色明显
+              // 区分），不会真的画进保存的图片/发给运行时——运行时只拿
+              // 得到 blank_cells 的位置，答案是server端核对，这里纯粹
+              // 是编辑器的可视化辅助。value/answer 不再是两个分开的字段，
+              // 统一都存在 cell.value 里，是不是"答案"完全由 blank 这个
+              // 开关决定，不用分两个输入框改两个字段。
+              if (cell.value) {
                 ctx.font = `${Math.floor(Math.min(cellW, cellH) * 0.4)}px sans-serif`;
                 ctx.fillStyle = "#00000055";
                 ctx.textAlign = "center"; ctx.textBaseline = "middle";
-                ctx.fillText(cell.answer, cellX + cellW / 2, cellY + cellH / 2);
+                ctx.fillText(cell.value, cellX + cellW / 2, cellY + cellH / 2);
               }
             } else if (cell.value) {
               ctx.font = `bold ${Math.floor(Math.min(cellW, cellH) * 0.55)}px sans-serif`;
@@ -1470,16 +1475,14 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
                       checked={selectedLayer.cells[selectedGridCell.row]?.[selectedGridCell.col]?.blank ?? false}
                       onChange={(e) => updateSelectedGridCell({ blank: e.target.checked })}
                     />
-                    留空给学生填
+                    需要被填入的答案（勾上=藏起来考学生，不勾=直接显示给学生看）
                   </label>
-                  {/* 数字/答案统一只在左键点格子那个直接打字的叠加输入框里
-                      改(画布上，不在这个侧边栏)，右键菜单也只管上面这个
-                      "留空"开关——同一份数据本来有三个地方能改，容易搞不
-                      清楚该在哪打字，现在分工明确：这里(以及右键菜单)只
-                      管"留空"这个属性，数字统一左键直接在格子上打。 */}
-                  <p className="text-xs text-muted-foreground/70">
-                    {selectedLayer.cells[selectedGridCell.row]?.[selectedGridCell.col]?.blank ? "答案直接左键点这一格在格子上打字" : "给定的数字直接左键点这一格在格子上打字"}
-                  </p>
+                  {/* 数字统一只在左键点格子那个直接打字的叠加输入框里改
+                      (画布上，不在这个侧边栏)——不再分"给定数字"/"答案"
+                      两个字段两个输入框，就是同一个 cell.value，藏不藏
+                      起来完全由上面这个勾选决定。这里(以及右键菜单)只
+                      管这一个开关，数字统一左键直接在格子上打。 */}
+                  <p className="text-xs text-muted-foreground/70">数字直接左键点这一格在格子上打字</p>
 
                   <div className="pt-2 border-t border-border/60">
                     <Label>路径顺序（数字迷宫·方格棋盘模式用，起点填1，往后依次+1，不在路径上的格子留空）</Label>
@@ -1793,11 +1796,11 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
               {/* 网格格子直接打字——点哪格选中哪格，叠加输入框立刻出现在
                   那一格上并自动聚焦，不用再跑去左侧属性栏找输入框，跟
                   填Excel表格一样的体验。方向键/Tab/Enter能连续跳到下一
-                  格，整排数字可以不用每格重新点一次鼠标。留空格子(blank)
-                  打的是"答案"（学生该填的数字，编辑器里半透明小字提示
-                  设计师自己看），非留空格子打的是"给定数字"（直接显示
-                  给学生看的）——跟左侧属性栏那两个输入框改的是同一份
-                  数据，双向同步，两边改哪边都行。旋转过的网格用
+                  格，整排数字可以不用每格重新点一次鼠标。不再区分"给定
+                  数字"和"答案"两个字段——统一都是cell.value，是不是要
+                  藏起来当答案，完全由右键菜单里的"留空"开关决定：打完
+                  整盘数独的正确答案，再挑几格右键勾"留空"，那几格的数字
+                  就自动变成藏起来的答案，不用重新打一遍。旋转过的网格用
                   gridCellCenter算出格子转过之后的真实屏幕位置，输入框
                   本身也跟着CSS rotate，不会跟画布上转过的格子对不上。 */}
               {tool === "select" && selectedLayer?.type === "grid" && selectedGridCell &&
@@ -1808,7 +1811,6 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
                 const pos = gridCellCenter(gridLayer, row, col);
                 const b = objectBounds(gridLayer);
                 const cellW = b.w / gridLayer.cols, cellH = b.h / gridLayer.rows;
-                const isBlank = cell.blank;
 
                 function moveTo(dr: number, dc: number) {
                   let r = row + dr, c = col + dc;
@@ -1822,8 +1824,8 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
                   <input
                     key={`${gridLayer.id}-${row}-${col}`}
                     autoFocus
-                    value={isBlank ? (cell.answer ?? "") : cell.value}
-                    onChange={(e) => updateSelectedGridCell(isBlank ? { answer: e.target.value.slice(0, 2) } : { value: e.target.value.slice(0, 2) })}
+                    value={cell.value}
+                    onChange={(e) => updateSelectedGridCell({ value: e.target.value.slice(0, 2) })}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === "Tab" || e.key === "ArrowRight") { e.preventDefault(); moveTo(0, 1); }
                       else if (e.key === "ArrowLeft") { e.preventDefault(); moveTo(0, -1); }
@@ -1846,7 +1848,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
                       });
                     }}
                     className={`absolute outline-none border-2 rounded text-center font-bold pointer-events-auto ${
-                      isBlank ? "bg-amber-50/90 border-primary text-foreground" : "bg-white/85 border-primary/60 text-foreground"
+                      cell.blank ? "bg-amber-50/90 border-primary text-foreground" : "bg-white/85 border-primary/60 text-foreground"
                     }`}
                     style={{
                       left: `${(pos.x / W) * 100}%`,
@@ -1906,11 +1908,11 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
         return (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setGridCellMenuPos(null)} onContextMenu={(e) => { e.preventDefault(); setGridCellMenuPos(null); }} />
-            {/* 右键菜单只管"留空给学生填"这一个开关——数字/答案统一只在
+            {/* 右键菜单只管"需要被填入的答案"这一个开关——数字统一只在
                 左键点格子那个直接打字的叠加输入框里改(见上面那段)，不
-                在这里重复放一份输入框。同一份数据两个地方都能改，之前
-                试过，会让人搞不清楚"我到底该在哪打字"，体验反而更差；
-                现在分工明确：右键=切换属性，左键=打数字。 */}
+                在这里重复放一份输入框。勾上这个格子现在打的数字就变成
+                藏起来的答案；不勾就是直接显示给学生看的数字——同一个
+                cell.value，不用分两个字段分别改。 */}
             <div
               className="fixed z-50 w-56 bg-white border border-border rounded-lg shadow-xl p-3 space-y-2"
               style={{ left: gridCellMenuPos.x, top: gridCellMenuPos.y }}
@@ -1923,11 +1925,12 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
                   checked={cell.blank}
                   onChange={(e) => updateSelectedGridCell({ blank: e.target.checked })}
                 />
-                留空给学生填
+                需要被填入的答案
               </label>
               <p className="text-[11px] text-muted-foreground/70">
-                {cell.blank ? "数字/答案直接左键点这一格在格子上打字" : "给定的数字直接左键点这一格在格子上打字"}
+                {cell.blank ? "勾上了——这一格现在打的数字会藏起来，变成学生该填的答案" : "没勾——这一格打的数字直接显示给学生看"}
               </p>
+              <p className="text-[11px] text-muted-foreground/70">数字直接左键点这一格在格子上打字</p>
               <button type="button" onClick={() => setGridCellMenuPos(null)} className="w-full text-center text-xs text-muted-foreground hover:text-foreground pt-1">关闭</button>
             </div>
           </>
@@ -1936,5 +1939,4 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     </div>
   );
 }
-
 
