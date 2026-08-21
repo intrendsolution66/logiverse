@@ -334,6 +334,17 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   const [drawOpacity, setDrawOpacity] = useState(100); // 只有"毛笔"用得到，铅笔固定100%不透明
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedGridCell, setSelectedGridCell] = useState<{ row: number; col: number } | null>(null);
+  // 格子直接打字那个叠加输入框的ref——换格子时用useEffect主动调用
+  // .focus()，不单纯依赖input自身的autoFocus属性。autoFocus配合"换
+  // 格子就换key、强制重新挂载输入框"这套写法，在某些时序下(尤其是
+  // 从画布上的canvas点击切过来，浏览器原生焦点处理和React挂载顺序
+  // 没对齐)第一次点击不一定真的拿到焦点，导致要点第二次才能打字——
+  // 显式useEffect+ref.focus()是更稳的写法，不依赖浏览器对autoFocus
+  // 属性的具体实现时序。
+  const gridCellInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (selectedGridCell) gridCellInputRef.current?.focus();
+  }, [selectedGridCell?.row, selectedGridCell?.col, selectedId]);
   // 格子右键菜单——屏幕像素坐标(clientX/clientY)，不是画布内部坐标，
   // 因为这个菜单是fixed定位的浮层，跟着鼠标点击的屏幕位置走，不需要
   // 换算成画布坐标系。null就是菜单关闭。
@@ -1840,7 +1851,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
                 return (
                   <input
                     key={`${gridLayer.id}-${row}-${col}`}
-                    autoFocus
+                    ref={gridCellInputRef}
                     value={cell.value}
                     onChange={(e) => updateSelectedGridCell({ value: e.target.value.slice(0, 2) })}
                     onKeyDown={(e) => {

@@ -3100,20 +3100,19 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         setSudokuLayout(layout);
         setSudokuDifficulty(((cfg.difficulty as string) ?? "medium") as "easy" | "medium" | "hard" | "custom");
         if (layout === "grid") {
-          // 跟 photo 模式一样的限制——getLevel 不会把留空格子的正确答案
-          // 送回来（安全考量，见 checkSudoku 那边的说明），所以重新编辑
-          // grid 模式的数独，留空格子的 value 会是空的占位符，设计师要
-          // 重新打一次数字；给定的数字(given_cells)不是要藏的答案，会
-          // 正常还原。不再分"给定数字"/"答案"两个字段，统一都是value，
-          // 是不是要藏起来只看 blank 这个开关。
+          // 设计师重新编辑用的是专门的接口(不是学生玩游戏用的公开
+          // getLevel)，这个接口本来就会把留空格子的答案(answer)带回来
+          // ——之前这里以为答案不会送回来、直接扔掉了，是判断错了，
+          // 导致重新编辑时留空格子的数字全部消失，要重新打一遍。现在
+          // 老老实实读c.answer，跟given_cells一样正常还原。
           const rows = (cfg.rows as number) ?? 4, cols = (cfg.cols as number) ?? 4;
           const givenCells = (cfg.given_cells as Array<{ row: number; col: number; value: string }>) ?? [];
-          const blankCells = (cfg.blank_cells as Array<{ row: number; col: number }>) ?? [];
+          const blankCells = (cfg.blank_cells as Array<{ row: number; col: number; answer?: string }>) ?? [];
           const cells: { value: string; blank: boolean }[][] = Array.from({ length: rows }, () =>
             Array.from({ length: cols }, () => ({ value: "", blank: false }))
           );
           givenCells.forEach((c) => { if (cells[c.row]?.[c.col]) cells[c.row][c.col] = { value: c.value, blank: false }; });
-          blankCells.forEach((c) => { if (cells[c.row]?.[c.col]) cells[c.row][c.col] = { value: "", blank: true }; });
+          blankCells.forEach((c) => { if (cells[c.row]?.[c.col]) cells[c.row][c.col] = { value: c.answer ?? "", blank: true }; });
           setSudokuScene({
             bgUrl: null, objects: [], texts: [],
             grids: [{
