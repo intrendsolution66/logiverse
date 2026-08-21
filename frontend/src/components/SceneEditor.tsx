@@ -1472,25 +1472,14 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
                     />
                     留空给学生填
                   </label>
-                  {selectedLayer.cells[selectedGridCell.row]?.[selectedGridCell.col]?.blank ? (
-                    <div>
-                      <Label>答案（学生该填的数字，不会显示在格子里，只用来核对）</Label>
-                      <Input
-                        value={selectedLayer.cells[selectedGridCell.row]?.[selectedGridCell.col]?.answer ?? ""}
-                        onChange={(e) => updateSelectedGridCell({ answer: e.target.value.slice(0, 2) })}
-                        placeholder="如：5"
-                      />
-                    </div>
-                  ) : (
-                    <div>
-                      <Label>给定的数字（直接显示给学生看）</Label>
-                      <Input
-                        value={selectedLayer.cells[selectedGridCell.row]?.[selectedGridCell.col]?.value ?? ""}
-                        onChange={(e) => updateSelectedGridCell({ value: e.target.value.slice(0, 2) })}
-                        placeholder="留空=空白格"
-                      />
-                    </div>
-                  )}
+                  {/* 数字/答案统一只在左键点格子那个直接打字的叠加输入框里
+                      改(画布上，不在这个侧边栏)，右键菜单也只管上面这个
+                      "留空"开关——同一份数据本来有三个地方能改，容易搞不
+                      清楚该在哪打字，现在分工明确：这里(以及右键菜单)只
+                      管"留空"这个属性，数字统一左键直接在格子上打。 */}
+                  <p className="text-xs text-muted-foreground/70">
+                    {selectedLayer.cells[selectedGridCell.row]?.[selectedGridCell.col]?.blank ? "答案直接左键点这一格在格子上打字" : "给定的数字直接左键点这一格在格子上打字"}
+                  </p>
 
                   <div className="pt-2 border-t border-border/60">
                     <Label>路径顺序（数字迷宫·方格棋盘模式用，起点填1，往后依次+1，不在路径上的格子留空）</Label>
@@ -1917,8 +1906,13 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
         return (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setGridCellMenuPos(null)} onContextMenu={(e) => { e.preventDefault(); setGridCellMenuPos(null); }} />
+            {/* 右键菜单只管"留空给学生填"这一个开关——数字/答案统一只在
+                左键点格子那个直接打字的叠加输入框里改(见上面那段)，不
+                在这里重复放一份输入框。同一份数据两个地方都能改，之前
+                试过，会让人搞不清楚"我到底该在哪打字"，体验反而更差；
+                现在分工明确：右键=切换属性，左键=打数字。 */}
             <div
-              className="fixed z-50 w-64 bg-white border border-border rounded-lg shadow-xl p-3 space-y-2"
+              className="fixed z-50 w-56 bg-white border border-border rounded-lg shadow-xl p-3 space-y-2"
               style={{ left: gridCellMenuPos.x, top: gridCellMenuPos.y }}
               onClick={(e) => e.stopPropagation()}
             >
@@ -1931,27 +1925,9 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
                 />
                 留空给学生填
               </label>
-              {cell.blank ? (
-                <div>
-                  <Label>答案（学生该填的数字，不会显示在格子里，只用来核对）</Label>
-                  <Input
-                    autoFocus
-                    value={cell.answer ?? ""}
-                    onChange={(e) => updateSelectedGridCell({ answer: e.target.value.slice(0, 2) })}
-                    placeholder="如：5"
-                  />
-                </div>
-              ) : (
-                <div>
-                  <Label>给定的数字（直接显示给学生看）</Label>
-                  <Input
-                    autoFocus
-                    value={cell.value}
-                    onChange={(e) => updateSelectedGridCell({ value: e.target.value.slice(0, 2) })}
-                    placeholder="留空=空白格"
-                  />
-                </div>
-              )}
+              <p className="text-[11px] text-muted-foreground/70">
+                {cell.blank ? "数字/答案直接左键点这一格在格子上打字" : "给定的数字直接左键点这一格在格子上打字"}
+              </p>
               <button type="button" onClick={() => setGridCellMenuPos(null)} className="w-full text-center text-xs text-muted-foreground hover:text-foreground pt-1">关闭</button>
             </div>
           </>
@@ -1960,4 +1936,5 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     </div>
   );
 }
+
 
