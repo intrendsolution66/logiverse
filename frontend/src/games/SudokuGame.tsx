@@ -187,8 +187,12 @@ export default function SudokuGame({ levelId, config, onComplete, locale = "zh" 
 
       <div
         ref={boardRef}
-        className={`relative w-full rounded-2xl mb-4 bg-white overflow-hidden shadow-lg ring-1 ring-black/5 ${isGrid ? "" : "aspect-[11/7]"}`}
-        style={isGrid ? { aspectRatio: `${cols} / ${rows}` } : { backgroundImage: `url(${config.bg_image_url})`, backgroundSize: "100% 100%", backgroundPosition: "center" }}
+        className={`relative mx-auto rounded-2xl mb-4 bg-white overflow-hidden shadow-lg ring-1 ring-black/5`}
+        style={{
+          aspectRatio: isGrid ? `${cols} / ${rows}` : "11 / 7",
+          width: `min(100%, calc((100dvh - 260px) * ${isGrid ? cols / rows : 11 / 7}))`,
+          ...(isGrid ? {} : { backgroundImage: `url(${config.bg_image_url})`, backgroundSize: "100% 100%", backgroundPosition: "center" }),
+        }}
       >
         {/* grid 模式——自己画网格线 + 给定数字，photo 模式这一块完全没有（线/数字都在照片里）。
             容器 aspect-ratio 已经改成 cols/rows(正方形网格=正方形容器)，
