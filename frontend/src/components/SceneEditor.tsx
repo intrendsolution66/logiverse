@@ -929,12 +929,13 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   // 填上数字、把那几格的 blank 改回 false，标成"给定的"，逻辑上比反过来
   // (默认全部是"给定"，再一个个挑要留空的)更符合"先搭好空格子、再填几
   // 个提示数字"这个自然的做题思路。
+  // 加网格——数独这种"自己画格子"用。默认 4×4（比经典数独的9×9更适合
+  // 4-12岁小朋友），格子默认全部是"直接显示"（blank:false）——设计师
+  // 先把整盘按正确答案打满，再挑几格右键勾"需要被填入的答案"标成留空
+  // 考学生，逻辑上符合"先解出正确答案、再挑几个藏起来出题"这个真实
+  // 解数独的思路（早先版本是反过来的：默认全部留空，这次按最新反馈
+  // 倒过来了）。
   function addGrid() {
-    // 数独/数字迷宫(方格棋盘模式)这类场景，保存的时候只认"第一个网格
-    // 图层"——多加一个不会被拒绝、也不会报错，但会悄悄变成"填了也没用
-    // 的白填"，因为读取/校验逻辑根本不看第二个。与其等设计师填完一整
-    // 盘发现保存时报错才发现问题，不如从源头挡住：已经有网格图层了，
-    // 这个按钮就不再新建，直接选中已有那个，提醒一声。
     const existingGrid = layers.find((l): l is GridLayer => l.type === "grid");
     if (existingGrid) {
       setSelectedId(existingGrid.id);
@@ -945,7 +946,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     pushHistory();
     const rows = 4, cols = 4;
     const cells: GridCellData[][] = Array.from({ length: rows }, () =>
-      Array.from({ length: cols }, () => ({ value: "", blank: true }))
+      Array.from({ length: cols }, () => ({ value: "", blank: false }))
     );
     const newLayer: GridLayer = {
       id: uid(), type: "grid",
@@ -1051,12 +1052,12 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   }
 
   // 改行数/列数——尽量保留原有格子的内容，缩小的话超出范围的格子直接
-  // 丢掉，放大的话新增的格子默认"留空"（跟 addGrid 的默认值一致）。
+  // 放大网格时新增的格子默认"直接显示"（跟 addGrid 的默认值一致）。
   function setSelectedGridSize(rows: number, cols: number) {
     setLayers((ls) => ls.map((l) => {
       if (l.id !== selectedId || l.type !== "grid") return l;
       const nextCells: GridCellData[][] = Array.from({ length: rows }, (_, r) =>
-        Array.from({ length: cols }, (_, c) => l.cells[r]?.[c] ?? { value: "", blank: true })
+        Array.from({ length: cols }, (_, c) => l.cells[r]?.[c] ?? { value: "", blank: false })
       );
       return { ...l, rows, cols, boxRows: Math.min(l.boxRows, rows), boxCols: Math.min(l.boxCols, cols), cells: nextCells };
     }));

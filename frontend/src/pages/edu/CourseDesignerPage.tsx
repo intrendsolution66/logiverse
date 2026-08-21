@@ -3984,7 +3984,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       } else if (moduleType === "sudoku") { // authored: a puzzle image + which cells are blank + each one's correct digit
         if (sudokuLayout === "grid") {
           const grid = sudokuScene?.grids?.[0];
-          if (!grid) { toast.error("请先在编辑器里画好网格"); return; }
+          if (!grid) { toast.error('网格还没确认——请先点上面场景编辑器右上角的"完成"按钮，把网格内容提交进来，再点这里的"保存"'); return; }
           if ((sudokuScene?.grids?.length ?? 0) > 1) {
             toast.error(`这个场景里有 ${sudokuScene!.grids!.length} 个网格图层，但保存只会用第一个——请点上面"完成"重新打开编辑器，在右边图层面板里把多余的网格删掉，只留一个`);
             return;
@@ -4055,7 +4055,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       } else if (moduleType === "number_maze") { // authored: 判定走client端直接核对，不像数独那样藏答案——这是"休闲游戏"级别的安全模型，跟line_match/迷宫是同一个取舍，不是疏忽
         if (nmLayout === "grid") {
           const grid = nmScene?.grids?.[0];
-          if (!grid) { toast.error("请先在编辑器里画好网格、填好数字"); return; }
+          if (!grid) { toast.error('网格还没确认——请先点上面场景编辑器右上角的"完成"按钮，把网格内容提交进来，再点这里的"保存"'); return; }
           if ((nmScene?.grids?.length ?? 0) > 1) {
             toast.error(`这个场景里有 ${nmScene!.grids!.length} 个网格图层，但保存只会用第一个——请点上面"完成"重新打开编辑器，在右边图层面板里把多余的网格删掉，只留一个`);
             return;
@@ -6521,6 +6521,5 @@ export default function CourseDesignerPage() {
     </div>
   );
 }
-
 
 
