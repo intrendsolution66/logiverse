@@ -387,6 +387,19 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   function objectBounds(l: ObjectLayer | ShapeLayer | GridLayer | BackgroundLayer): Bounds {
     return { x: l.x - l.w / 2, y: l.y - l.h / 2, w: l.w, h: l.h };
   }
+  // 网格里某一格的中心点——先按未旋转的本地坐标算出格子中心(cellW/cellH
+  // 是均分整个网格宽高)，再绕网格自己的中心(l.x, l.y)转过rotation角度，
+  // 得到它在画布上真正的像素位置。跟canvas实际绘制网格时的变换顺序
+  // (ctx.translate(l.x,l.y) → ctx.rotate → 画格子 → translate回去)完全
+  // 对应，格子没转的话(rotation=0)算出来跟直接线性定位是一样的。
+  function gridCellCenter(l: GridLayer, row: number, col: number): { x: number; y: number } {
+    const b = objectBounds(l);
+    const cellW = b.w / l.cols, cellH = b.h / l.rows;
+    const localX = b.x + (col + 0.5) * cellW, localY = b.y + (row + 0.5) * cellH;
+    const rad = deg2rad(l.rotation ?? 0);
+    const dx = localX - l.x, dy = localY - l.y;
+    return { x: l.x + dx * Math.cos(rad) - dy * Math.sin(rad), y: l.y + dx * Math.sin(rad) + dy * Math.cos(rad) };
+  }
   function layerBounds(l: Layer, ctx: CanvasRenderingContext2D): Bounds {
     if (l.type === "object" || l.type === "shape" || l.type === "grid") return objectBounds(l);
     ctx.font = `${l.fontSize}px ${l.fontFamily}`;
@@ -1751,9 +1764,65 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
                   }}
                 />
               )}
+
+              {/* 网格格子直接打字——点哪格选中哪格，叠加输入框立刻出现在
+                  那一格上并自动聚焦，不用再跑去左侧属性栏找输入框，跟
+                  填Excel表格一样的体验。方向键/Tab/Enter能连续跳到下一
+                  格，整排数字可以不用每格重新点一次鼠标。留空格子(blank)
+                  打的是"答案"（学生该填的数字，编辑器里半透明小字提示
+                  设计师自己看），非留空格子打的是"给定数字"（直接显示
+                  给学生看的）——跟左侧属性栏那两个输入框改的是同一份
+                  数据，双向同步，两边改哪边都行。旋转过的网格用
+                  gridCellCenter算出格子转过之后的真实屏幕位置，输入框
+                  本身也跟着CSS rotate，不会跟画布上转过的格子对不上。 */}
+              {tool === "select" && selectedLayer?.type === "grid" && selectedGridCell &&
+                selectedGridCell.row < selectedLayer.rows && selectedGridCell.col < selectedLayer.cols && (() => {
+                const gridLayer = selectedLayer as GridLayer;
+                const { row, col } = selectedGridCell;
+                const cell = gridLayer.cells[row]?.[col] ?? { value: "", blank: false };
+                const pos = gridCellCenter(gridLayer, row, col);
+                const b = objectBounds(gridLayer);
+                const cellW = b.w / gridLayer.cols, cellH = b.h / gridLayer.rows;
+                const isBlank = cell.blank;
+
+                function moveTo(dr: number, dc: number) {
+                  let r = row + dr, c = col + dc;
+                  if (c >= gridLayer.cols) { c = 0; r++; }
+                  if (c < 0) { c = gridLayer.cols - 1; r--; }
+                  if (r < 0 || r >= gridLayer.rows) return;
+                  setSelectedGridCell({ row: r, col: c });
+                }
+
+                return (
+                  <input
+                    key={`${gridLayer.id}-${row}-${col}`}
+                    autoFocus
+                    value={isBlank ? (cell.answer ?? "") : cell.value}
+                    onChange={(e) => updateSelectedGridCell(isBlank ? { answer: e.target.value.slice(0, 2) } : { value: e.target.value.slice(0, 2) })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === "Tab" || e.key === "ArrowRight") { e.preventDefault(); moveTo(0, 1); }
+                      else if (e.key === "ArrowLeft") { e.preventDefault(); moveTo(0, -1); }
+                      else if (e.key === "ArrowDown") { e.preventDefault(); moveTo(1, 0); }
+                      else if (e.key === "ArrowUp") { e.preventDefault(); moveTo(-1, 0); }
+                      else if (e.key === "Escape") (e.target as HTMLInputElement).blur();
+                    }}
+                    className={`absolute outline-none border-2 rounded text-center font-bold pointer-events-auto ${
+                      isBlank ? "bg-amber-50/90 border-primary text-foreground" : "bg-white/85 border-primary/60 text-foreground"
+                    }`}
+                    style={{
+                      left: `${(pos.x / W) * 100}%`,
+                      top: `${(pos.y / H) * 100}%`,
+                      width: `${cellW * canvasScale * 0.8}px`,
+                      height: `${cellH * canvasScale * 0.8}px`,
+                      transform: `translate(-50%, -50%) rotate(${gridLayer.rotation ?? 0}deg)`,
+                      fontSize: `${Math.min(cellW, cellH) * canvasScale * 0.5}px`,
+                    }}
+                  />
+                );
+              })()}
             </div>
           </div>
-          <p className="text-xs text-muted-foreground text-center flex-shrink-0 mt-2">选择模式下：点背景、物件、或文字都可以选中，拖动移动；蓝点缩放（斜拖可以宽高分开调整）；绿点拖着转圈可以旋转；双击文字可以原地编辑内容</p>
+          <p className="text-xs text-muted-foreground text-center flex-shrink-0 mt-2">选择模式下：点背景、物件、或文字都可以选中，拖动移动；蓝点缩放（斜拖可以宽高分开调整）；绿点拖着转圈可以旋转；双击文字可以原地编辑内容；点网格里的格子能直接打字，方向键/Tab/Enter连续跳到下一格</p>
         </div>
 
       {/* ── 右侧：只剩图层列表——属性面板已经搬到左侧图标栏旁边 ── */}
@@ -1789,4 +1858,5 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     </div>
   );
 }
+
 
