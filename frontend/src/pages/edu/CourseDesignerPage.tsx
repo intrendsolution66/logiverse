@@ -8,7 +8,7 @@
 // existing scale instead of ad-hoc inline styles.
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Move, Magnet, Boxes, Rows3, Eye, RotateCw, Hammer, Frame, Square, Clock, Grid2x2, PenLine, X, CheckSquare, PencilLine, Search, ListOrdered, TreePine, Scale, Plus, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, type LucideIcon } from "lucide-react";
+import { Hash, ScanSearch, Target, Layers, Puzzle, FileText, Route, GitBranch, Grid3x3, Link2, Palette, Presentation, Film, Music2, Sticker, Move, Magnet, Boxes, Rows3, Eye, RotateCw, Hammer, Frame, Square, Clock, Grid2x2, PenLine, X, CheckSquare, PencilLine, Search, ListOrdered, TreePine, Scale, Plus, Info, Tags, SlidersHorizontal, Sparkles, Dice5, ImagePlus, MessageSquareText, Volume2, BookOpenText, Play, Pause, Repeat, SpellCheck, type LucideIcon } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { eduApi, lessonsApi, exerciseClassificationApi, taxonomyApi } from "@/api";
 import { GAME_CANVAS_W, GAME_CANVAS_H } from "@/lib/gameCanvas";
@@ -50,6 +50,7 @@ const MODULE_LABELS: Record<string, { emoji: string; label: string }> = {
   maze:         { emoji: "🧭", label: "迷宫" },
   number_maze:  { emoji: "🔀", label: "数字迷宫" },
   sudoku:       { emoji: "🔢", label: "数独" },
+  worduku:      { emoji: "🔤", label: "Worduku（文字数独）" },
   line_match:   { emoji: "🔗", label: "连线配对" },
   coloring:     { emoji: "🎨", label: "填色游戏" },
   ppt_lecture:  { emoji: "📊", label: "PPT讲义" },
@@ -90,6 +91,7 @@ const MODULE_COLORS: Record<string, { bg: string; text: string; ring: string }> 
   maze:          { bg: "#D1FAE5", text: "#047857", ring: "#10B981" },
   number_maze:   { bg: "#E0F2FE", text: "#0369A1", ring: "#0EA5E9" },
   sudoku:        { bg: "#E0E7FF", text: "#4338CA", ring: "#6366F1" },
+  worduku:       { bg: "#FEF3C7", text: "#92400E", ring: "#F59E0B" },
   line_match:    { bg: "#FCE7F3", text: "#BE185D", ring: "#EC4899" },
   coloring:      { bg: "#FFEDD5", text: "#C2410C", ring: "#F97316" },
   ppt_lecture:   { bg: "#F3F4F6", text: "#4B5563", ring: "#9CA3AF" },
@@ -123,7 +125,7 @@ const FALLBACK_COLOR = { bg: "#F1F5F9", text: "#334155", ring: "#94A3B8" };
 // 已经引入过），保持视觉统一、干净。
 const MODULE_ICONS: Record<string, LucideIcon> = {
   counting: Hash, spot_diff: ScanSearch, focus_tap: Target, memory: Layers,
-  pattern: Puzzle, word_problem: FileText, maze: Route, number_maze: GitBranch, sudoku: Grid3x3,
+  pattern: Puzzle, word_problem: FileText, maze: Route, number_maze: GitBranch, sudoku: Grid3x3, worduku: SpellCheck,
   line_match: Link2, coloring: Palette, ppt_lecture: Presentation, video_lecture: Film,
   play_along: Music2, sticker_game: Sticker, drag_drop: Move, drag_match: Magnet, cube_stack: Boxes,
   cube_layer_count: Rows3, cube_find_hidden: Eye, cube_free_rotate: RotateCw,
@@ -2174,7 +2176,7 @@ function PlayAlongMarkerEditor({ pages, audioUrl, markers, setMarkers, currentPa
 // 里用 typeof moduleType 反过来引用它自己（TS 处理不了这种循环引用，
 // 会报 "implicitly has type any"）。这两个地方（下面 useState 的初始值、
 // presetModuleType 转型）都要用这个命名类型，不要图省事写 typeof。
-type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game" | "drag_drop" | "drag_match" | "cube_stack" | "cube_layer_count" | "cube_find_hidden" | "cube_free_rotate" | "cube_build" | "cube_three_view" | "shape_count" | "clock" | "latin_square" | "number_find" | "number_sequence" | "number_bond" | "number_compare" | "number_addition" | "chinese_stroke" | "multiple_choice" | "fill_blank";
+type ModuleType = "counting" | "spot_diff" | "focus_tap" | "memory" | "pattern" | "word_problem" | "maze" | "number_maze" | "sudoku" | "worduku" | "line_match" | "coloring" | "ppt_lecture" | "video_lecture" | "play_along" | "sticker_game" | "drag_drop" | "drag_match" | "cube_stack" | "cube_layer_count" | "cube_find_hidden" | "cube_free_rotate" | "cube_build" | "cube_three_view" | "shape_count" | "clock" | "latin_square" | "number_find" | "number_sequence" | "number_bond" | "number_compare" | "number_addition" | "chinese_stroke" | "multiple_choice" | "fill_blank";
 
 function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleType }: {
   open: boolean; onClose: () => void; editingLevelId?: string | null; onSaved: () => void;
@@ -2374,7 +2376,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   // 数独）共用同一个"自定义题目句子"栏位——一次只编辑一个 Activity，共用
   // 一个 state 就够了，不用给每个模块各开一个。counting 自己已经有独立的
   // 一套（上面那个 countingQuestionText），这里不重复。
-  const CUSTOM_QUESTION_MODULES = ["spot_diff", "focus_tap", "memory", "pattern", "maze", "coloring", "line_match", "drag_match", "sudoku", "shape_count", "number_find"];
+  const CUSTOM_QUESTION_MODULES = ["spot_diff", "focus_tap", "memory", "pattern", "maze", "coloring", "line_match", "drag_match", "sudoku", "worduku", "shape_count", "number_find"];
   const [customQuestionText, setCustomQuestionText] = useState("");
 
   // focus_tap fields (grid mode only for now)
@@ -2439,6 +2441,15 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
   // SceneEditor 的 structuredMode 输出，里面的 grids[0] 就是整个数独。
   const [sudokuLayout, setSudokuLayout] = useState<"photo" | "grid">("photo");
   const [sudokuScene, setSudokuScene] = useState<StructuredSceneOutput | null>(null);
+
+  // Worduku——数独的文字版，只有grid模式(没有photo模式)，直接复用
+  // SceneEditor的网格图层结构。language只有en/bm两种(出题语言，不是
+  // 界面zh/en/ms那套三语言系统)。targetWord是要揭晓的谜底单词——网格
+  // 边长=单词字母数，这个约束在保存时校验(前端预检+后端权威校验两边
+  // 都有)。
+  const [wordukuLanguage, setWordukuLanguage] = useState<"en" | "bm">("en");
+  const [wordukuTargetWord, setWordukuTargetWord] = useState("");
+  const [wordukuScene, setWordukuScene] = useState<StructuredSceneOutput | null>(null);
 
   // 数字迷宫 fields
   const [nmBgUrl, setNmBgUrl] = useState<string | null>(null);
@@ -2827,6 +2838,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
       mazeMaskCanvasRef.current = null; mazeBgImgRef.current = null; mazeBarrierCanvasRef.current = null;
       setSudokuBgUrl(null); setSudokuCells([]); setSudokuDifficulty("medium");
       setSudokuLayout("photo"); setSudokuScene(null);
+      setWordukuLanguage("en"); setWordukuTargetWord(""); setWordukuScene(null);
       setNmBgUrl(null); setNmMaskDataUrl(null); setNmStart(null); setNmEnd(null); setNmDecisionPoints([]);
       setNmLayout("path"); setNmScene(null);
       setStickerScene(null);
@@ -3139,6 +3151,30 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           const cells = (cfg.cells as Array<{ x: number; y: number; answer?: number }>) ?? [];
           setSudokuCells(cells.map((c) => ({ x: c.x, y: c.y, answer: c.answer ? String(c.answer) : "" })));
         }
+      } else if (level.module_type === "worduku") {
+        setWordukuLanguage(((cfg.language as string) === "bm" ? "bm" : "en"));
+        setWordukuTargetWord((cfg.target_word as string) ?? "");
+        const rows = (cfg.rows as number) ?? 4, cols = (cfg.cols as number) ?? 4;
+        const givenCells = (cfg.given_cells as Array<{ row: number; col: number; value: string; path_step?: number }>) ?? [];
+        const blankCells = (cfg.blank_cells as Array<{ row: number; col: number; answer?: string; path_step?: number }>) ?? [];
+        const cells: { value: string; blank: boolean; pathStep?: number }[][] = Array.from({ length: rows }, () =>
+          Array.from({ length: cols }, () => ({ value: "", blank: false }))
+        );
+        givenCells.forEach((c) => { if (cells[c.row]?.[c.col]) cells[c.row][c.col] = { value: c.value, blank: false, pathStep: c.path_step }; });
+        blankCells.forEach((c) => { if (cells[c.row]?.[c.col]) cells[c.row][c.col] = { value: c.answer ?? "", blank: true, pathStep: c.path_step }; });
+        setWordukuScene({
+          bgUrl: null, objects: [], texts: [],
+          grids: [{
+            x: GAME_CANVAS_W / 2, y: GAME_CANVAS_H / 2, w: 320, h: 320, rotation: 0,
+            rows, cols, boxRows: (cfg.box_rows as number) ?? rows, boxCols: (cfg.box_cols as number) ?? cols, cells,
+            lineColor: (cfg.line_color as string) ?? "#333333",
+            givenColor: (cfg.given_color as string) ?? "#222222",
+            blankBg: (cfg.blank_bg as string) ?? "#fff3d6",
+            bgColor: (cfg.bg_color as string) ?? "#ffffff",
+            bgEnabled: (cfg.bg_enabled as boolean) ?? false,
+            opacity: cfg.opacity as number | undefined,
+          }],
+        });
       } else if (level.module_type === "number_maze") {
         const layout = (cfg.layout as "path" | "grid") ?? "path";
         setNmLayout(layout);
@@ -4051,6 +4087,83 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             },
           });
         }
+      } else if (moduleType === "worduku") { // authored: 数独的文字版，校验规则见后端 validateWordukuConfig 的注释，前端这里先做一次一样的预检查，不用等保存请求打回来才知道哪里错了
+        const grid = wordukuScene?.grids?.[0];
+        if (!grid) { toast.error('网格还没确认——请先点上面场景编辑器右上角的"完成"按钮，把网格内容提交进来，再点这里的"保存"'); return; }
+        if ((wordukuScene?.grids?.length ?? 0) > 1) {
+          toast.error(`这个场景里有 ${wordukuScene!.grids!.length} 个网格图层，但保存只会用第一个——请点上面"完成"重新打开编辑器，在右边图层面板里把多余的网格删掉，只留一个`);
+          return;
+        }
+        const targetWord = wordukuTargetWord.trim().toUpperCase();
+        if (!targetWord) { toast.error("请先填写要揭晓的单词"); return; }
+        if (!/^[A-Z]+$/.test(targetWord)) { toast.error("目标单词只能是英文字母（A-Z），不能有空格、数字或标点"); return; }
+        const wordLetters = targetWord.split("");
+        if (new Set(wordLetters).size !== wordLetters.length) {
+          toast.error(`单词"${targetWord}"里有重复字母——Worduku跟数独一样每行每列每宫的字母都不能重复，换一个没有重复字母的单词`);
+          return;
+        }
+        const n = wordLetters.length;
+        if (n < 3) { toast.error("单词至少要3个字母"); return; }
+        if (n > 12) { toast.error("单词最多12个字母"); return; }
+        if (grid.rows !== n || grid.cols !== n) {
+          toast.error(`网格必须是 ${n}×${n}（等于目标单词"${targetWord}"的字母数）——当前网格是 ${grid.rows}×${grid.cols}，请在左边"行数/列数"里调整`);
+          return;
+        }
+
+        const givenCells: Array<{ row: number; col: number; value: string; path_step?: number }> = [];
+        const blankCells: Array<{ row: number; col: number; answer: string; path_step?: number }> = [];
+        const missingCells: Array<{ row: number; col: number }> = [];
+        grid.cells.forEach((rowArr, r) => rowArr.forEach((cell, c) => {
+          const v = cell.value.trim().toUpperCase();
+          if (!v) { missingCells.push({ row: r, col: c }); return; }
+          if (cell.blank) blankCells.push({ row: r, col: c, answer: v, path_step: cell.pathStep });
+          else givenCells.push({ row: r, col: c, value: v, path_step: cell.pathStep });
+        }));
+        if (missingCells.length > 0) {
+          const list = missingCells.map((m) => `第${m.row + 1}行第${m.col + 1}列`).join("、");
+          toast.error(`这些格子还没打字母：${list}，请点画布上对应格子处理`);
+          return;
+        }
+        if (blankCells.length === 0) { toast.error("至少要有1个格子右键勾选\"需要被填入的答案\"，留给学生填"); return; }
+
+        const pathCells = [...givenCells, ...blankCells].filter((c) => c.path_step);
+        if (pathCells.length !== n) {
+          toast.error(`揭晓单词的路径没标完整——需要在右边属性栏(或右键菜单)把 ${n} 个格子标上"路径顺序"1~${n}，现在标了 ${pathCells.length} 个`);
+          return;
+        }
+        pathCells.sort((a, b) => (a.path_step ?? 0) - (b.path_step ?? 0));
+        const expectedSteps = Array.from({ length: n }, (_, i) => i + 1);
+        if (JSON.stringify(pathCells.map((c) => c.path_step)) !== JSON.stringify(expectedSteps)) {
+          toast.error(`揭晓单词的路径顺序编号不对——应该是 1 到 ${n} 各用一次，不能重复或跳号`);
+          return;
+        }
+        const spelled = pathCells.map((c) => ("value" in c ? c.value : (c as { answer: string }).answer)).join("");
+        if (spelled !== targetWord) {
+          toast.error(`揭晓路径上的字母拼出来是"${spelled}"，跟目标单词"${targetWord}"对不上——请检查路径顺序，或者对应格子里的字母是不是打错了`);
+          return;
+        }
+
+        await saveLevel({
+          module_type: "worduku",
+          title_i18n: { zh: levelTitle || "Worduku", en: levelTitle || "Worduku" },
+          explanation_text: explanationText || undefined,
+          explanation_image_url: explanationImageUrl || undefined,
+          explanation_video_url: explanationVideoUrl || undefined,
+
+          hint_text: hintText || undefined, audio_url: audioUrl || undefined,
+
+          category_ids: categoryIds, group_id: groupId || undefined, curriculum_type_id: curriculumTypeId || undefined,
+          config: {
+            language: wordukuLanguage, target_word: targetWord,
+            rows: grid.rows, cols: grid.cols, box_rows: grid.boxRows, box_cols: grid.boxCols,
+            given_cells: givenCells, blank_cells: blankCells,
+            line_color: grid.lineColor, given_color: grid.givenColor, blank_bg: grid.blankBg,
+            bg_color: grid.bgColor, bg_enabled: grid.bgEnabled, opacity: grid.opacity,
+            difficulty: "medium",
+            timer_mode: "stopwatch",
+            question_i18n: customQuestionText.trim() ? { zh: customQuestionText.trim(), en: customQuestionText.trim() } : undefined,
+          },
+        });
       } else if (moduleType === "number_maze") { // authored: 判定走client端直接核对，不像数独那样藏答案——这是"休闲游戏"级别的安全模型，跟line_match/迷宫是同一个取舍，不是疏忽
         if (nmLayout === "grid") {
           const grid = nmScene?.grids?.[0];
@@ -5505,6 +5618,65 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
           </div>
         )}
 
+        {moduleType === "worduku" && (
+          <div className="flex-1 min-h-0 flex flex-col rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
+            <div className="flex-shrink-0 flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                <SpellCheck size={14} className="text-primary" /> Worduku
+              </div>
+              <div className="flex gap-1.5 bg-muted/50 p-1 rounded-lg w-fit">
+                {(["en", "bm"] as const).map((m) => (
+                  <button
+                    key={m} type="button" onClick={() => setWordukuLanguage(m)}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                      wordukuLanguage === m ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {m === "en" ? "🇬🇧 English" : "🇲🇾 Bahasa Melayu"}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Label className="text-xs shrink-0">目标单词</Label>
+                <Input
+                  value={wordukuTargetWord}
+                  onChange={(e) => setWordukuTargetWord(e.target.value.toUpperCase())}
+                  placeholder={wordukuLanguage === "en" ? "如：APPLE" : "如：BUKU"}
+                  className="w-32 h-7 text-xs uppercase"
+                />
+                <span className="text-[10px] text-muted-foreground/70 shrink-0">
+                  {wordukuTargetWord ? `网格需要是 ${wordukuTargetWord.length}×${wordukuTargetWord.length}` : "字母不能重复"}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-0 flex flex-col">
+              <SceneEditor
+                structuredMode fillHeight presetModuleType="worduku"
+                headerLabel={
+                  <span
+                    className="text-[10px] leading-tight text-muted-foreground/80 truncate block"
+                    title={`网格边长要等于目标单词的字母数(比如单词5个字母，就画5×5的网格)。点左边"▦加网格"插入格子，点格子直接打字母，右键勾"需要被填入的答案"标出哪些格要学生自己填。然后再挑${wordukuTargetWord ? wordukuTargetWord.length : "N"}个格子(可以是一行/一列/对角线/随便一条线)，在属性栏的"路径顺序"里按顺序标1、2、3...，这几个格子的字母连起来必须正好拼出目标单词——保存时会自动核对，拼不对会挡住不给存。`}
+                  >
+                    网格边长=单词字母数。点格子打字母，右键标"留空"；再挑几个格子标"路径顺序"1~N，连起来要正好拼出目标单词。
+                  </span>
+                }
+                onSaveStructured={setWordukuScene} initial={wordukuScene ?? undefined}
+              />
+              {wordukuScene?.grids?.[0] && (() => {
+                const g = wordukuScene.grids[0];
+                const pathCount = g.cells.flat().filter((c) => c.pathStep).length;
+                const blankCount = g.cells.flat().filter((c) => c.blank && c.value.trim()).length;
+                return (
+                  <p className="flex-shrink-0 text-xs text-emerald-600 dark:text-emerald-400 mt-1.5">
+                    ✓ 网格 {g.rows}×{g.cols}，已标 {pathCount} 步揭晓路径、{blankCount} 个留空格子，可以点上面"完成"重新调整
+                  </p>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
         {moduleType === "number_maze" && (
           <div className="flex-1 min-h-0 flex flex-col rounded-xl bg-white border border-border shadow-sm p-3 space-y-2 text-sm">
             <div className="flex-shrink-0 flex items-center justify-between gap-2 flex-wrap">
@@ -6520,5 +6692,6 @@ export default function CourseDesignerPage() {
     </div>
   );
 }
+
 
 

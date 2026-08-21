@@ -21,6 +21,7 @@ import WordProblemGame, { type WordProblemConfig, type WordProblemResult } from 
 import MazeGame, { type MazeConfig, type MazeResult } from "@/games/MazeGame";
 import NumberMazeGame, { type NumberMazeConfig, type NumberMazeResult } from "@/games/NumberMazeGame";
 import SudokuGame, { type SudokuConfig, type SudokuResult } from "@/games/SudokuGame";
+import WordukuGame, { type WordukuConfig, type WordukuResult } from "@/games/WordukuGame";
 import LineMatchGame, { type LineMatchConfig, type LineMatchResult } from "@/games/LineMatchGame";
 import ColoringGame, { type ColoringConfig, type ColoringResult } from "@/games/ColoringGame";
 import StickerGame, { type StickerGameConfig, type StickerGameResult } from "@/games/StickerGame";
@@ -95,7 +96,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import toast from "react-hot-toast";
 
-type GameResult = CountingResult | SpotDiffResult | FocusTapResult | MemoryResult | PatternResult | WordProblemResult | MazeResult | NumberMazeResult | SudokuResult | LineMatchResult | ColoringResult | StickerGameResult | DragDropResult | CubeStackResult | CubeLayerCountResult | CubeFindHiddenResult | CubeFreeRotateResult | CubeBuildResult | CubeThreeViewResult | ShapeCountResult | ClockResult | LatinSquareResult | NumberFindResult | NumberSequenceResult | NumberBondResult | NumberCompareResult | NumberAdditionResult | ChineseStrokeResult | MultipleChoiceResult | FillBlankResult;
+type GameResult = CountingResult | SpotDiffResult | FocusTapResult | MemoryResult | PatternResult | WordProblemResult | MazeResult | NumberMazeResult | SudokuResult | WordukuResult | LineMatchResult | ColoringResult | StickerGameResult | DragDropResult | CubeStackResult | CubeLayerCountResult | CubeFindHiddenResult | CubeFreeRotateResult | CubeBuildResult | CubeThreeViewResult | ShapeCountResult | ClockResult | LatinSquareResult | NumberFindResult | NumberSequenceResult | NumberBondResult | NumberCompareResult | NumberAdditionResult | ChineseStrokeResult | MultipleChoiceResult | FillBlankResult;
 
 export default function LevelPlayerPage() {
   const { levelId } = useParams<{ levelId: string }>();
@@ -237,7 +238,7 @@ export default function LevelPlayerPage() {
   if (loading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">加载中...</div>;
   if (!level) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">找不到这个 Activity</div>;
 
-  const KNOWN_GAME_MODULES = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "sticker_game", "drag_drop", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count", "clock", "latin_square", "number_find", "number_sequence", "number_bond", "number_compare", "number_addition", "chinese_stroke", "multiple_choice", "fill_blank"];
+  const KNOWN_GAME_MODULES = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "worduku", "line_match", "coloring", "sticker_game", "drag_drop", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count", "clock", "latin_square", "number_find", "number_sequence", "number_bond", "number_compare", "number_addition", "chinese_stroke", "multiple_choice", "fill_blank"];
   const isLecture = level.module_type === "video_lecture" || level.module_type === "ppt_lecture";
   const isKnown = KNOWN_GAME_MODULES.includes(level.module_type) || isLecture;
   // 只有真正的"游戏"套待机/开始/重玩/退出这套流程——讲义(video/ppt)
@@ -330,6 +331,7 @@ export default function LevelPlayerPage() {
               {level.module_type === "maze" && <MazeGame key={playKey} config={level.config as unknown as MazeConfig} onComplete={handleComplete} locale={locale} />}
               {level.module_type === "number_maze" && <NumberMazeGame key={playKey} config={level.config as unknown as NumberMazeConfig} onComplete={handleComplete} locale={locale} />}
               {level.module_type === "sudoku" && levelId && <SudokuGame key={playKey} levelId={levelId} config={level.config as unknown as SudokuConfig} onComplete={handleComplete} locale={locale} />}
+              {level.module_type === "worduku" && levelId && <WordukuGame key={playKey} levelId={levelId} config={level.config as unknown as WordukuConfig} onComplete={handleComplete} locale={locale} />}
               {level.module_type === "line_match" && levelId && <LineMatchGame key={playKey} levelId={levelId} config={level.config as unknown as LineMatchConfig} onComplete={handleComplete} locale={locale} />}
               {level.module_type === "coloring" && levelId && <ColoringGame key={playKey} levelId={levelId} config={level.config as unknown as ColoringConfig} onComplete={handleComplete} locale={locale} />}
               {level.module_type === "sticker_game" && <StickerGame key={playKey} config={level.config as unknown as StickerGameConfig} onComplete={handleComplete} locale={locale} />}

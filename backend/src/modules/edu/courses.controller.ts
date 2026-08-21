@@ -288,6 +288,61 @@ function normalizeProgrammeIds(input: unknown): string[] {
   return Array.from(new Set(input.filter((id): id is string => typeof id === "string" && uuidPattern.test(id))));
 }
 
+// Worduku 存档前的校验——create/update 两处都要用同一套规则，抽成共享
+// 函数，不重复写。核心检查三件事：① 网格必须是 N×N，N=目标单词的字母
+// 数（不像数独grid模式那样行列数可以不相等，Worduku的网格边长直接由
+// 单词长度决定）；② 目标单词本身字母不能重复（跟数独同一套"每行每列
+// 每宫各出现一次"规则，单词字母重复的话根本排不出合法的网格）；③ 揭晓
+// 单词的路径——所有格子(given_cells/blank_cells不分)里标了path_step的
+// 那些，编号必须正好是1..N各用一次，按顺序读出的字母必须精确拼出目标
+// 单词，一个字母都不能错。
+function validateWordukuConfig(cfg: Record<string, unknown>): {
+  targetWord: string; language: string; rows: number; cols: number; boxRows: number; boxCols: number;
+  givenCells: Array<{ row: number; col: number; value: string; path_step?: number }>;
+  blankCells: Array<{ row: number; col: number; answer: string; path_step?: number }>;
+} {
+  const targetWord = String(cfg.target_word ?? "").trim().toUpperCase();
+  if (!targetWord) throw new Error("请先填写要揭晓的单词");
+  if (!/^[A-Z]+$/.test(targetWord)) throw new Error("目标单词只能是英文字母（A-Z），不能有空格、数字或标点");
+  const letters = targetWord.split("");
+  if (new Set(letters).size !== letters.length) {
+    throw new Error(`单词"${targetWord}"里有重复字母——Worduku跟数独一样，每行每列每宫的字母都不能重复，所以目标单词本身的字母也必须各不相同，换一个没有重复字母的单词`);
+  }
+  const n = letters.length;
+  if (n < 3) throw new Error("单词至少要3个字母，太短排不成有意义的网格");
+  if (n > 12) throw new Error("单词最多12个字母，太长网格会超出可用范围");
+
+  const language = (cfg.language as string) === "bm" ? "bm" : "en";
+  const givenCells = (cfg.given_cells as Array<{ row: number; col: number; value: string; path_step?: number }>) ?? [];
+  const blankCells = (cfg.blank_cells as Array<{ row: number; col: number; answer: string; path_step?: number }>) ?? [];
+  if (!cfg.rows || !cfg.cols) throw new Error("请先在编辑器里画好网格");
+  if (cfg.rows !== n || cfg.cols !== n) {
+    throw new Error(`网格必须是 ${n}×${n}（等于目标单词"${targetWord}"的字母数）——当前网格是 ${cfg.rows}×${cfg.cols}，请在编辑器里重新调整行数/列数`);
+  }
+  if (!blankCells.length) throw new Error("至少要有1个留空的格子给学生填");
+  if (blankCells.some((c) => !c.answer)) throw new Error("每个留空的格子都要填字母，不能空着");
+
+  const pathCells = [
+    ...givenCells.map((c) => ({ step: c.path_step, letter: (c.value ?? "").toUpperCase() })),
+    ...blankCells.map((c) => ({ step: c.path_step, letter: (c.answer ?? "").toUpperCase() })),
+  ].filter((c): c is { step: number; letter: string } => !!c.step);
+  if (pathCells.length !== n) {
+    throw new Error(`揭晓单词的路径没标完整——需要在画布上右键标满 ${n} 个格子的"揭晓顺序"，现在标了 ${pathCells.length} 个`);
+  }
+  pathCells.sort((a, b) => a.step - b.step);
+  const expectedSteps = Array.from({ length: n }, (_, i) => i + 1);
+  if (JSON.stringify(pathCells.map((c) => c.step)) !== JSON.stringify(expectedSteps)) {
+    throw new Error(`揭晓单词的路径顺序编号不对——应该是 1 到 ${n} 各用一次，不能重复或跳号`);
+  }
+  const spelled = pathCells.map((c) => c.letter).join("");
+  if (spelled !== targetWord) {
+    throw new Error(`揭晓路径上的字母拼出来是"${spelled}"，跟目标单词"${targetWord}"对不上——请检查路径顺序，或者对应格子里的字母是不是打错了`);
+  }
+
+  const boxRows = (cfg.box_rows as number) ?? n, boxCols = (cfg.box_cols as number) ?? n;
+  return { targetWord, language, rows: n, cols: n, boxRows, boxCols, givenCells, blankCells };
+}
+
 export async function createLevel(req: AuthRequest, res: Response): Promise<void> {
   try {
     // courseId 现在是选填的——可以从路由参数来（POST /courses/:courseId/levels，
@@ -330,7 +385,7 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
     const categoryIds = Array.from(new Set((category_ids && category_ids.length ? category_ids : (category_id ? [category_id] : [])).filter(Boolean)));
     const primaryCategoryId = categoryIds[0] ?? null; // 旧栏位/编号生成还是要挑一个"主"分类，用第一个
 
-    const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "line_match", "coloring", "ppt_lecture", "video_lecture", "play_along", "sticker_game", "drag_drop", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count", "clock", "latin_square", "number_find", "number_sequence", "number_bond", "number_compare", "number_addition", "chinese_stroke", "multiple_choice", "fill_blank"];
+    const SUPPORTED = ["counting", "spot_diff", "focus_tap", "memory", "pattern", "word_problem", "maze", "number_maze", "sudoku", "worduku", "line_match", "coloring", "ppt_lecture", "video_lecture", "play_along", "sticker_game", "drag_drop", "cube_stack", "cube_layer_count", "cube_find_hidden", "cube_free_rotate", "cube_build", "cube_three_view", "shape_count", "clock", "latin_square", "number_find", "number_sequence", "number_bond", "number_compare", "number_addition", "chinese_stroke", "multiple_choice", "fill_blank"];
     if (!SUPPORTED.includes(module_type)) {
       badRequest(res, `Unsupported module_type: ${module_type} (supported: ${SUPPORTED.join(", ")})`);
       return;
@@ -776,6 +831,21 @@ export async function createLevel(req: AuthRequest, res: Response): Promise<void
            VALUES ($1,$2,$3,$4)
            RETURNING id`,
           [startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
+        );
+        configId = cfgRows[0].id;
+      } else if (module_type === "worduku") {
+        // Worduku——数独的文字版，复用数独grid模式一模一样的存储结构
+        // (given_cells/blank_cells/box_rows/box_cols)，多了 language 和
+        // target_word 两个字段。校验逻辑见 validateWordukuConfig。
+        const v = validateWordukuConfig(cfg);
+        const { rows: cfgRows } = await client.query(
+          `INSERT INTO edu.worduku_configs (language, target_word, rows, cols, box_rows, box_cols, given_cells, blank_cells, line_color, given_color, blank_bg, bg_color, bg_enabled, opacity, difficulty, timer_mode, time_limit, question_i18n)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+           RETURNING id`,
+          [v.language, v.targetWord, v.rows, v.cols, v.boxRows, v.boxCols, JSON.stringify(v.givenCells), JSON.stringify(v.blankCells),
+           cfg.line_color ?? null, cfg.given_color ?? null, cfg.blank_bg ?? null, cfg.bg_color ?? null,
+           cfg.bg_enabled ?? null, cfg.opacity ?? null, cfg.difficulty ?? "medium", cfg.timer_mode ?? "stopwatch",
+           cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
         );
         configId = cfgRows[0].id;
       } else { // sudoku — authored content，两种布局：
@@ -1278,6 +1348,15 @@ export async function updateLevel(req: AuthRequest, res: Response): Promise<void
             `UPDATE edu.cube_stack_configs SET starting_level=$2, total_questions=$3, timer_mode=$4, time_limit=$5 WHERE id=$1`,
             [module_config_id, startingLevel, cfg.total_questions ?? 5, cfg.timer_mode ?? "stopwatch", cfg.time_limit ?? null]
           );
+        } else if (module_type === "worduku") {
+          const v = validateWordukuConfig(cfg);
+          await client.query(
+            `UPDATE edu.worduku_configs SET language=$2, target_word=$3, rows=$4, cols=$5, box_rows=$6, box_cols=$7, given_cells=$8, blank_cells=$9, line_color=$10, given_color=$11, blank_bg=$12, bg_color=$13, bg_enabled=$14, opacity=$15, difficulty=$16, timer_mode=$17, time_limit=$18, question_i18n=$19 WHERE id=$1`,
+            [module_config_id, v.language, v.targetWord, v.rows, v.cols, v.boxRows, v.boxCols, JSON.stringify(v.givenCells), JSON.stringify(v.blankCells),
+             cfg.line_color ?? null, cfg.given_color ?? null, cfg.blank_bg ?? null, cfg.bg_color ?? null,
+             cfg.bg_enabled ?? null, cfg.opacity ?? null, cfg.difficulty ?? "medium", cfg.timer_mode ?? "stopwatch",
+             cfg.time_limit ?? null, cfg.question_i18n ? JSON.stringify(cfg.question_i18n) : null]
+          );
         } else { // sudoku
           const sudokuLayout = (cfg.layout as string) === "grid" ? "grid" : "photo";
           if (sudokuLayout === "grid") {
@@ -1577,6 +1656,29 @@ export async function buildLevelPayload(level: Record<string, unknown>): Promise
         // defeats "隐藏答案" entirely. Only position survives the trip.
         const cellsWithoutAnswers = (row.cells as Array<{ x: number; y: number }>).map((c) => ({ x: c.x, y: c.y }));
         config = { layout: "photo", bg_image_url: row.bg_image_url, cells: cellsWithoutAnswers, difficulty: row.difficulty, timer_mode: row.timer_mode, time_limit: row.time_limit, question_i18n: row.question_i18n };
+      }
+    } else if (level.module_type === "worduku") {
+      const { rows: cfgRows } = await query(
+        `SELECT language, rows, cols, box_rows, box_cols, given_cells, blank_cells, line_color, given_color, blank_bg, bg_color, bg_enabled, opacity, difficulty, timer_mode, time_limit, question_i18n FROM edu.worduku_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      const row = cfgRows[0];
+      if (row) {
+        // target_word 绝对不能下发——那就是要揭晓的谜底本身，发了这个
+        // 游戏等于直接告诉学生答案。blank_cells的answer字母也是一样的
+        // 道理，只留位置。path_step 不是秘密(只是"这格是揭晓路径的第几
+        // 步"，不代表字母是什么)，两边(given/blank)都正常保留，前端用
+        // 来给这条路径上的格子标个特别的高亮样式。
+        const blankCellsWithoutAnswers = (row.blank_cells as Array<{ row: number; col: number; path_step?: number }>)
+          .map((c) => ({ row: c.row, col: c.col, path_step: c.path_step }));
+        config = {
+          language: row.language, rows: row.rows, cols: row.cols, box_rows: row.box_rows, box_cols: row.box_cols,
+          given_cells: row.given_cells, blank_cells: blankCellsWithoutAnswers,
+          line_color: row.line_color, given_color: row.given_color, blank_bg: row.blank_bg, bg_color: row.bg_color, bg_enabled: row.bg_enabled, opacity: row.opacity,
+          difficulty: row.difficulty, timer_mode: row.timer_mode, time_limit: row.time_limit, question_i18n: row.question_i18n,
+        };
+      } else {
+        config = null;
       }
     } else if (level.module_type === "cube_layer_count") {
       const { rows: cfgRows } = await query(
@@ -1973,6 +2075,38 @@ export async function checkSudoku(req: AuthRequest, res: Response): Promise<void
   } catch (err) { serverError(res, err); }
 }
 
+// 跟 checkSudoku 同一个安全模型——blank_cells 的 answer(正确字母)只在
+// 服务器端，学生提交的字母(values，顺序=getLevel给的blank_cells顺序)
+// 逐格比对，不区分大小写(用户可能大小写混着打，不该因为这个判错)。
+// 返回值特意不带 target_word——就算交卷后要显示答案，也是逐格显示每
+// 格该填的字母(solution数组)，不需要额外把完整单词文字发出去，维持
+// "只回答问了的问题"这个最小暴露原则。
+export async function checkWorduku(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { levelId } = req.params;
+    const { values } = req.body as { values: (string | null)[] };
+    if (!Array.isArray(values)) { badRequest(res, "values must be an array"); return; }
+
+    const { rows: levelRows } = await query(
+      `SELECT module_config_id FROM edu.course_levels WHERE id = $1 AND module_type = 'worduku'`,
+      [levelId]
+    );
+    if (!levelRows.length) { notFound(res, "Worduku level not found"); return; }
+
+    const { rows: cfgRows } = await query(`SELECT blank_cells FROM edu.worduku_configs WHERE id = $1`, [levelRows[0].module_config_id]);
+    if (!cfgRows.length) { notFound(res, "Worduku config not found"); return; }
+
+    const answers: string[] = (cfgRows[0].blank_cells as Array<{ answer: string }>).map((c) => (c.answer ?? "").toUpperCase());
+    if (values.length !== answers.length) { badRequest(res, `values must have exactly ${answers.length} entries, matching the cells this puzzle has`); return; }
+
+    const correct = answers.map((a, i) => (values[i] ?? "").trim().toUpperCase() === a);
+    const allCorrect = correct.every(Boolean);
+    const solution = answers;
+
+    ok(res, { correct, allCorrect, solution });
+  } catch (err) { serverError(res, err); }
+}
+
 // 编辑用的完整资料 — the DESIGNER's own view of a level they authored,
 // distinct from getLevel (the student-facing play view). The only real
 // difference: sudoku's `cells` here keep their `answer` field. Stripping
@@ -2127,6 +2261,15 @@ export async function getLevelForEdit(req: AuthRequest, res: Response): Promise<
       // the ONLY branch that differs from getLevel: cells/blank_cells keep `answer`
       const { rows: cfgRows } = await query(
         `SELECT layout, bg_image_url, cells, rows, cols, box_rows, box_cols, given_cells, blank_cells, line_color, given_color, blank_bg, bg_color, bg_enabled, opacity, difficulty, timer_mode, time_limit, question_i18n FROM edu.sudoku_configs WHERE id = $1`,
+        [level.module_config_id]
+      );
+      config = cfgRows[0] ?? null;
+    } else if (level.module_type === "worduku") {
+      // 设计师编辑用——跟getLevel唯一的差别：target_word和blank_cells的
+      // answer都保留，不strip，直接透传raw row。设计师本来就该看到自己
+      // 写的目标单词和答案，藏起来反而没法编辑。
+      const { rows: cfgRows } = await query(
+        `SELECT language, target_word, rows, cols, box_rows, box_cols, given_cells, blank_cells, line_color, given_color, blank_bg, bg_color, bg_enabled, opacity, difficulty, timer_mode, time_limit, question_i18n FROM edu.worduku_configs WHERE id = $1`,
         [level.module_config_id]
       );
       config = cfgRows[0] ?? null;

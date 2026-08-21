@@ -523,6 +523,8 @@ export const eduApi = {
   deleteLevel: (levelId: string) => api.delete(`/levels/${levelId}`),
   checkSudoku: (levelId: string, values: (number | null)[]) =>
     api.post(`/levels/${levelId}/sudoku-check`, { values }).then(d<{ correct: boolean[]; allCorrect: boolean; solution: number[] }>),
+  checkWorduku: (levelId: string, values: (string | null)[]) =>
+    api.post(`/levels/${levelId}/worduku-check`, { values }).then(d<{ correct: boolean[]; allCorrect: boolean; solution: string[] }>),
   checkLineMatch: (levelId: string, matches: Array<{ left_id: number; right_content: string }>) =>
     api.post(`/levels/${levelId}/line-match-check`, { matches }).then(d<{ results: Array<{ left_id: number; correct: boolean }>; allCorrect: boolean; totalPairs: number }>),
   checkColoring: (levelId: string, fills: Record<string, string>) =>

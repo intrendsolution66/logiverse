@@ -1513,7 +1513,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
                   <p className="text-xs text-muted-foreground/70">数字直接左键点这一格在格子上打字</p>
 
                   <div className="pt-2 border-t border-border/60">
-                    <Label>路径顺序（数字迷宫·方格棋盘模式用，起点填1，往后依次+1，不在路径上的格子留空）</Label>
+                    <Label>路径顺序（数字迷宫·方格棋盘模式，或 Worduku 揭晓单词的顺序都用这个——起点/第1个字母填1，往后依次+1，不需要标的格子留空）</Label>
                     <input
                       type="number" min={1}
                       value={selectedLayer.cells[selectedGridCell.row]?.[selectedGridCell.col]?.pathStep ?? ""}
@@ -1967,4 +1967,5 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     </div>
   );
 }
+
 
