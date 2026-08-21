@@ -203,10 +203,10 @@ export default function SudokuGame({ levelId, config, onComplete, locale = "zh" 
           return (
             <svg viewBox={`0 0 ${cols} ${rows}`} preserveAspectRatio="none" className="absolute inset-0 w-full h-full pointer-events-none">
               {Array.from({ length: rows + 1 }, (_, r) => (
-                <line key={`r${r}`} x1={0} y1={r} x2={cols} y2={r} stroke={config.line_color ?? "#333"} strokeWidth={r === 0 || r === rows || r % boxRows === 0 ? 0.06 : 0.02} />
+                <line key={`r${r}`} x1={0} y1={r} x2={cols} y2={r} stroke={config.line_color ?? "#333"} strokeWidth={r === 0 || r === rows || r % boxRows === 0 ? 0.08 : 0.012} />
               ))}
               {Array.from({ length: cols + 1 }, (_, c) => (
-                <line key={`c${c}`} x1={c} y1={0} x2={c} y2={rows} stroke={config.line_color ?? "#333"} strokeWidth={c === 0 || c === cols || c % boxCols === 0 ? 0.06 : 0.02} />
+                <line key={`c${c}`} x1={c} y1={0} x2={c} y2={rows} stroke={config.line_color ?? "#333"} strokeWidth={c === 0 || c === cols || c % boxCols === 0 ? 0.08 : 0.012} />
               ))}
               {givenCells.map((c, i) => (
                 <text
