@@ -15,6 +15,7 @@ import MyExamsPage from "@/pages/edu/MyExamsPage";
 import ExamTakePage from "@/pages/edu/ExamTakePage";
 import ExamResultPage from "@/pages/edu/ExamResultPage";
 import ExamPreviewPage from "@/pages/edu/ExamPreviewPage";
+import ExamSharePlayPage from "@/pages/edu/ExamSharePlayPage";
 import CourseLessonPage from "@/pages/edu/CourseLessonPage";
 import GradeTiersPage from "@/pages/edu/GradeTiersPage";
 import ProgrammeManagementPage from "@/pages/edu/ProgrammeManagementPage";
@@ -62,6 +63,14 @@ export default function App() {
         {/* Public */}
         <Route path="/login" element={<RequireGuest><LoginPage /></RequireGuest>} />
         <Route path="/register" element={<RequireGuest><RegisterPage /></RequireGuest>} />
+
+        {/* 分享出去的公开内容——完全不需要登录，靠URL里的token本身当
+            凭证(校验逻辑在后端shareLinks.controller.ts里)。目前只有
+            试卷分享(ExamSharePlayPage)接进来了；如果课时/Activity的
+            分享页面组件也已经写好但这里没看到对应路由，说明这份
+            App.tsx可能是旧快照，缺的那几条要一并补上，不是这次新加的
+            疏漏。 */}
+        <Route path="/share/exam/:token" element={<ExamSharePlayPage />} />
 
         {/* 全屏沉浸式页面——需要登录，但不套 AppLayout 的全局侧边栏/顶栏 */}
         <Route path="/play/:levelId" element={<RequireAuth><LevelPlayerPage /></RequireAuth>} />

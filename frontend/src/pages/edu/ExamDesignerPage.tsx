@@ -17,8 +17,8 @@ import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/index";
 import { Modal } from "@/components/ui/modal";
-import { CheckSquare, PencilLine, X, Plus, FileText, Users, Trophy, Download, Trash2, Info, Layers } from "lucide-react";
-import { examApi, adminUsersApi, type ExamPaper, type ExamPaperQuestion, type ExamQuestionBankItem } from "@/api";
+import { CheckSquare, PencilLine, X, Plus, FileText, Users, Trophy, Download, Trash2, Info, Layers, Link2, Copy } from "lucide-react";
+import { examApi, adminUsersApi, shareLinksApi, type ExamPaper, type ExamPaperQuestion, type ExamQuestionBankItem, type ShareLink } from "@/api";
 import ColoringQuestionEditor from "@/components/ColoringQuestionEditor";
 import SceneEditor, { type StructuredSceneOutput } from "@/components/SceneEditor";
 import IllustrationEditor from "@/components/IllustrationEditor";
@@ -154,6 +154,39 @@ function ExamPaperEditor({ paperId, onBack }: { paperId: string; onBack: () => v
   }
 
   const [showPdfLangPicker, setShowPdfLangPicker] = useState(false);
+  const [showSharePanel, setShowSharePanel] = useState(false);
+  const [shareLinks, setShareLinks] = useState<ShareLink[]>([]);
+  const [shareLoading, setShareLoading] = useState(false);
+
+  async function loadShareLinks() {
+    setShareLoading(true);
+    try {
+      const links = await shareLinksApi.list({ resource_type: "exam_paper", resource_id: paperId });
+      setShareLinks(links);
+    } catch { /* 分享列表加载失败不影响主流程，静默即可，面板里没数据显示空态 */ }
+    setShareLoading(false);
+  }
+
+  async function handleCreateShareLink() {
+    try {
+      await shareLinksApi.create({ resource_type: "exam_paper", resource_id: paperId });
+      toast.success(t("examDesigner.share.created", "分享链接已生成"));
+      await loadShareLinks();
+    } catch (err: any) { toast.error(err?.response?.data?.message ?? t("examDesigner.actionFailed")); }
+  }
+
+  async function handleRevokeShareLink(id: string) {
+    try {
+      await shareLinksApi.revoke(id);
+      await loadShareLinks();
+    } catch (err: any) { toast.error(err?.response?.data?.message ?? t("examDesigner.actionFailed")); }
+  }
+
+  function copyShareLink(token: string) {
+    const url = `${window.location.origin}/share/exam/${token}`;
+    navigator.clipboard.writeText(url);
+    toast.success(t("examDesigner.share.copied", "链接已复制"));
+  }
 
   async function handleDownloadPdf(lang: "zh" | "en" | "ms") {
     setShowPdfLangPicker(false);
@@ -230,8 +263,53 @@ function ExamPaperEditor({ paperId, onBack }: { paperId: string; onBack: () => v
           </span>
         </div>
         <div className="flex gap-1.5 relative shrink-0">
+          <Button
+            variant="outline" size="sm"
+            onClick={() => { const next = !showSharePanel; setShowSharePanel(next); setShowPdfLangPicker(false); if (next) loadShareLinks(); }}
+          >
+            <Link2 size={14} className="mr-1" /> {t("examDesigner.share.button", "分享")}
+          </Button>
+          {showSharePanel && (
+            <div className="absolute top-full right-0 mt-1 bg-white border border-border rounded-lg shadow-lg p-3 z-20 w-80 space-y-2">
+              <p className="text-xs text-muted-foreground">
+                {t("examDesigner.share.hint", "生成一个链接，不用注册LogiVerse账号也能打开这份试卷来做——含随机抽题槽的试卷也支持。")}
+              </p>
+              <Button size="sm" className="w-full" onClick={handleCreateShareLink}>
+                <Plus size={14} className="mr-1" /> {t("examDesigner.share.generate", "生成新链接")}
+              </Button>
+              <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                {shareLoading ? (
+                  <p className="text-xs text-muted-foreground text-center py-2">{t("exam.loading")}</p>
+                ) : shareLinks.length === 0 ? (
+                  <p className="text-xs text-muted-foreground/60 text-center py-2">{t("examDesigner.share.empty", "还没有分享链接")}</p>
+                ) : (
+                  shareLinks.map((link) => (
+                    <div key={link.id} className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 ${link.revoked_at ? "border-border bg-muted/30 opacity-60" : "border-border"}`}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-muted-foreground truncate">{link.token}</p>
+                        <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                          {link.revoked_at
+                            ? t("examDesigner.share.revoked", "已撤销")
+                            : link.expires_at
+                            ? t("examDesigner.share.expiresAt", "{{date}} 过期", { date: new Date(link.expires_at).toLocaleDateString() })
+                            : t("examDesigner.share.neverExpires", "永久有效")}
+                          {" · "}{t("examDesigner.share.viewCount", "{{n}} 次访问", { n: link.view_count })}
+                        </p>
+                      </div>
+                      {!link.revoked_at && (
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => copyShareLink(link.token)}><Copy size={12} /></Button>
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-red-600" onClick={() => handleRevokeShareLink(link.id)}>{t("examDesigner.share.revoke", "撤销")}</Button>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
           <Button variant="outline" size="sm" onClick={() => window.open(`/exam-preview/${paper.id}`, "_blank")}>{t("examDesigner.tryPreview")}</Button>
-          <Button variant="outline" size="sm" onClick={() => setShowPdfLangPicker((v) => !v)}><Download size={14} className="mr-1" /> {t("examDesigner.downloadPdf")}</Button>
+          <Button variant="outline" size="sm" onClick={() => { setShowPdfLangPicker((v) => !v); setShowSharePanel(false); }}><Download size={14} className="mr-1" /> {t("examDesigner.downloadPdf")}</Button>
           {showPdfLangPicker && (
             <div className="absolute top-full right-0 mt-1 bg-white border border-border rounded-lg shadow-lg py-1 z-20 w-40">
               {([["zh", "中文"], ["en", "English"], ["ms", "Bahasa Melayu"]] as const).map(([code, label]) => (

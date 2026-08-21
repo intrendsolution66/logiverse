@@ -832,4 +832,16 @@ export const sharePublicApi = {
     api.post(`/share/${token}/activity/${levelId}/coloring-check`, { fills }).then(d<{ results: Array<{ marker_color: string; correct: boolean }>; allCorrect: boolean; totalRegions: number }>),
   checkWordProblem: (token: string, levelId: string, value: number) =>
     api.post(`/share/${token}/activity/${levelId}/word-problem-check`, { value }).then(d<{ correct: boolean; answer: number }>),
+
+  // 试卷——跟lesson/activity不一样，多一步"开会话"：这份试卷可能含随机
+  // 抽题槽，访客打开链接时后端现场物化一份题目快照(固定题直接用，随机
+  // 槽现场抽)存起来、发一个session_id，之后判分都凭这个session_id去核
+  // 对同一份快照，不会因为重新随机而对不上。session_id不需要额外存
+  // token，判分接口自己就能定位到是哪次会话。
+  startExamSession: (token: string) => api.post(`/share/${token}/exam/start`).then(d<{
+    session_id: string; title_i18n: Record<string, string>; time_limit_minutes: number; total_marks: number;
+    questions: Array<{ id: string; order_index: number; question_type: string; marks: number; config: Record<string, unknown> }>;
+  }>),
+  checkExamQuestion: (sessionId: string, questionId: string, answer: unknown) =>
+    api.post(`/share/exam-sessions/${sessionId}/questions/${questionId}/check`, { answer }).then(d<{ is_correct: boolean }>),
 };
