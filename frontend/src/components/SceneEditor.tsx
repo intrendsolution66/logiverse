@@ -334,6 +334,10 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   const [drawOpacity, setDrawOpacity] = useState(100); // 只有"毛笔"用得到，铅笔固定100%不透明
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedGridCell, setSelectedGridCell] = useState<{ row: number; col: number } | null>(null);
+  // 格子右键菜单——屏幕像素坐标(clientX/clientY)，不是画布内部坐标，
+  // 因为这个菜单是fixed定位的浮层，跟着鼠标点击的屏幕位置走，不需要
+  // 换算成画布坐标系。null就是菜单关闭。
+  const [gridCellMenuPos, setGridCellMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [showSave, setShowSave] = useState(false);
   const [history, setHistory] = useState<{ background: BackgroundLayer | null; layers: Layer[]; strokes: Stroke[] }[]>([]);
 
@@ -637,6 +641,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   }
 
   function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    setGridCellMenuPos(null);
     const { x, y } = toCanvasXY(e);
     if (tool === "draw") {
       if (drawSubTool === "bucket") {
@@ -730,6 +735,36 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     const layer = hit ? layers.find((l) => l.id === hit.id) : null;
     if (layer?.type === "text") { setSelectedId(layer.id); setEditingTextId(layer.id); }
     else { setEditingTextId(null); }
+  }
+
+  // 右键点网格里的格子——弹出自定义小菜单（留空开关+答案/给定数字），
+  // 不用再跑去左侧属性栏。preventDefault 把浏览器/系统自带的右键菜单
+  // (复制、检查元素那些)屏蔽掉，换成这个自定义菜单。算行列的逻辑跟
+  // handlePointerDown 里左键选中格子是同一套(toLocalSpace 处理旋转过
+  // 的网格)，保证左键/右键点同一个位置选中的是同一格。
+  function handleCanvasContextMenu(e: React.MouseEvent<HTMLCanvasElement>) {
+    e.preventDefault();
+    if (tool !== "select") return;
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const scaleX = W / rect.width, scaleY = H / rect.height;
+    const x = (e.clientX - rect.left) * scaleX, y = (e.clientY - rect.top) * scaleY;
+    const hit = hitTest(x, y);
+    const layer = hit ? layers.find((l) => l.id === hit.id) : null;
+    if (layer?.type !== "grid") { setGridCellMenuPos(null); return; }
+    const b = objectBounds(layer);
+    const local = toLocalSpace(x, y, layer.x, layer.y, layer.rotation ?? 0);
+    const col = Math.floor((local.x - b.x) / (b.w / layer.cols));
+    const row = Math.floor((local.y - b.y) / (b.h / layer.rows));
+    if (row < 0 || row >= layer.rows || col < 0 || col >= layer.cols) { setGridCellMenuPos(null); return; }
+    setSelectedId(layer.id);
+    setSelectedGridCell({ row, col });
+    // 简单夹紧，避免在视口边缘右键时菜单飘到屏幕外面看不见——256/220是
+    // 菜单大概的宽高，不追求逐像素精确，够用就行。
+    const menuW = 256, menuH = 220;
+    setGridCellMenuPos({
+      x: Math.min(e.clientX, window.innerWidth - menuW - 8),
+      y: Math.min(e.clientY, window.innerHeight - menuH - 8),
+    });
   }
 
   function setBackgroundFromAsset(url: string) {
@@ -1717,6 +1752,7 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
                 onPointerDown={handlePointerDown} onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
                 onDoubleClick={handleCanvasDoubleClick}
+                onContextMenu={handleCanvasContextMenu}
                 style={{
                   touchAction: "none",
                   aspectRatio: `${W} / ${H}`, // W,H已经在组件顶部按模块类型算好了（贴纸游戏是正方形STICKER_CANVAS_SIZE，其他模块是长方形GAME_CANVAS_W/H），这里不用再额外判断
@@ -1855,8 +1891,61 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
       </div>
 
       <SaveModal open={showSave} onClose={() => setShowSave(false)} presetCategory={presetCategory} presetModuleType={presetModuleType} onSave={handleSave} />
+
+      {/* 格子右键菜单——fixed定位，跟着右键点击时的屏幕坐标走，不受
+          画布内部的缩放/滚动影响。透明遮罩铺满全屏放在菜单下面、比
+          菜单先渲染（z-index更低），点菜单以外任何地方都会先点到这层
+          遮罩，直接关掉菜单，比逐个判断"点到菜单外面"简单。 */}
+      {gridCellMenuPos && selectedLayer?.type === "grid" && selectedGridCell && (() => {
+        const gridLayer = selectedLayer as GridLayer;
+        const { row, col } = selectedGridCell;
+        const cell = gridLayer.cells[row]?.[col] ?? { value: "", blank: false };
+        return (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setGridCellMenuPos(null)} onContextMenu={(e) => { e.preventDefault(); setGridCellMenuPos(null); }} />
+            <div
+              className="fixed z-50 w-64 bg-white border border-border rounded-lg shadow-xl p-3 space-y-2"
+              style={{ left: gridCellMenuPos.x, top: gridCellMenuPos.y }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="text-xs font-medium text-muted-foreground">第 {row + 1} 行 · 第 {col + 1} 列</p>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={cell.blank}
+                  onChange={(e) => updateSelectedGridCell({ blank: e.target.checked })}
+                />
+                留空给学生填
+              </label>
+              {cell.blank ? (
+                <div>
+                  <Label>答案（学生该填的数字，不会显示在格子里，只用来核对）</Label>
+                  <Input
+                    autoFocus
+                    value={cell.answer ?? ""}
+                    onChange={(e) => updateSelectedGridCell({ answer: e.target.value.slice(0, 2) })}
+                    placeholder="如：5"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <Label>给定的数字（直接显示给学生看）</Label>
+                  <Input
+                    autoFocus
+                    value={cell.value}
+                    onChange={(e) => updateSelectedGridCell({ value: e.target.value.slice(0, 2) })}
+                    placeholder="留空=空白格"
+                  />
+                </div>
+              )}
+              <button type="button" onClick={() => setGridCellMenuPos(null)} className="w-full text-center text-xs text-muted-foreground hover:text-foreground pt-1">关闭</button>
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }
+
 
 
