@@ -3151,7 +3151,7 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
             bgUrl: null, objects: [], texts: [],
             grids: [{
               x: GAME_CANVAS_W / 2, y: GAME_CANVAS_H / 2, w: 320, h: 320, rotation: 0,
-              rows, cols, cells: gridCells,
+              rows, cols, boxRows: rows, boxCols: cols, cells: gridCells,
               lineColor: (cfg.line_color as string) ?? "#333333",
               givenColor: (cfg.given_color as string) ?? "#222222",
               blankBg: "#fff3d6",
