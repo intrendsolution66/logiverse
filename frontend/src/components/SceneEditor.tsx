@@ -930,6 +930,18 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
   // (默认全部是"给定"，再一个个挑要留空的)更符合"先搭好空格子、再填几
   // 个提示数字"这个自然的做题思路。
   function addGrid() {
+    // 数独/数字迷宫(方格棋盘模式)这类场景，保存的时候只认"第一个网格
+    // 图层"——多加一个不会被拒绝、也不会报错，但会悄悄变成"填了也没用
+    // 的白填"，因为读取/校验逻辑根本不看第二个。与其等设计师填完一整
+    // 盘发现保存时报错才发现问题，不如从源头挡住：已经有网格图层了，
+    // 这个按钮就不再新建，直接选中已有那个，提醒一声。
+    const existingGrid = layers.find((l): l is GridLayer => l.type === "grid");
+    if (existingGrid) {
+      setSelectedId(existingGrid.id);
+      setSelectedGridCell({ row: 0, col: 0 });
+      alert("已经有一个网格了，这个场景只能有一个网格图层——已经帮你选中现有的那个，请直接在上面继续编辑。");
+      return;
+    }
     pushHistory();
     const rows = 4, cols = 4;
     const cells: GridCellData[][] = Array.from({ length: rows }, () =>
@@ -991,6 +1003,10 @@ export default function SceneEditor({ presetCategory, presetModuleType, onSaved,
     if (!selectedId || selectedId === BG_ID) return;
     const l = layers.find((x) => x.id === selectedId);
     if (!l) return;
+    // 网格图层不能复制——这类场景(数独/数字迷宫)只能有一个网格，复制
+    // 出来的第二个会跟 addGrid 挡住的是同一个问题：保存时只认第一个
+    // 网格图层，复制出来的这份填了也是白填。
+    if (l.type === "grid") { alert("网格图层不能复制——这个场景只能有一个网格。"); return; }
     pushHistory();
     const copy: Layer = { ...l, id: uid(), x: l.x + 24, y: l.y + 24 };
     setLayers((ls) => [...ls, copy]);

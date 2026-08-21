@@ -3985,6 +3985,10 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         if (sudokuLayout === "grid") {
           const grid = sudokuScene?.grids?.[0];
           if (!grid) { toast.error("请先在编辑器里画好网格"); return; }
+          if ((sudokuScene?.grids?.length ?? 0) > 1) {
+            toast.error(`这个场景里有 ${sudokuScene!.grids!.length} 个网格图层，但保存只会用第一个——请点上面"完成"重新打开编辑器，在右边图层面板里把多余的网格删掉，只留一个`);
+            return;
+          }
           const givenCells: Array<{ row: number; col: number; value: string }> = [];
           const blankCells: Array<{ row: number; col: number; answer: string }> = [];
           const missingCells: Array<{ row: number; col: number }> = [];
@@ -4052,6 +4056,10 @@ function AddLevelModal({ open, onClose, editingLevelId, onSaved, presetModuleTyp
         if (nmLayout === "grid") {
           const grid = nmScene?.grids?.[0];
           if (!grid) { toast.error("请先在编辑器里画好网格、填好数字"); return; }
+          if ((nmScene?.grids?.length ?? 0) > 1) {
+            toast.error(`这个场景里有 ${nmScene!.grids!.length} 个网格图层，但保存只会用第一个——请点上面"完成"重新打开编辑器，在右边图层面板里把多余的网格删掉，只留一个`);
+            return;
+          }
           const pathCells: Array<{ row: number; col: number; step: number }> = [];
           grid.cells.forEach((rowArr, r) => rowArr.forEach((cell, c) => { if (cell.pathStep) pathCells.push({ row: r, col: c, step: cell.pathStep }); }));
           pathCells.sort((a, b) => a.step - b.step);
@@ -6513,5 +6521,6 @@ export default function CourseDesignerPage() {
     </div>
   );
 }
+
 
 
