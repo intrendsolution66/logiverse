@@ -378,13 +378,25 @@ export default function MazeGame({ config, onComplete, locale = "zh" }: {
         </div>
       </div>
       {!imagesLoaded && <div className="text-center py-10 text-muted-foreground">{lt("loading", locale)}</div>}
-      <canvas
-        ref={canvasRef} width={W} height={H}
-        onPointerDown={handlePointerDown} onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
-        style={{ touchAction: "none" }}
-        className={`w-full h-auto rounded-2xl shadow-lg ring-1 ring-black/5 bg-muted ${tool === "erase" ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"} ${imagesLoaded ? "block" : "hidden"}`}
-      />
+      {/* 画布尺寸同时被容器宽度和可用视口高度两头卡住(min())——照抄
+          SudokuGame.tsx修过的同一个写法，避免在宽屏幕/iPad横屏这种
+          宽而矮的屏幕上棋盘比屏幕还高，逼着往下滚动才能看到底下的提示
+          文字。100dvh是动态视口高度，会正确算上移动端浏览器地址栏/
+          工具栏实际占用的空间；260px是给上面标题/工具栏和下面提示文字
+          这些"棋盘之外"的元素预留的粗略高度，不同页面情况有出入，部署
+          后如果还差一点点，可以把这个数字往上调。 */}
+      <div
+        className="mx-auto"
+        style={{ aspectRatio: `${W} / ${H}`, width: `min(100%, calc((100dvh - 260px) * ${W / H}))`, display: imagesLoaded ? "block" : "none" }}
+      >
+        <canvas
+          ref={canvasRef} width={W} height={H}
+          onPointerDown={handlePointerDown} onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}
+          style={{ touchAction: "none" }}
+          className={`w-full h-full rounded-2xl shadow-lg ring-1 ring-black/5 bg-muted ${tool === "erase" ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
+        />
+      </div>
       <p className="text-center text-sm font-medium text-muted-foreground mt-2">{status}</p>
     </div>
   );
