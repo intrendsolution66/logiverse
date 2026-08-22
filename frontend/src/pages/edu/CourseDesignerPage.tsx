@@ -6401,50 +6401,37 @@ export default function CourseDesignerPage() {
   const [showLevelModal, setShowLevelModal] = useState(false);
   const [editingLevelId, setEditingLevelId] = useState<string | null>(null);
 
-  // 类型卡片上显示的"这个类型有几个 Activity"——是全站准确数字，不是
-  // "本页"这种近似值，所以额外拉一次数据专门算这个，不跟下面分页用的
-  // activities/meta 混在一起。用一个够大的 limit 抓一次（目前平台规模
-  // 下够用）；如果以后 Activity 总数远超这个数字，这里的计数会不准，
-  // 到时候应该改成让后端出一个"按类型分组计数"的专用接口，而不是继续
-  // 加大这个 limit 硬撑。
+  // 类型卡片上显示的"这个类型有几个 Activity"——直接调后端的GROUP BY
+  // 分组计数接口，不再拿listAllActivities加大limit自己在前端数。之前
+  // 那个写法有个隐藏地雷：后端parsePagination把limit硬性上限设成100，
+  // Activity总数一旦超过100，排序靠后的那批（很早建、很久没动过的）
+  // 就会被漏掉，对应类型的计数显示比实际少，界面上看起来就像那些
+  // Activity"消失了"——这个bug在2026年8月被发现并修复，见
+  // getActivityTypeCounts的后端注释。
   const [typeCounts, setTypeCounts] = useState<Record<string, number> | null>(null);
   function fetchTypeCounts() {
-    eduApi.listAllActivities({ page: 1, limit: 500 }).then((r) => {
-      const counts: Record<string, number> = {};
-      r.data.forEach((a) => { counts[a.module_type] = (counts[a.module_type] ?? 0) + 1; });
-      setTypeCounts(counts);
-    });
+    eduApi.getActivityTypeCounts().then(setTypeCounts);
   }
   useEffect(() => { if (viewMode === "types" && !search.trim()) fetchTypeCounts(); }, [viewMode, search]);
 
   // 在类型卡片这层直接搜索——跳过类型，显示跨类型的扁平结果；进了某个
   // 类型的列表页之后，范围缩小到这个类型里。
   const showingSearchAcrossTypes = viewMode === "types" && search.trim() !== "";
-  // eduApi.listAllActivities 这个接口本身不支持按 module_type 筛选（试过
-  // 传这个参数，TS 类型都不认，说明后端压根没接这个筛选条件）。所以类型
-  // 列表页这边干脆放弃指望服务器端分页对这个类型准——一次性多抓一批
-  // （用跟类型计数同一个上限），筛出这个类型的，分页交给前端自己切，
-  // 不然"第20条里混着各种类型，筛完剩没几条"会让翻页体验完全不对。
-  // 缺点：这批数据量一旦超过下面这个 FETCH_LIMIT，末尾的会抓不到——
-  // 等以后 Activity 规模真的大到这个量级，就该让后端出一个真的支持
-  // module_type 筛选的接口，而不是继续加大这个上限硬撑。
-  const TYPE_FILTERED_FETCH_LIMIT = 500;
   function refresh() {
     if (viewMode === "types" && !showingSearchAcrossTypes) return; // 类型卡片层、没在搜索——不用拉 activities
     const isTypeFiltered = viewMode === "list" && !!activeModuleType;
+    // module_type 直接交给后端筛选、用正常的PAGE_SIZE分页——不再是
+    // "抓一大批(500条)自己在前端筛、自己切页"这种取巧写法。后端本来就
+    // 支持module_type这个筛选条件(query.module_type)，之前没用上纯粹
+    // 是前端这边的疏漏；改成服务器端筛选之后，不管Activity总数涨到
+    // 多少，这里都不会再受parsePagination那个limit上限的影响。
     eduApi.listAllActivities({
       search: search || undefined,
       subject_id: subjectId || undefined, category_id: categoryId || undefined,
+      module_type: isTypeFiltered ? activeModuleType! : undefined,
       sort: sortKey, order: sortOrder,
-      page: isTypeFiltered ? 1 : page, limit: isTypeFiltered ? TYPE_FILTERED_FETCH_LIMIT : PAGE_SIZE,
-    }).then((r) => {
-      if (!isTypeFiltered) { setActivities(r.data); setMeta(r.meta); return; }
-      const filtered = r.data.filter((a) => a.module_type === activeModuleType);
-      const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-      const clampedPage = Math.min(page, totalPages);
-      setActivities(filtered.slice((clampedPage - 1) * PAGE_SIZE, clampedPage * PAGE_SIZE));
-      setMeta({ page: clampedPage, limit: PAGE_SIZE, total: filtered.length, totalPages });
-    });
+      page, limit: PAGE_SIZE,
+    }).then((r) => { setActivities(r.data); setMeta(r.meta); });
   }
   useEffect(refresh, [search, subjectId, categoryId, sortKey, sortOrder, page, viewMode, activeModuleType]);
   // 筛选条件一变就跳回第1页——不然筛出来的结果如果比原本停留的页数少，
@@ -6692,6 +6679,5 @@ export default function CourseDesignerPage() {
     </div>
   );
 }
-
 
 
