@@ -253,7 +253,7 @@ export default function LevelPlayerPage() {
 
   return (
     <div className="min-h-screen bg-[#F4F6FA]">
-      <div className="max-w-6xl w-full mx-auto px-4 py-6">
+      <div className="max-w-[1400px] w-full mx-auto px-4 py-6">
         <div className="mb-4 flex items-center justify-between flex-wrap gap-2">
           <h1 className="text-xl font-bold text-[#0B1526]">{level.title_i18n?.zh ?? level.title_i18n?.en ?? "Activity"}</h1>
           <div className="flex items-center gap-2 flex-wrap">

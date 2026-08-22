@@ -352,7 +352,7 @@ export default function MazeGame({ config, onComplete, locale = "zh" }: {
   }
 
   return (
-    <div className="max-w-5xl mx-auto w-full">
+    <div className="w-full">
       <div className="flex justify-between items-center text-base font-medium text-muted-foreground mb-3 flex-wrap gap-2">
         <span>{lt("maze_title", locale)}{balls.length > 1 ? `　${doneCount}/${balls.length}` : ""}</span>
         <div className="flex items-center gap-2">
