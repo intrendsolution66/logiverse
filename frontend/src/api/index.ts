@@ -449,7 +449,7 @@ export const eduApi = {
   // 页面主表格实际会用到的接口。
   listAllActivities: (params: {
     search?: string; programme_id?: string; subject_id?: string; category_id?: string;
-    sort?: string; order?: "asc" | "desc"; page?: number; limit?: number;
+    module_type?: string; sort?: string; order?: "asc" | "desc"; page?: number; limit?: number;
   }) => api.get("/activities", { params }).then((res) => ({
     data: res.data.data as Array<{
       id: string; course_id: string; module_type: string; title_i18n?: Record<string,string>;
@@ -465,6 +465,12 @@ export const eduApi = {
     }>,
     meta: res.data.meta as { page: number; limit: number; total: number; totalPages: number },
   })),
+  // "类型卡片"每种题型各多少个——直接由数据库GROUP BY算，不受
+  // parsePagination那个limit硬上限(100)影响。之前是拿listAllActivities
+  // 加大limit在前端数，Activity总数一旦超过100，排序靠后的那批会被
+  // 漏掉、界面上显示比实际少，看起来像"数据不见了"——这个专用接口从根
+  // 上避免这个问题。
+  getActivityTypeCounts: () => api.get("/activities/type-counts").then((res) => res.data.data as Record<string, number>),
   createLevel: (courseId: string, b: {
     module_type: string; order_index?: number; title_i18n?: Record<string,string>; config: object;
     explanation_text?: string; explanation_image_url?: string; explanation_video_url?: string;

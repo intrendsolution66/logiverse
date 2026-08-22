@@ -35,7 +35,7 @@ import { submitMediaProgress, getMediaProgress } from "./mediaProgress.controlle
 import { listDiscoveryTopics, listDiscoveryActivities } from "./discovery.controller.js";
 import {
   listCourses, createCourse, updateCourse, deleteCourse,
-  listLevels, createLevel, createActivity, getLevel, getLevelForEdit, updateLevel, deleteLevel, checkSudoku, checkWordProblem, checkLineMatch, checkColoring, listAllActivities,
+  listLevels, createLevel, createActivity, getLevel, getLevelForEdit, updateLevel, deleteLevel, checkSudoku, checkWorduku, checkWordProblem, checkLineMatch, checkColoring, listAllActivities, getActivityTypeCounts,
   submitProgress, listMyProgress, listAllProgressRecords,
   listGradeTiers, createGradeTier, updateGradeTier, deleteGradeTier,
   getLevelLeaderboard, getMyLevelRecords
@@ -153,11 +153,13 @@ router.get ("/activities",                 authenticate, listAllActivities);
 // "先建 Activity，之后再透过 Lesson 引用它"这个新流程一个不用先有 course
 // 的入口。权限跟建 Activity 本来就一样，都是 courses.manage。
 router.post("/activities",                 authenticate, authorize("courses.manage"), createActivity);
+router.get ("/activities/type-counts",      authenticate, getActivityTypeCounts);
 router.get ("/levels/:levelId",            authenticate, getLevel);
 router.get ("/levels/:levelId/edit",       authenticate, authorize("courses.manage"), getLevelForEdit);
 router.patch("/levels/:levelId",           authenticate, authorize("courses.manage"), updateLevel);
 router.delete("/levels/:levelId",          authenticate, authorize("courses.manage"), deleteLevel);
 router.post("/levels/:levelId/sudoku-check", authenticate, checkSudoku);
+router.post("/levels/:levelId/worduku-check", authenticate, checkWorduku);
 router.post("/levels/:levelId/line-match-check", authenticate, checkLineMatch);
 router.post("/levels/:levelId/coloring-check", authenticate, checkColoring);
 router.post("/levels/:levelId/word-problem-check", authenticate, checkWordProblem);

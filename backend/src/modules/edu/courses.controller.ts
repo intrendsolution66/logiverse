@@ -2425,6 +2425,24 @@ const ACTIVITY_SORT_COLUMNS: Record<string, string> = {
   activity: "cl.title_i18n->>'zh'", exercise_number: "cl.exercise_number", created_at: "cl.created_at",
 };
 
+// "类型卡片"那层要用——每种 module_type 各有多少个 Activity。之前前端
+// 是自己拉一大批(listAllActivities加大limit)在内存里数，这个写法有个
+// 隐藏地雷：parsePagination 把 limit 硬性上限设成100(见 utils/
+// pagination.ts)，不管调用方传多少都会被砍到100——Activity一旦超过
+// 100个，排序靠后的那批(比如很早建、很久没动过的)就会被这次"抓一批"
+// 漏掉，对应类型的计数会显示比实际少，界面上看起来就像那些Activity
+// "消失了"，其实数据库里数据一直都在。这个函数直接让数据库做GROUP BY
+// 计数，不受limit影响，从根上避免这个问题，以后Activity数量再涨也
+// 不会再出现同样的坑。
+export async function getActivityTypeCounts(_req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { rows } = await query(`SELECT module_type, count(*)::int AS count FROM edu.course_levels GROUP BY module_type`);
+    const counts: Record<string, number> = {};
+    rows.forEach((r) => { counts[r.module_type] = r.count; });
+    ok(res, counts);
+  } catch (err) { serverError(res, err); }
+}
+
 export async function listAllActivities(req: AuthRequest, res: Response): Promise<void> {
   try {
     const { page, limit, offset } = parsePagination(req, 20);
